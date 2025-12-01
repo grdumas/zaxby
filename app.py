@@ -7,6 +7,7 @@ Main Dash application for visualizing benchmark results from OpenSearch.
 import os
 import json
 from datetime import datetime
+from io import StringIO
 from dash import Dash, html, dcc, Input, Output, State, callback
 import dash_bootstrap_components as dbc
 from dotenv import load_dotenv
@@ -165,7 +166,7 @@ def update_summary_cards(filtered_data_json):
     if not filtered_data_json:
         return []
     
-    filtered_df = pd.read_json(filtered_data_json, orient='split')
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     summary = visualizations.create_summary_cards_data(filtered_df)
     
     cards = [
@@ -226,7 +227,7 @@ def render_tab_content(active_tab, filtered_data_json):
     if not filtered_data_json:
         return html.Div("No data available", className="alert alert-warning")
     
-    filtered_df = pd.read_json(filtered_data_json, orient='split')
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
     if filtered_df.empty:
         return html.Div("No data matches the current filters", className="alert alert-info")

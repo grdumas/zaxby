@@ -1,0 +1,83 @@
+/* Performance Engineering Dashboard Styles */
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Header Styles */
+h1 {
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+/* Card Styles */
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: none;
+    margin-bottom: 1rem;
+}
+
+.card-body h4 {
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+/* Filter Panel */
+.bg-light {
+    background-color: #ffffff !important;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+/* Tabs */
+.nav-tabs .nav-link {
+    color: #495057;
+    font-weight: 500;
+}
+
+.nav-tabs .nav-link.active {
+    color: #007bff;
+    font-weight: 600;
+}
+
+/* Dropdowns */
+.Select-control {
+    border-radius: 0.25rem;
+}
+
+/* Buttons */
+.btn {
+    font-weight: 500;
+    border-radius: 0.25rem;
+}
+
+/* Summary Cards */
+.text-primary {
+    color: #007bff !important;
+}
+
+.text-info {
+    color: #17a2b8 !important;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+/* Plotly Charts */
+.js-plotly-plot {
+    border-radius: 0.25rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+}
+

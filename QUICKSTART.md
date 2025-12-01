@@ -1,0 +1,232 @@
+# Quick Start Guide
+
+Get the Performance Engineering Dashboard running in 5 minutes!
+
+## Prerequisites
+
+- Python 3.9+ (including Python 3.14+)
+- Access to OpenSearch instance (or use synthetic data mode)
+
+## Installation Steps
+
+### 1. Clone and Navigate
+
+```bash
+cd /path/to/zaxby
+```
+
+### 2. Set Up Environment
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate it
+source venv/bin/activate  # On Linux/Mac
+# OR
+venv\Scripts\activate  # On Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 3. Configure Connection
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your settings
+nano .env  # or use your preferred editor
+```
+
+**Minimal `.env` configuration:**
+
+```env
+# For OpenSearch mode
+OPENSEARCH_HOST=your-opensearch-host
+OPENSEARCH_PORT=9200
+OPENSEARCH_USERNAME=your-username
+OPENSEARCH_PASSWORD=your-password
+OPENSEARCH_INDEX=zathras-results
+OPENSEARCH_USE_SSL=true
+DATA_MODE=opensearch
+
+# OR for synthetic data mode (no OpenSearch needed)
+DATA_MODE=synthetic
+```
+
+### 4. Run the Dashboard
+
+```bash
+python app.py
+```
+
+The dashboard will be available at: **http://127.0.0.1:8050**
+
+## Using the Dashboard
+
+### Main Features
+
+1. **Filter Panel** (Left Sidebar)
+   - Select OS versions, instance types, benchmark types
+   - Filter by cloud provider and date range
+   - Choose test status (PASS/FAIL/UNKNOWN)
+
+2. **Overview Tab**
+   - Performance distribution by benchmark type
+   - OS version comparison
+   - Cloud provider analysis
+
+3. **Comparisons Tab**
+   - Side-by-side performance comparison
+   - Percentage change visualization
+   - Automatic comparison of first two OS versions in filter
+
+4. **Time Series Tab**
+   - Performance trends over time
+   - OS version trends
+   - Identify regressions and improvements
+
+5. **Heatmap Tab**
+   - OS Version × Instance Type matrix
+   - Benchmark × Cloud Provider matrix
+   - Quick regression identification
+
+6. **Detailed Table Tab**
+   - Complete test results
+   - Sortable columns
+   - Export-ready data view
+
+### Tips
+
+- **Reset Filters**: Click "Reset Filters" button to restore defaults
+- **Multi-Select**: Hold Ctrl/Cmd to select multiple items in dropdowns
+- **Hover Data**: Hover over charts for detailed information
+- **Date Range**: Use date picker for time-based filtering
+
+## Data Modes
+
+### Synthetic Mode (Default)
+
+Perfect for testing and development without OpenSearch access.
+
+```bash
+# In .env
+DATA_MODE=synthetic
+```
+
+- Uses 150 pre-generated test results
+- Covers RHEL 9.3-9.6
+- Multiple cloud providers and instance types
+- Includes performance regressions and improvements
+
+### OpenSearch Mode
+
+Connect to live OpenSearch instance for real data.
+
+```bash
+# In .env
+DATA_MODE=opensearch
+OPENSEARCH_HOST=your-host
+OPENSEARCH_INDEX=zathras-results
+# ... other OpenSearch settings
+```
+
+## Troubleshooting
+
+### Dashboard Won't Start
+
+**Issue**: `AttributeError: module 'pkgutil' has no attribute 'find_loader'`
+```bash
+# Solution: Upgrade Dash to a version compatible with Python 3.14+
+pip install --upgrade dash dash-ag-grid dash-bootstrap-components
+```
+
+**Issue**: `ModuleNotFoundError`
+```bash
+# Solution: Ensure virtual environment is activated
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Issue**: OpenSearch connection failed
+```bash
+# Solution 1: Check credentials in .env
+# Solution 2: Switch to synthetic mode temporarily
+DATA_MODE=synthetic python app.py
+```
+
+### No Data Showing
+
+**Issue**: Callback error: "Invalid comparison between dtype=datetime64[ns, UTC] and datetime"
+```bash
+# Solution: This has been fixed in app.py
+# The date filter now correctly uses timezone-aware datetime objects
+# If you see this error, ensure you have the latest version of app.py
+```
+
+**Issue**: Filters too restrictive
+```bash
+# Solution: Click "Reset Filters" in the dashboard
+```
+
+**Issue**: Empty OpenSearch index
+```bash
+# Solution: Verify index name and contents
+python explore_opensearch.py
+```
+
+### Port Already in Use
+
+**Issue**: Port 8050 is busy
+```bash
+# Solution: Use different port
+PORT=8051 python app.py
+```
+
+## Development
+
+### Run Tests
+
+```bash
+pytest tests/ -v
+```
+
+### Explore OpenSearch Schema
+
+```bash
+python explore_opensearch.py
+```
+
+### Generate New Synthetic Data
+
+```bash
+python src/synthetic_data.py
+```
+
+### Hot Reload
+
+The dashboard runs in debug mode by default, enabling hot reload:
+- Edit any Python file
+- Save changes
+- Dashboard automatically reloads
+
+## Next Steps
+
+1. **Customize Filters**: Edit `src/components/filters.py`
+2. **Add Visualizations**: Extend `src/components/visualizations.py`
+3. **Query Optimization**: Modify `src/opensearch_client.py`
+4. **Styling**: Update `assets/style.css`
+
+## Support
+
+For issues or questions:
+1. Check `SCHEMA.md` for data structure details
+2. Review `OPENSEARCH_CONNECTION_GUIDE.md` for connection help
+3. Examine test files in `tests/` for usage examples
+
+---
+
+**Happy Performance Engineering! 🚀**
+

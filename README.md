@@ -87,8 +87,39 @@ performance-dashboard/
 ### OpenSearch Mode
 Connect to live OpenSearch instance to query real benchmark results. See `OPENSEARCH_CONNECTION_GUIDE.md` for configuration details.
 
-### Synthetic Mode
-Use locally generated synthetic data for development and testing. Synthetic data mirrors the structure of real OpenSearch data but includes expanded coverage of OS versions, hardware configurations, and test scenarios.
+Set `DATA_MODE=opensearch` in your `.env` file.
+
+### Synthetic Mode (Enhanced v2.0)
+Use locally generated synthetic data for development and testing. The synthetic data generator creates a robust, realistic dataset that goes beyond simple test data:
+
+**Dataset Highlights:**
+- **800 benchmark results** across 100 unique scenarios
+- **12 benchmark types**: coremark, coremark_pro, passmark, streams, auto_hpl, pyperf, phoronix, uperf, pig, specjbb, fio, sysbench
+- **31 hardware configurations** across AWS, Azure, and GCP
+- **5 RHEL versions**: 9.2, 9.3, 9.4, 9.5, 9.6
+- **6 months of temporal data** with realistic trends
+- **Realistic failures** (~8%) with multiple failure types
+- **Correlated metrics** within test types for realism
+- **Hardware-specific performance** characteristics
+
+**Advanced Features:**
+- ✅ Temporal trends (linear and seasonal patterns)
+- ✅ Metric correlations for realistic co-variance
+- ✅ Hardware tier performance scaling
+- ✅ Five performance patterns (stable, minor improvement, improvement, minor regression, regression)
+- ✅ Realistic failure scenarios (timeout, crash, validation, OOM)
+
+Set `DATA_MODE=synthetic` in your `.env` file (default).
+
+**Documentation:**
+- `data/synthetic/README.md`: Complete generation approach and features
+- `data/synthetic/USAGE_GUIDE.md`: Code examples and usage patterns
+
+**Regenerate Data:**
+```bash
+source venv/bin/activate
+python src/synthetic_data.py
+```
 
 ## Development
 

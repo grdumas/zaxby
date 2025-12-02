@@ -439,22 +439,25 @@ class BenchmarkDataProcessor:
         Sort OS versions in natural order (e.g., 9.2, 9.3, ..., 9.6, 10.0, 10.1).
         
         Args:
-            versions: List of version strings
+            versions: List of version strings (or numeric values that will be converted)
             
         Returns:
             Sorted list of version strings
         """
-        def version_key(version_str):
+        def version_key(version):
             """Convert version string to tuple for natural sorting."""
             try:
+                # Convert to string first (in case it's a number)
+                version_str = str(version)
                 # Split on '.' and convert each part to int
                 parts = version_str.split('.')
                 return tuple(int(part) for part in parts)
             except (ValueError, AttributeError):
                 # If conversion fails, return a tuple that sorts last
-                return (999, 999, version_str)
+                return (999, 999, str(version))
         
-        return sorted(versions, key=version_key)
+        # Convert all versions to strings for consistent output
+        return sorted([str(v) for v in versions], key=version_key)
     
     def analyze_rhel_simplified_regressions(
         self,
@@ -484,8 +487,12 @@ class BenchmarkDataProcessor:
                 'major_release_comparison': None,
                 'rhel9_sequential': None,
                 'rhel10_sequential': None,
-                'summary': 'No RHEL data available'
+                'summary': 'No RHEL data available',
+                'total_regressions': 0
             }
+        
+        # Ensure os_version is string type (may be float after JSON deserialization)
+        df_rhel['os_version'] = df_rhel['os_version'].astype(str)
         
         # Get sorted versions
         all_versions = self._sort_versions(df_rhel['os_version'].dropna().unique())

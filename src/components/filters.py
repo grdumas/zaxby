@@ -53,7 +53,7 @@ def create_filter_panel(
             dcc.Dropdown(
                 id='filter-instance-type',
                 options=[{'label': i, 'value': i} for i in instance_types],
-                value=instance_types[:5] if len(instance_types) > 5 else instance_types,
+                value=instance_types,
                 multi=True,
                 placeholder="Select instance types..."
             )

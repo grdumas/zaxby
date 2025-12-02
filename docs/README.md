@@ -40,7 +40,10 @@ Essential technical documentation for working with the dashboard:
 
 Documentation of bugs that have been identified and resolved:
 
-- **[STATUS_BOX_MISLEADING_UX_FIX.md](fixes/STATUS_BOX_MISLEADING_UX_FIX.md)** ⭐ NEW  
+- **[COLLAPSIBLE_SECTIONS_UPDATE.md](fixes/COLLAPSIBLE_SECTIONS_UPDATE.md)** ✨ NEW  
+  Made all major dashboard sections (RHEL Regression, Competitive Performance, Cloud Scaling) collapsible for better navigation (Dec 2025)
+
+- **[STATUS_BOX_MISLEADING_UX_FIX.md](fixes/STATUS_BOX_MISLEADING_UX_FIX.md)** ⭐  
   Fixed misleading green success boxes for "no data" conditions - now shows warning status (Dec 2025)
 
 - **[DATE_FILTER_BUG_FIX.md](fixes/DATE_FILTER_BUG_FIX.md)**  
@@ -94,6 +97,7 @@ docs/
 │   ├── OPENSEARCH_CONNECTION_GUIDE.md
 │   └── SCHEMA.md
 ├── fixes/                       # Bug fix documentation
+│   ├── COLLAPSIBLE_SECTIONS_UPDATE.md
 │   ├── STATUS_BOX_MISLEADING_UX_FIX.md
 │   ├── DATE_FILTER_BUG_FIX.md
 │   ├── OS_REGRESSION_FIX.md

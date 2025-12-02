@@ -235,123 +235,153 @@ def create_overview_layout():
     3. Cloud Scaling - performance across instance sizes
     """
     return html.Div([
-        # Section 1: RHEL Regression Analysis
+        # Section 1: RHEL Regression Analysis (Collapsible)
         dbc.Card([
             dbc.CardHeader([
-                html.Div([
-                    html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
-                    html.H4("RHEL Regression Analysis", className="d-inline mb-0"),
-                ], className="d-flex align-items-center")
+                dbc.Button(
+                    [
+                        html.I(id="icon-section-rhel", className="bi bi-chevron-down me-2"),
+                        html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                        html.Span("RHEL Regression Analysis", style={"fontSize": "1.25rem", "fontWeight": "500"})
+                    ],
+                    id="btn-toggle-section-rhel",
+                    color="link",
+                    className="text-start w-100 text-decoration-none p-3",
+                    style={"color": "#1e3a8a", "fontWeight": "600"}
+                )
             ], style={
                 "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
-                "borderBottom": "3px solid #3b82f6"
+                "borderBottom": "3px solid #3b82f6",
+                "padding": "0"
             }),
-            dbc.CardBody([
-                html.Div(id='q1-overall-summary', className="mb-3"),
-                # Major Release Comparison (9.X vs 10.X)
-                create_comparison_collapse(
-                    "major-release",
-                    "Compare Latest Major Releases (9.X vs 10.X)",
-                    "q1-major-graph",
-                    "q1-major-summary"
-                ),
-                # RHEL 9.X Sequential Comparison
-                create_comparison_collapse(
-                    "rhel9-seq",
-                    "Compare RHEL 9.X Versions (Sequential)",
-                    "q1-rhel9-graph",
-                    "q1-rhel9-summary"
-                ),
-                # RHEL 10.X Sequential Comparison
-                create_comparison_collapse(
-                    "rhel10-seq",
-                    "Compare RHEL 10.X Versions (Sequential)",
-                    "q1-rhel10-graph",
-                    "q1-rhel10-summary"
-                )
-            ])
+            dbc.Collapse([
+                dbc.CardBody([
+                    html.Div(id='q1-overall-summary', className="mb-3"),
+                    # Major Release Comparison (9.X vs 10.X)
+                    create_comparison_collapse(
+                        "major-release",
+                        "Compare Latest Major Releases (9.X vs 10.X)",
+                        "q1-major-graph",
+                        "q1-major-summary"
+                    ),
+                    # RHEL 9.X Sequential Comparison
+                    create_comparison_collapse(
+                        "rhel9-seq",
+                        "Compare RHEL 9.X Versions (Sequential)",
+                        "q1-rhel9-graph",
+                        "q1-rhel9-summary"
+                    ),
+                    # RHEL 10.X Sequential Comparison
+                    create_comparison_collapse(
+                        "rhel10-seq",
+                        "Compare RHEL 10.X Versions (Sequential)",
+                        "q1-rhel10-graph",
+                        "q1-rhel10-summary"
+                    )
+                ])
+            ], id="collapse-section-rhel", is_open=True)
         ], className="mb-4", style={
             "borderLeft": "5px solid #1e3a8a",
             "borderRadius": "0.75rem"
         }),
         
-        # Section 2: Competitive Performance
+        # Section 2: Competitive Performance (Collapsible)
         dbc.Card([
             dbc.CardHeader([
-                html.Div([
-                    html.Span("📈", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
-                    html.H4("Competitive Performance", className="d-inline mb-0"),
-                ], className="d-flex align-items-center")
+                dbc.Button(
+                    [
+                        html.I(id="icon-section-competitive", className="bi bi-chevron-down me-2"),
+                        html.Span("📈", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                        html.Span("Competitive Performance", style={"fontSize": "1.25rem", "fontWeight": "500"})
+                    ],
+                    id="btn-toggle-section-competitive",
+                    color="link",
+                    className="text-start w-100 text-decoration-none p-3",
+                    style={"color": "#0e7490", "fontWeight": "600"}
+                )
             ], style={
                 "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
-                "borderBottom": "3px solid #3b82f6"
+                "borderBottom": "3px solid #3b82f6",
+                "padding": "0"
             }),
-            dbc.CardBody([
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Loading(
-                            dcc.Graph(id='q2-comparison'),
-                            type="default"
-                        )
-                    ], width=12)
-                ]),
-                dbc.Row([
-                    dbc.Col([
-                        html.Div(id='q2-summary', className="mt-3")
+            dbc.Collapse([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Loading(
+                                dcc.Graph(id='q2-comparison'),
+                                type="default"
+                            )
+                        ], width=12)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div(id='q2-summary', className="mt-3")
+                        ])
                     ])
                 ])
-            ])
+            ], id="collapse-section-competitive", is_open=True)
         ], className="mb-4", style={
             "borderLeft": "5px solid #06b6d4",
             "borderRadius": "0.75rem"
         }),
         
-        # Section 3: Cloud Scaling
+        # Section 3: Cloud Scaling (Collapsible)
         dbc.Card([
             dbc.CardHeader([
-                html.Div([
-                    html.Span("☁️", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
-                    html.H4("Cloud Scaling", className="d-inline mb-0"),
-                ], className="d-flex align-items-center")
+                dbc.Button(
+                    [
+                        html.I(id="icon-section-cloud", className="bi bi-chevron-down me-2"),
+                        html.Span("☁️", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                        html.Span("Cloud Scaling", style={"fontSize": "1.25rem", "fontWeight": "500"})
+                    ],
+                    id="btn-toggle-section-cloud",
+                    color="link",
+                    className="text-start w-100 text-decoration-none p-3",
+                    style={"color": "#047857", "fontWeight": "600"}
+                )
             ], style={
                 "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
-                "borderBottom": "3px solid #3b82f6"
+                "borderBottom": "3px solid #3b82f6",
+                "padding": "0"
             }),
-            dbc.CardBody([
-                dbc.Row([
-                    dbc.Col([
-                        html.Label("Cloud Provider:"),
-                        dcc.Dropdown(
-                            id='q3-cloud-provider',
-                            options=[{'label': cp, 'value': cp} for cp in cloud_providers],
-                            value=cloud_providers[0] if cloud_providers else None,
-                            clearable=False
-                        )
-                    ], width=3),
-                    dbc.Col([
-                        html.Label("OS Version:"),
-                        dcc.Dropdown(
-                            id='q3-os-version',
-                            options=[{'label': osv, 'value': osv} for osv in os_versions],
-                            value=os_versions[-1] if os_versions else None,
-                            clearable=False
-                        )
-                    ], width=3)
-                ], className="mb-3"),
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Loading(
-                            dcc.Graph(id='q3-scaling'),
-                            type="default"
-                        )
-                    ], width=12)
-                ]),
-                dbc.Row([
-                    dbc.Col([
-                        html.Div(id='q3-summary', className="mt-3")
+            dbc.Collapse([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("Cloud Provider:"),
+                            dcc.Dropdown(
+                                id='q3-cloud-provider',
+                                options=[{'label': cp, 'value': cp} for cp in cloud_providers],
+                                value=cloud_providers[0] if cloud_providers else None,
+                                clearable=False
+                            )
+                        ], width=3),
+                        dbc.Col([
+                            html.Label("OS Version:"),
+                            dcc.Dropdown(
+                                id='q3-os-version',
+                                options=[{'label': osv, 'value': osv} for osv in os_versions],
+                                value=os_versions[-1] if os_versions else None,
+                                clearable=False
+                            )
+                        ], width=3)
+                    ], className="mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Loading(
+                                dcc.Graph(id='q3-scaling'),
+                                type="default"
+                            )
+                        ], width=12)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div(id='q3-summary', className="mt-3")
+                        ])
                     ])
                 ])
-            ])
+            ], id="collapse-section-cloud", is_open=True)
         ], className="mb-4", style={
             "borderLeft": "5px solid #10b981",
             "borderRadius": "0.75rem"
@@ -455,6 +485,50 @@ def toggle_filters(n_clicks, is_open):
     return not is_open
 
 
+# Callbacks for major section toggles
+@app.callback(
+    [Output('collapse-section-rhel', 'is_open'),
+     Output('icon-section-rhel', 'className')],
+    Input('btn-toggle-section-rhel', 'n_clicks'),
+    State('collapse-section-rhel', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_section_rhel(n_clicks, is_open):
+    """Toggle RHEL Regression Analysis section."""
+    new_state = not is_open
+    icon_class = "bi bi-chevron-down me-2" if new_state else "bi bi-chevron-right me-2"
+    return new_state, icon_class
+
+
+@app.callback(
+    [Output('collapse-section-competitive', 'is_open'),
+     Output('icon-section-competitive', 'className')],
+    Input('btn-toggle-section-competitive', 'n_clicks'),
+    State('collapse-section-competitive', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_section_competitive(n_clicks, is_open):
+    """Toggle Competitive Performance section."""
+    new_state = not is_open
+    icon_class = "bi bi-chevron-down me-2" if new_state else "bi bi-chevron-right me-2"
+    return new_state, icon_class
+
+
+@app.callback(
+    [Output('collapse-section-cloud', 'is_open'),
+     Output('icon-section-cloud', 'className')],
+    Input('btn-toggle-section-cloud', 'n_clicks'),
+    State('collapse-section-cloud', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_section_cloud(n_clicks, is_open):
+    """Toggle Cloud Scaling section."""
+    new_state = not is_open
+    icon_class = "bi bi-chevron-down me-2" if new_state else "bi bi-chevron-right me-2"
+    return new_state, icon_class
+
+
+# Callbacks for subsection toggles within RHEL Regression Analysis
 @app.callback(
     Output('collapse-major-release', 'is_open'),
     Input('btn-toggle-major-release', 'n_clicks'),

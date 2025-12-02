@@ -21,6 +21,18 @@ Essential technical documentation for working with the dashboard:
 - **[SCHEMA.md](guides/SCHEMA.md)**  
   Complete data schema documentation including field types, benchmark types, and data patterns
 
+- **[UI_SUMMARY.md](guides/UI_SUMMARY.md)** ⭐ NEW  
+  Executive summary of UI modernization proposal - start here! (Dec 2025)
+
+- **[UI_MODERNIZATION_PROPOSAL.md](guides/UI_MODERNIZATION_PROPOSAL.md)** 🎨 NEW  
+  Comprehensive proposal for modernizing the dashboard UI/UX with professional design patterns (Dec 2025)
+
+- **[UI_QUICK_WINS.md](guides/UI_QUICK_WINS.md)** ⚡ NEW  
+  Quick, high-impact CSS and component improvements that can be implemented in hours (Dec 2025)
+
+- **[UI_IMPLEMENTATION_GUIDE.md](guides/UI_IMPLEMENTATION_GUIDE.md)** 🛠️ NEW  
+  Step-by-step implementation guide with code examples and testing checklist (Dec 2025)
+
 ### Bug Fixes & Issues (`fixes/`)
 
 Documentation of bugs that have been identified and resolved:

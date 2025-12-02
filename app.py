@@ -1,11 +1,10 @@
 """
 Performance Engineering Dashboard - Redesigned
 
-Main Dash application for visualizing benchmark results with a focus on
-answering three key questions:
-1. Did RHEL regress between OS versions?
-2. Is RHEL performing competitively with peer operating systems?
-3. How does performance scale across cloud instance classes?
+Main Dash application for visualizing benchmark results with three key analyses:
+1. RHEL Regression Analysis: Track version-to-version performance changes
+2. Competitive Performance: Compare RHEL against peer operating systems
+3. Cloud Scaling: Analyze performance across cloud instance classes
 """
 
 import os
@@ -84,28 +83,66 @@ app.layout = dbc.Container([
     dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
     
     # Header
-    dbc.Row([
-        dbc.Col([
-            html.H1("Performance Engineering Dashboard", className="text-primary mb-2"),
-            html.P(
-                f"Benchmark Results Viewer | Mode: {DATA_MODE.upper()} | Records: {len(df)}",
-                className="text-muted mb-3"
-            ),
-        ], width=8),
-        dbc.Col([
-            html.Div([
-                html.Label("Date Range:", className="small mb-1"),
-                dcc.DatePickerRange(
-                    id='header-date-range',
-                    start_date=min_date,
-                    end_date=max_date,
-                    display_format='YYYY-MM-DD',
-                    className="mb-2"
-                ),
-                dbc.Button("Advanced Filters", id="btn-show-filters", size="sm", color="secondary", className="w-100"),
-            ])
-        ], width=4)
-    ], className="mb-3 mt-3"),
+    dbc.Card([
+        dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        html.H1([
+                            html.Span("🔬 ", style={"fontSize": "2rem"}),
+                            "Performance Engineering Dashboard"
+                        ], className="mb-2"),
+                        html.P(
+                            "Benchmark Analysis & Regression Detection",
+                            className="text-muted mb-0",
+                            style={"fontSize": "1.1rem"}
+                        ),
+                    ]),
+                ], width=7),
+                dbc.Col([
+                    html.Div([
+                        dbc.Badge(
+                            f"📊 {len(df):,} Records",
+                            color="primary",
+                            className="me-2 px-3 py-2",
+                            style={"fontSize": "0.9rem"}
+                        ),
+                        dbc.Badge(
+                            f"Mode: {DATA_MODE.upper()}",
+                            color="secondary",
+                            className="px-3 py-2",
+                            style={"fontSize": "0.9rem"}
+                        ),
+                    ], className="d-flex justify-content-end align-items-center h-100")
+                ], width=5)
+            ]),
+            html.Hr(className="my-3", style={"borderTop": "2px solid #e5e7eb"}),
+            dbc.Row([
+                dbc.Col([
+                    html.Label("📅 Date Range:", className="fw-bold text-muted small mb-1"),
+                    dcc.DatePickerRange(
+                        id='header-date-range',
+                        start_date=min_date,
+                        end_date=max_date,
+                        display_format='YYYY-MM-DD',
+                        className="mb-2"
+                    ),
+                ], width=5),
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="bi bi-sliders me-2"), "Advanced Filters"],
+                        id="btn-show-filters",
+                        size="md",
+                        color="secondary",
+                        className="w-100"
+                    ),
+                ], width=3, className="d-flex align-items-end")
+            ], className="mt-2")
+        ], style={
+            "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+            "borderRadius": "0.75rem"
+        })
+    ], className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
     
     # Advanced Filters Collapse
     dbc.Collapse([
@@ -154,15 +191,24 @@ def create_comparison_collapse(comparison_id, title, graph_id, summary_id):
 
 
 def create_overview_layout():
-    """Create the main three-question overview layout."""
+    """
+    Create the main dashboard overview with three analysis sections:
+    1. RHEL Regression Analysis - version-to-version comparisons
+    2. Competitive Performance - RHEL vs peer operating systems
+    3. Cloud Scaling - performance across instance sizes
+    """
     return html.Div([
-        # Question 1: OS Version Regressions - SIMPLIFIED
+        # Section 1: RHEL Regression Analysis
         dbc.Card([
             dbc.CardHeader([
-                html.H4([
-                    "RHEL Version Regression Analysis",
-                ], className="mb-0")
-            ]),
+                html.Div([
+                    html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                    html.H4("RHEL Regression Analysis", className="d-inline mb-0"),
+                ], className="d-flex align-items-center")
+            ], style={
+                "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+                "borderBottom": "3px solid #3b82f6"
+            }),
             dbc.CardBody([
                 html.Div(id='q1-overall-summary', className="mb-3"),
                 # Major Release Comparison (9.X vs 10.X)
@@ -187,15 +233,22 @@ def create_overview_layout():
                     "q1-rhel10-summary"
                 )
             ])
-        ], className="mb-4"),
+        ], className="mb-4", style={
+            "borderLeft": "5px solid #1e3a8a",
+            "borderRadius": "0.75rem"
+        }),
         
-        # Question 2: Peer OS Comparison
+        # Section 2: Competitive Performance
         dbc.Card([
             dbc.CardHeader([
-                html.H4([
-                    "Competitive OS Performance Analysis",
-                ], className="mb-0")
-            ]),
+                html.Div([
+                    html.Span("📈", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                    html.H4("Competitive Performance", className="d-inline mb-0"),
+                ], className="d-flex align-items-center")
+            ], style={
+                "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+                "borderBottom": "3px solid #3b82f6"
+            }),
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
@@ -211,15 +264,22 @@ def create_overview_layout():
                     ])
                 ])
             ])
-        ], className="mb-4"),
+        ], className="mb-4", style={
+            "borderLeft": "5px solid #06b6d4",
+            "borderRadius": "0.75rem"
+        }),
         
-        # Question 3: Cloud Scaling
+        # Section 3: Cloud Scaling
         dbc.Card([
             dbc.CardHeader([
-                html.H4([
-                    "Cloud Instance Scaling Analysis",
-                ], className="mb-0")
-            ]),
+                html.Div([
+                    html.Span("☁️", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                    html.H4("Cloud Scaling", className="d-inline mb-0"),
+                ], className="d-flex align-items-center")
+            ], style={
+                "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+                "borderBottom": "3px solid #3b82f6"
+            }),
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
@@ -255,7 +315,10 @@ def create_overview_layout():
                     ])
                 ])
             ])
-        ], className="mb-4"),
+        ], className="mb-4", style={
+            "borderLeft": "5px solid #10b981",
+            "borderRadius": "0.75rem"
+        }),
         
         # Quick Links to Detailed Views
         dbc.Card([
@@ -445,11 +508,11 @@ def analyze_filtered_data(filtered_data_json):
     # Run all three analyses
     results = {}
     
-    # Question 1: OS Version Regressions (RHEL only) - Simplified
+    # Section 1: RHEL Regression Analysis
     try:
         results['q1'] = processor.analyze_rhel_simplified_regressions(filtered_df)
     except Exception as e:
-        print(f"Error in Q1 analysis: {e}")
+        print(f"Error in RHEL Regression analysis: {e}")
         results['q1'] = {
             'summary': 'Analysis error', 
             'major_release_comparison': None,
@@ -458,14 +521,14 @@ def analyze_filtered_data(filtered_data_json):
             'total_regressions': 0
         }
     
-    # Question 2: Peer OS Comparison
+    # Section 2: Competitive Performance
     try:
         results['q2'] = processor.analyze_peer_os_comparison(filtered_df, baseline_os='RHEL')
     except Exception as e:
-        print(f"Error in Q2 analysis: {e}")
+        print(f"Error in Competitive Performance analysis: {e}")
         results['q2'] = {'summary': 'Analysis error', 'comparison_data': pd.DataFrame()}
     
-    # Question 3: Cloud Scaling (will be done dynamically based on user selection)
+    # Section 3: Cloud Scaling (will be done dynamically based on user selection)
     results['q3'] = {}
     
     # Serialize DataFrames to JSON
@@ -657,7 +720,7 @@ def update_rhel10_sequential(analysis_json):
     Input('analysis-results-store', 'data')
 )
 def update_question2(analysis_json):
-    """Update Question 2 visualizations."""
+    """Update Competitive Performance section visualizations."""
     import pandas as pd
     
     if not analysis_json:
@@ -697,7 +760,7 @@ def update_question2(analysis_json):
      Input('filtered-data-store', 'data')]
 )
 def update_question3(cloud_provider, os_version, filtered_data_json):
-    """Update Question 3 visualizations."""
+    """Update Cloud Scaling section visualizations."""
     import pandas as pd
     
     if not filtered_data_json or not cloud_provider or not os_version:

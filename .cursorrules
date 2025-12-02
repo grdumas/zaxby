@@ -1,0 +1,229 @@
+# Cursor/AI Assistant Project Rules
+
+## Documentation Organization
+
+### Documentation Structure
+This project maintains organized documentation in the `docs/` directory:
+
+```
+Root Directory (Keep Minimal - Active Docs Only):
+├── README.md           # Main project overview
+├── QUICKSTART.md       # Quick start guide
+├── PROJECT_BRIEF.md    # Original requirements
+└── PROJECT_SUMMARY.md  # Implementation status
+
+docs/
+├── README.md           # Documentation index
+├── guides/             # Technical guides (OpenSearch, Schema, etc.)
+├── fixes/              # Bug fix documentation
+└── archive/            # Historical/superseded documentation
+```
+
+### Rules for Documentation Management
+
+1. **NEVER create new markdown files in the root directory** unless they are:
+   - README.md
+   - QUICKSTART.md
+   - PROJECT_BRIEF.md
+   - PROJECT_SUMMARY.md
+
+2. **Always place new documentation** in the appropriate `docs/` subdirectory:
+   - **Technical guides** (setup, configuration, API docs) → `docs/guides/`
+   - **Bug fix reports** (problem, solution, verification) → `docs/fixes/`
+   - **Historical/superseded docs** → `docs/archive/`
+   - **Implementation summaries** → `docs/archive/`
+
+3. **When creating new documentation**:
+   - Place it in the correct `docs/` subdirectory immediately
+   - Add an entry to `docs/README.md` index
+   - Reference it from main README.md only if critical
+
+4. **When fixing bugs**:
+   - Create fix documentation in `docs/fixes/`
+   - Include: problem, root cause, solution, verification
+   - Update main README.md "Recent Fixes" section if significant
+
+5. **Maintain documentation references**:
+   - Use relative paths: `docs/guides/SCHEMA.md`
+   - Update `docs/README.md` when adding new docs
+   - Check for broken links when moving files
+
+## Code Organization
+
+### Project Structure
+```
+zaxby/
+├── app.py                  # Main Dash application
+├── src/
+│   ├── opensearch_client.py
+│   ├── data_processing.py
+│   ├── synthetic_data.py
+│   └── components/
+│       ├── filters.py
+│       ├── summaries.py
+│       └── visualizations.py
+├── tests/                  # pytest tests
+├── data/synthetic/         # Synthetic data + docs
+├── assets/                 # CSS and static assets
+└── docs/                   # All documentation
+
+```
+
+### Python Code Standards
+- Use type hints where appropriate
+- Add docstrings to all public functions/classes
+- Follow PEP 8 style guidelines
+- Use descriptive variable names
+- Keep functions focused (single responsibility)
+
+### Testing
+- Write tests for new data processing logic
+- Use pytest for all tests
+- Mock OpenSearch responses in unit tests
+- Aim for meaningful coverage, not just high percentages
+
+## Environment & Configuration
+
+### Environment Variables
+- Store all credentials in `.env` (never commit)
+- Provide `.env.example` template for new settings
+- Use `python-dotenv` for loading environment variables
+- Document all env vars in README.md
+
+### Dependencies
+- Use `requirements.txt` for Python dependencies
+- Pin major versions, allow minor updates (e.g., `dash>=2.14,<3.0`)
+- Test with Python 3.9+ (including 3.14+)
+- Always use virtual environment (venv)
+
+## Git & Commits
+
+### Commit Messages
+- Use descriptive commit messages
+- Reference issue numbers if applicable
+- Include AI attribution when assisted:
+  ```
+  Co-authored-by: Claude <claude@anthropic.com>
+  ```
+  or
+  ```
+  Assisted by Cursor using Claude Sonnet 4.5
+  ```
+
+### Files to Never Commit
+- `.env` (credentials)
+- `__pycache__/` (Python cache)
+- `venv/` (virtual environment)
+- `.pytest_cache/` (test cache)
+- `*.pyc` (compiled Python)
+- `.DS_Store` (macOS)
+
+## Dashboard Development
+
+### Data Modes
+- Support both `opensearch` and `synthetic` data modes
+- Switch via `DATA_MODE` environment variable
+- Test with synthetic data first, then OpenSearch
+- Keep synthetic data generation up to date with schema
+
+### Performance
+- Use `dcc.Store` for client-side data caching
+- Minimize OpenSearch queries (fetch once, filter locally)
+- Use `prevent_initial_call=True` where appropriate
+- Optimize Pandas operations for large datasets
+
+### UI/UX
+- Keep the three-question landing page structure
+- Use Bootstrap components for consistency
+- Provide "Advanced Filters" collapsible panel
+- Include hover tooltips and help text
+- Mobile-friendly (responsive design)
+
+## OpenSearch Integration
+
+### Connection
+- Follow patterns in `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`
+- Handle connection failures gracefully
+- Log all OpenSearch operations
+- Use environment variables for credentials
+- Support SSL/TLS configuration
+
+### Schema
+- Refer to `docs/guides/SCHEMA.md` for data structure
+- Update schema docs when discovering new fields
+- Validate data structure in processing layer
+- Handle missing/optional fields safely
+
+## Synthetic Data
+
+### Generation
+- Mirror real OpenSearch schema exactly
+- Use deterministic generation (fixed seed for reproducibility)
+- Include realistic performance patterns
+- Document generation approach in `data/synthetic/README.md`
+- Regenerate when schema changes
+
+### Quality
+- Include edge cases (failures, outliers)
+- Maintain hardware consistency across OS versions
+- Use realistic value ranges from actual data
+- Include temporal trends for time series analysis
+
+## Best Practices Summary
+
+✅ **DO:**
+- Organize docs in `docs/` subdirectories
+- Update `docs/README.md` when adding documentation
+- Use type hints and docstrings
+- Test with synthetic data first
+- Handle errors gracefully
+- Log important operations
+- Keep root directory clean
+- Follow existing code patterns
+
+❌ **DON'T:**
+- Create markdown files in root (except the 4 allowed)
+- Commit credentials or `.env` files
+- Make breaking changes without testing
+- Skip error handling
+- Leave TODO comments without issues
+- Hardcode configuration values
+- Ignore linter warnings
+- Create temporary/scratch files without cleanup
+
+## Quick Reference
+
+### Add Technical Guide
+```bash
+# Create in correct location
+vim docs/guides/NEW_GUIDE.md
+
+# Add to index
+vim docs/README.md  # Add entry under "Technical Guides"
+```
+
+### Add Bug Fix Documentation
+```bash
+# Create in correct location
+vim docs/fixes/BUG_FIX_NAME.md
+
+# Add to index
+vim docs/README.md  # Add entry under "Bug Fixes"
+
+# Update main README if significant
+vim README.md  # Add to "Recent Fixes" section
+```
+
+### Move Superseded Documentation
+```bash
+# Move to archive
+mv OLD_DOC.md docs/archive/
+
+# Update any references
+grep -r "OLD_DOC.md" . --exclude-dir=docs/archive
+```
+
+---
+
+**Following these rules ensures consistent, maintainable project organization.**
+

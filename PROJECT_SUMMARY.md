@@ -122,10 +122,15 @@ zaxby/
 ├── .gitignore              # Protects sensitive files
 ├── README.md               # Main documentation
 ├── QUICKSTART.md           # 5-minute setup guide
-├── SCHEMA.md               # Data structure docs
 ├── PROJECT_BRIEF.md        # Original requirements
-├── OPENSEARCH_CONNECTION_GUIDE.md  # Connection reference
 ├── PROJECT_SUMMARY.md      # This file
+├── docs/
+│   ├── README.md           # Documentation index
+│   ├── guides/             # Technical guides
+│   │   ├── OPENSEARCH_CONNECTION_GUIDE.md
+│   │   └── SCHEMA.md
+│   ├── fixes/              # Bug fix documentation
+│   └── archive/            # Historical documentation
 ├── requirements.txt        # Python dependencies
 ├── app.py                  # Main dashboard application
 ├── explore_opensearch.py   # Schema exploration script
@@ -246,10 +251,11 @@ zaxby/
 ### Created Files
 1. **README.md** - Main project documentation
 2. **QUICKSTART.md** - 5-minute setup guide
-3. **SCHEMA.md** - Complete data structure documentation
-4. **OPENSEARCH_CONNECTION_GUIDE.md** - Connection patterns
+3. **docs/guides/SCHEMA.md** - Complete data structure documentation
+4. **docs/guides/OPENSEARCH_CONNECTION_GUIDE.md** - Connection patterns
 5. **data/synthetic/README.md** - Synthetic data details
 6. **PROJECT_SUMMARY.md** - This implementation summary
+7. **docs/README.md** - Documentation index and navigation
 
 ### Code Documentation
 - Comprehensive docstrings in all modules

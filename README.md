@@ -60,10 +60,20 @@ performance-dashboard/
 ├── .env.example              # Environment template
 ├── .gitignore               # Git ignore rules
 ├── README.md                # This file
-├── OPENSEARCH_CONNECTION_GUIDE.md  # OpenSearch configuration
-├── SCHEMA.md                # Discovered data schema
+├── QUICKSTART.md            # 5-minute quick start guide
+├── PROJECT_BRIEF.md         # Original project requirements
+├── PROJECT_SUMMARY.md       # Implementation status and summary
 ├── requirements.txt         # Python dependencies
 ├── app.py                   # Main Dash application
+├── docs/                    # Documentation
+│   ├── README.md           # Documentation index
+│   ├── guides/             # Technical guides
+│   │   ├── OPENSEARCH_CONNECTION_GUIDE.md
+│   │   └── SCHEMA.md
+│   ├── fixes/              # Bug fix documentation
+│   │   ├── OS_REGRESSION_FIX.md
+│   │   └── ...
+│   └── archive/            # Historical documentation
 ├── data/
 │   └── synthetic/          # Synthetic test data
 │       ├── README.md       # Data generation docs
@@ -74,6 +84,7 @@ performance-dashboard/
 │   ├── synthetic_data.py       # Synthetic data generator
 │   └── components/
 │       ├── filters.py          # Filter components
+│       ├── summaries.py        # Summary generation
 │       └── visualizations.py   # Visualization components
 ├── tests/
 │   ├── test_data_processing.py
@@ -85,7 +96,7 @@ performance-dashboard/
 ## Data Sources
 
 ### OpenSearch Mode
-Connect to live OpenSearch instance to query real benchmark results. See `OPENSEARCH_CONNECTION_GUIDE.md` for configuration details.
+Connect to live OpenSearch instance to query real benchmark results. See [`docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md) for configuration details.
 
 Set `DATA_MODE=opensearch` in your `.env` file.
 
@@ -134,9 +145,18 @@ The dashboard runs with `debug=True` by default, enabling hot reload during deve
 
 ## Documentation
 
-- `OPENSEARCH_CONNECTION_GUIDE.md`: OpenSearch connection details and patterns
-- `SCHEMA.md`: Documented schema from OpenSearch data discovery
-- `data/synthetic/README.md`: Synthetic data generation approach
+All documentation is organized in the [`docs/`](docs/) directory:
+
+- **[docs/README.md](docs/README.md)**: Complete documentation index
+- **[docs/guides/OPENSEARCH_CONNECTION_GUIDE.md](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md)**: OpenSearch connection details and patterns
+- **[docs/guides/SCHEMA.md](docs/guides/SCHEMA.md)**: Documented schema from OpenSearch data discovery
+- **[docs/fixes/](docs/fixes/)**: Bug fix documentation and resolutions
+- **[data/synthetic/README.md](data/synthetic/README.md)**: Synthetic data generation approach
+
+Additional documentation:
+- **[QUICKSTART.md](QUICKSTART.md)**: 5-minute quick start guide
+- **[PROJECT_BRIEF.md](PROJECT_BRIEF.md)**: Original project requirements and design
+- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)**: Implementation status and achievements
 
 ## Tech Stack
 
@@ -152,7 +172,9 @@ The dashboard runs with `debug=True` by default, enabling hot reload during deve
 - **Fixed:** OS version regression analysis now correctly compares versions within the same OS distribution only
 - **Previous Behavior:** The analysis was comparing versions alphabetically across all OS distributions (e.g., RHEL 9.6 → SLES 15.4)
 - **Current Behavior:** Comparisons are now limited to versions within the same OS (e.g., RHEL 9.5 → RHEL 9.6)
-- **Details:** See `OS_REGRESSION_FIX.md` for full technical details
+- **Details:** See [`docs/fixes/OS_REGRESSION_FIX.md`](docs/fixes/OS_REGRESSION_FIX.md) for full technical details
+
+For a complete list of bug fixes and resolutions, see the [`docs/fixes/`](docs/fixes/) directory.
 
 ## Contributing
 

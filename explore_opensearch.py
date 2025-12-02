@@ -8,7 +8,7 @@ Run this script to:
 3. Analyze schema structure
 4. View sample documents
 
-This will help document the actual data structure in SCHEMA.md
+This will help document the actual data structure in docs/guides/SCHEMA.md
 """
 
 import sys
@@ -31,7 +31,7 @@ Make sure you have configured .env with your OpenSearch credentials.
         print("\n✓ Exploration complete!")
         print("\nNext steps:")
         print("  1. Review the output above")
-        print("  2. Document findings in SCHEMA.md")
+        print("  2. Document findings in docs/guides/SCHEMA.md")
         print("  3. Generate synthetic data matching the schema")
     except KeyboardInterrupt:
         print("\n\nExploration cancelled by user.")

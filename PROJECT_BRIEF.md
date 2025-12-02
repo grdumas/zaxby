@@ -19,7 +19,7 @@ You are helping build a Python Dash dashboard for visualizing software performan
 - Never commit `.env` - provide `.env.example` template instead
 
 ### 2. OpenSearch Connection
-**IMPORTANT**: Refer to `OPENSEARCH_CONNECTION_GUIDE.md` in the project root for:
+**IMPORTANT**: Refer to `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md` for:
 - Connection configuration details
 - Authentication setup
 - Query examples and patterns
@@ -31,9 +31,9 @@ Use this guide as the authoritative source for OpenSearch integration details.
 ### 3. Data Strategy (Discovery-First Approach)
 
 **Phase 1 - OpenSearch Integration & Schema Discovery**:
-- Connect to OpenSearch following `OPENSEARCH_CONNECTION_GUIDE.md`
+- Connect to OpenSearch following `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`
 - Query the index to retrieve existing test results
-- Analyze and document the actual schema in `SCHEMA.md`:
+- Analyze and document the actual schema in `docs/guides/SCHEMA.md`:
   - Document structure and field types
   - Benchmark types present in the data
   - OS versions and hardware configurations found
@@ -104,8 +104,10 @@ performance-dashboard/
 ├── .env.example
 ├── .gitignore                   # Must include: .env, venv/, __pycache__
 ├── README.md
-├── OPENSEARCH_CONNECTION_GUIDE.md  # Your OpenSearch configuration reference
-├── SCHEMA.md                    # Document discovered schema here
+├── docs/
+│   ├── guides/
+│   │   ├── OPENSEARCH_CONNECTION_GUIDE.md  # Your OpenSearch configuration reference
+│   │   └── SCHEMA.md                    # Document discovered schema here
 ├── requirements.txt
 ├── app.py                       # Main Dash app
 ├── data/
@@ -131,11 +133,11 @@ performance-dashboard/
 1. **Setup**: venv, requirements.txt, .env.example, .gitignore, basic project structure
 
 2. **OpenSearch Integration** (START HERE):
-   - Review `OPENSEARCH_CONNECTION_GUIDE.md`
+   - Review `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`
    - Implement `opensearch_client.py` with connection and basic queries
    - Connect to live OpenSearch and retrieve sample documents
    - Analyze the data structure thoroughly
-   - Document findings in `SCHEMA.md` with examples
+   - Document findings in `docs/guides/SCHEMA.md` with examples
    - Create utility functions to query and explore the index
 
 3. **Synthetic Data Generation**:
@@ -186,7 +188,7 @@ performance-dashboard/
 
 **OpenSearch Client**:
 - Use opensearch-py library
-- Follow connection details in `OPENSEARCH_CONNECTION_GUIDE.md`
+- Follow connection details in `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`
 - Implement flexible query builder for filtering
 - Handle connection errors gracefully
 - Example connection pattern in `opensearch_client.py`:
@@ -197,7 +199,7 @@ import os
 
 load_dotenv()
 
-# Refer to OPENSEARCH_CONNECTION_GUIDE.md for specific configuration
+# Refer to docs/guides/OPENSEARCH_CONNECTION_GUIDE.md for specific configuration
 client = OpenSearch(
     hosts=[os.getenv('OPENSEARCH_HOST')],
     http_auth=(os.getenv('OPENSEARCH_USER'), os.getenv('OPENSEARCH_PASS')),
@@ -243,7 +245,7 @@ client = OpenSearch(
 
 **Next Steps**: 
 1. Set up project environment (venv, dependencies)
-2. Review `OPENSEARCH_CONNECTION_GUIDE.md` for connection details
+2. Review `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md` for connection details
 3. **Immediately connect to OpenSearch and explore the data**
 4. Document actual schema before making any assumptions
 5. Ask clarifying questions based on what you discover in the real data

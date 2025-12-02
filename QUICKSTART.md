@@ -222,9 +222,10 @@ The dashboard runs in debug mode by default, enabling hot reload:
 ## Support
 
 For issues or questions:
-1. Check `SCHEMA.md` for data structure details
-2. Review `OPENSEARCH_CONNECTION_GUIDE.md` for connection help
+1. Check `docs/guides/SCHEMA.md` for data structure details
+2. Review `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md` for connection help
 3. Examine test files in `tests/` for usage examples
+4. See `docs/README.md` for complete documentation index
 
 ---
 

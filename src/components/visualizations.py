@@ -765,6 +765,15 @@ def create_peer_os_comparison_chart(
     if comparison_df.empty:
         return create_empty_figure("No peer comparison data available")
     
+    # Benchmark category to benchmarks mapping (for hover tooltips)
+    # This should match BENCHMARK_GROUPS in data_processing.py
+    BENCHMARK_GROUPS = {
+        'Networking': ['uperf'],
+        'Storage/IO': ['fio'],
+        'HPC/Compute': ['streams', 'specjbb', 'auto_hpl'],
+        'System': ['sysbench', 'coremark_pro', 'pig', 'coremark', 'phoronix', 'passmark']
+    }
+    
     # Group by benchmark category
     fig = go.Figure()
     
@@ -778,6 +787,7 @@ def create_peer_os_comparison_chart(
         y_values = []
         x_labels = []
         colors = []
+        hover_texts = []
         
         for category in categories:
             cat_data = peer_data[peer_data['benchmark_category'] == category]
@@ -794,6 +804,20 @@ def create_peer_os_comparison_chart(
                     colors.append('#fee090')  # Yellow - moderate difference
                 else:
                     colors.append('#d73027')  # Red - significant difference
+                
+                # Build hover text with benchmark list
+                benchmarks_in_category = BENCHMARK_GROUPS.get(category, ['Unknown'])
+                # Also show which benchmarks actually have data in this category
+                actual_tests = cat_data['test_name'].unique().tolist()
+                hover_text = (
+                    f"<b>{category}</b><br>"
+                    f"Relative Performance: {avg_rel_perf:.1f}%<br>"
+                    f"<br><b>Benchmarks in category:</b><br>"
+                    f"{', '.join(benchmarks_in_category)}<br>"
+                    f"<br><b>Tests with data:</b><br>"
+                    f"{', '.join(actual_tests)}"
+                )
+                hover_texts.append(hover_text)
         
         fig.add_trace(go.Bar(
             name=peer_os,
@@ -801,7 +825,9 @@ def create_peer_os_comparison_chart(
             y=y_values,
             text=[f"{v:.0f}%" for v in y_values],
             textposition='outside',
-            marker_color=colors
+            marker_color=colors,
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_texts
         ))
     
     # Add baseline reference line at 100%

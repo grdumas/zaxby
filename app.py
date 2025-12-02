@@ -307,8 +307,10 @@ def create_overview_layout():
             dbc.Collapse([
                 dbc.CardBody([
                     html.Div([
-                        html.P("Compare RHEL performance against peer operating systems on the same hardware:", 
-                               className="text-muted mb-3"),
+                        html.P([
+                            "Comparing RHEL performance against peer operating systems on the same hardware. ",
+                            html.Strong("Showing latest available comparison.", style={"color": "#0e7490"})
+                        ], className="text-muted mb-3"),
                         html.Div(id='q2-comparison-selector', className="mb-4"),
                     ]),
                     dbc.Row([
@@ -830,11 +832,11 @@ def update_rhel10_sequential(analysis_json):
     Input('filtered-data-store', 'data')
 )
 def update_q2_comparison_selector(filtered_data_json):
-    """Update competitive comparison selector with available comparisons."""
+    """Display the latest competitive comparison info (no selection needed)."""
     import pandas as pd
     
     if not filtered_data_json:
-        return html.Div("Loading comparison options...", className="text-muted")
+        return html.Div("Loading comparison...", className="text-muted")
     
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
@@ -849,49 +851,44 @@ def update_q2_comparison_selector(filtered_data_json):
                       className="text-muted")
         ], color="warning")
     
-    # Create radio buttons for quick comparison selection
-    radio_options = [
-        {"label": comp['label'], "value": json.dumps(comp)} 
-        for comp in available_comparisons
-    ]
+    # Use the latest comparison (first in the sorted list)
+    latest_comp = available_comparisons[0]
     
-    return dbc.Row([
-        dbc.Col([
-            html.Label("Select Comparison:", className="fw-bold mb-2"),
-            dcc.RadioItems(
-                id='q2-comparison-choice',
-                options=radio_options,
-                value=json.dumps(available_comparisons[0]) if available_comparisons else None,
-                className="mb-2",
-                labelClassName="d-block mb-1",
-                inputClassName="me-2"
-            ),
-        ], width=12)
-    ])
+    return html.Div([
+        dbc.Badge("Latest", color="info", className="me-2"),
+        html.Strong(latest_comp['label'], style={"color": "#0e7490"})
+    ], className="mb-2 d-flex align-items-center")
 
 
 @app.callback(
     [Output('q2-comparison', 'figure'),
      Output('q2-summary', 'children')],
-    [Input('q2-comparison-choice', 'value'),
-     Input('filtered-data-store', 'data')]
+    Input('filtered-data-store', 'data')
 )
-def update_question2(comparison_choice, filtered_data_json):
-    """Update Competitive Performance section visualizations based on selected comparison."""
+def update_question2(filtered_data_json):
+    """Update Competitive Performance section with the latest comparison."""
     import pandas as pd
     
-    if not filtered_data_json or not comparison_choice:
-        empty_fig = visualizations.create_empty_figure("Select a comparison to view results")
+    if not filtered_data_json:
+        empty_fig = visualizations.create_empty_figure("Loading comparison data...")
         return empty_fig, ""
     
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
-    # Parse the selected comparison
-    try:
-        comp_config = json.loads(comparison_choice)
-    except:
-        empty_fig = visualizations.create_empty_figure("Invalid comparison selection")
-        return empty_fig, dbc.Alert("Invalid comparison selection", color="danger")
+    # Get available comparisons and use the latest one
+    available_comparisons = processor._get_available_comparisons(filtered_df, 'rhel')
+    
+    if not available_comparisons:
+        empty_fig = visualizations.create_empty_figure("No competitive comparisons available")
+        return empty_fig, dbc.Alert([
+            html.Strong("⚠️ No competitive comparisons available"),
+            html.Br(),
+            html.Small("Competitive comparisons require both RHEL and peer OS data on the same hardware.", 
+                      className="text-muted")
+        ], color="warning")
+    
+    # Use the latest comparison (first in the sorted list)
+    comp_config = available_comparisons[0]
     
     # Run targeted competitive analysis
     q2_result = processor.analyze_peer_os_comparison(

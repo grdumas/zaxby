@@ -33,6 +33,9 @@ Essential technical documentation for working with the dashboard:
 - **[UI_IMPLEMENTATION_GUIDE.md](guides/UI_IMPLEMENTATION_GUIDE.md)** 🛠️ NEW  
   Step-by-step implementation guide with code examples and testing checklist (Dec 2025)
 
+- **[DARK_MODE_GUIDE.md](guides/DARK_MODE_GUIDE.md)** 🌓 NEW  
+  Dark mode implementation guide with toggle button and theme persistence (Dec 2025)
+
 ### Bug Fixes & Issues (`fixes/`)
 
 Documentation of bugs that have been identified and resolved:

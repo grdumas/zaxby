@@ -283,6 +283,31 @@ For more details, see:
 ---
 
 **Status**: ✅ Complete and Committed  
+**Latest Update**: Dark mode toggle added (Dec 2, 2025)
+
+---
+
+## 🌓 Dark Mode Feature Added
+
+**New Feature**: Light/Dark theme toggle with persistence
+
+### What's New
+- Toggle button in dashboard header (☀️/🌙)
+- Complete dark theme for all components
+- Automatic preference saving via localStorage
+- Smooth transitions between themes
+- WCAG AA compliant in both modes
+
+### Files Added
+- `assets/dark-theme.css` - Dark mode styles
+- `assets/dark-mode-init.js` - Theme initialization
+- `docs/guides/DARK_MODE_GUIDE.md` - Documentation
+
+### How to Use
+Click the theme toggle button in the top-right of the dashboard header to switch between light and dark modes. Your preference is automatically saved.
+
+---
+
 **Next Action**: Test the dashboard by running `python app.py`
 
 ---

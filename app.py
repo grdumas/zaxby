@@ -101,6 +101,17 @@ app.layout = dbc.Container([
                 ], width=7),
                 dbc.Col([
                     html.Div([
+                        html.Button(
+                            id="dark-mode-toggle",
+                            className="me-3",
+                            style={
+                                "border": "none",
+                                "background": "transparent",
+                                "cursor": "pointer",
+                                "padding": "0"
+                            },
+                            **{"aria-label": "Toggle dark mode"}
+                        ),
                         dbc.Badge(
                             f"📊 {len(df):,} Records",
                             color="primary",
@@ -164,6 +175,32 @@ app.layout = dbc.Container([
     html.Div(id="main-content")
     
 ], fluid=True)
+
+
+# Clientside callback for dark mode toggle
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks) {
+            // Toggle dark mode class on body
+            document.body.classList.toggle('dark-mode');
+            
+            // Save preference to localStorage
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            localStorage.setItem('darkMode', isDarkMode);
+        } else {
+            // On page load, check localStorage and apply saved preference
+            const savedDarkMode = localStorage.getItem('darkMode');
+            if (savedDarkMode === 'true') {
+                document.body.classList.add('dark-mode');
+            }
+        }
+        return '';
+    }
+    """,
+    Output('dark-mode-toggle', 'data-dummy'),  # Dummy output
+    Input('dark-mode-toggle', 'n_clicks')
+)
 
 
 def create_comparison_collapse(comparison_id, title, graph_id, summary_id):

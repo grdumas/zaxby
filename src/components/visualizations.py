@@ -67,7 +67,8 @@ def create_time_series_chart(
     x_col: str = 'timestamp',
     y_col: str = 'primary_metric_value',
     color_col: Optional[str] = 'test_name',
-    title: str = "Performance Trends Over Time"
+    title: str = "Performance Trends Over Time",
+    use_facets: bool = False
 ) -> go.Figure:
     """
     Create a time series line chart.
@@ -78,6 +79,7 @@ def create_time_series_chart(
         y_col: Column for y-axis (metric values)
         color_col: Column to use for line colors
         title: Chart title
+        use_facets: If True and color_col='test_name', create separate subplots with independent y-axes
         
     Returns:
         Plotly Figure
@@ -85,22 +87,46 @@ def create_time_series_chart(
     if df.empty:
         return create_empty_figure("No time series data available")
     
-    fig = px.line(
-        df,
-        x=x_col,
-        y=y_col,
-        color=color_col,
-        markers=True,
-        title=title,
-        template='plotly_white'
-    )
-    
-    fig.update_layout(
-        xaxis_title="Date",
-        yaxis_title="Performance Metric",
-        hovermode='x unified',
-        height=500
-    )
+    # If color_col is test_name and we have multiple tests with different scales, use facets
+    if use_facets and color_col == 'test_name' and len(df[color_col].unique()) > 1:
+        fig = px.line(
+            df,
+            x=x_col,
+            y=y_col,
+            color=color_col,
+            markers=True,
+            title=title,
+            template='plotly_white',
+            facet_row=color_col,
+            facet_row_spacing=0.05
+        )
+        
+        # Update each facet to have independent y-axis
+        fig.update_yaxes(matches=None, showticklabels=True, title_text="")
+        
+        fig.update_layout(
+            xaxis_title="Date",
+            hovermode='x unified',
+            height=max(500, len(df[color_col].unique()) * 200),
+            showlegend=False  # Legend is redundant with facet labels
+        )
+    else:
+        fig = px.line(
+            df,
+            x=x_col,
+            y=y_col,
+            color=color_col,
+            markers=True,
+            title=title,
+            template='plotly_white'
+        )
+        
+        fig.update_layout(
+            xaxis_title="Date",
+            yaxis_title="Performance Metric",
+            hovermode='x unified',
+            height=500
+        )
     
     fig.update_traces(mode='lines+markers')
     
@@ -112,7 +138,8 @@ def create_heatmap(
     row_dim: str = 'os_version',
     col_dim: str = 'instance_type',
     value_col: str = 'primary_metric_value',
-    title: str = "Performance Heatmap"
+    title: str = "Performance Heatmap",
+    normalize_by_test: bool = True
 ) -> go.Figure:
     """
     Create a heatmap for regression analysis.
@@ -123,6 +150,7 @@ def create_heatmap(
         col_dim: Dimension for columns
         value_col: Column containing values for heatmap
         title: Chart title
+        normalize_by_test: If True and data contains multiple test types, normalize within each test
         
     Returns:
         Plotly Figure
@@ -130,26 +158,55 @@ def create_heatmap(
     if df.empty:
         return create_empty_figure("No data available for heatmap")
     
-    # Create pivot table
-    pivot = df.pivot_table(
-        values=value_col,
-        index=row_dim,
-        columns=col_dim,
-        aggfunc='mean'
-    )
+    # If we have multiple test types with different scales, normalize within each test
+    if normalize_by_test and 'test_name' in df.columns and len(df['test_name'].unique()) > 1:
+        # Calculate mean baseline for each test
+        df_normalized = df.copy()
+        for test_name in df_normalized['test_name'].unique():
+            test_mask = df_normalized['test_name'] == test_name
+            test_mean = df_normalized.loc[test_mask, value_col].mean()
+            if test_mean > 0:
+                # Convert to percentage of mean (100 = average performance)
+                df_normalized.loc[test_mask, value_col] = (df_normalized.loc[test_mask, value_col] / test_mean) * 100
+        
+        # Create pivot table from normalized data
+        pivot = df_normalized.pivot_table(
+            values=value_col,
+            index=row_dim,
+            columns=col_dim,
+            aggfunc='mean'
+        )
+        
+        colorbar_title = "% of Avg"
+        text_suffix = "%"
+    else:
+        # Create pivot table
+        pivot = df.pivot_table(
+            values=value_col,
+            index=row_dim,
+            columns=col_dim,
+            aggfunc='mean'
+        )
+        colorbar_title = "Metric Value"
+        text_suffix = ""
     
     if pivot.empty:
         return create_empty_figure("Insufficient data for heatmap")
+    
+    # Create hover text with formatted values
+    hover_text = [[f"{val:.1f}{text_suffix}" for val in row] for row in pivot.values]
     
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values,
         x=pivot.columns,
         y=pivot.index,
         colorscale='RdYlGn',
-        text=pivot.values.round(0),
-        texttemplate='%{text}',
+        text=pivot.values.round(1),
+        hovertext=hover_text,
+        hovertemplate='%{y} × %{x}<br>%{hovertext}<extra></extra>',
+        texttemplate='%{text}' + text_suffix,
         textfont={"size": 10},
-        colorbar=dict(title="Metric Value")
+        colorbar=dict(title=colorbar_title)
     ))
     
     fig.update_layout(
@@ -168,7 +225,8 @@ def create_box_plot(
     x_col: str = 'test_name',
     y_col: str = 'primary_metric_value',
     color_col: Optional[str] = None,
-    title: str = "Performance Distribution"
+    title: str = "Performance Distribution",
+    use_facets: bool = False
 ) -> go.Figure:
     """
     Create a box plot showing distribution of performance metrics.
@@ -179,6 +237,7 @@ def create_box_plot(
         y_col: Column for y-axis values
         color_col: Optional column for color grouping
         title: Chart title
+        use_facets: If True and x_col='test_name', create separate subplots with independent y-axes
         
     Returns:
         Plotly Figure
@@ -186,21 +245,43 @@ def create_box_plot(
     if df.empty:
         return create_empty_figure("No data available for distribution plot")
     
-    fig = px.box(
-        df,
-        x=x_col,
-        y=y_col,
-        color=color_col,
-        title=title,
-        template='plotly_white',
-        points='all'
-    )
-    
-    fig.update_layout(
-        xaxis_title=x_col.replace('_', ' ').title(),
-        yaxis_title="Performance Metric",
-        height=500
-    )
+    # If x_col is test_name and we have multiple tests with different scales, use facets
+    if use_facets and x_col == 'test_name' and len(df[x_col].unique()) > 1:
+        fig = px.box(
+            df,
+            x=x_col,
+            y=y_col,
+            color=color_col,
+            title=title,
+            template='plotly_white',
+            points='all',
+            facet_col=x_col,
+            facet_col_wrap=3
+        )
+        
+        # Update each facet to have independent y-axis
+        fig.update_yaxes(matches=None, showticklabels=True)
+        
+        fig.update_layout(
+            height=500,
+            showlegend=True
+        )
+    else:
+        fig = px.box(
+            df,
+            x=x_col,
+            y=y_col,
+            color=color_col,
+            title=title,
+            template='plotly_white',
+            points='all'
+        )
+        
+        fig.update_layout(
+            xaxis_title=x_col.replace('_', ' ').title(),
+            yaxis_title="Performance Metric",
+            height=500
+        )
     
     return fig
 
@@ -384,6 +465,63 @@ def create_empty_figure(message: str = "No data available") -> go.Figure:
     )
     
     return fig
+
+
+def create_separate_test_charts(
+    df: pd.DataFrame,
+    chart_type: str = 'box',
+    x_col: str = 'os_version',
+    y_col: str = 'primary_metric_value',
+    color_col: Optional[str] = None,
+    title_prefix: str = "Performance"
+) -> List[go.Figure]:
+    """
+    Create separate charts for each test type to handle different scales.
+    
+    Args:
+        df: DataFrame with benchmark data
+        chart_type: Type of chart ('box', 'time_series')
+        x_col: Column for x-axis
+        y_col: Column for y-axis values
+        color_col: Optional column for color grouping
+        title_prefix: Prefix for chart titles
+        
+    Returns:
+        List of Plotly Figures, one per test type
+    """
+    if df.empty or 'test_name' not in df.columns:
+        return [create_empty_figure("No data available")]
+    
+    figures = []
+    test_names = sorted(df['test_name'].unique())
+    
+    for test_name in test_names:
+        test_df = df[df['test_name'] == test_name]
+        
+        if chart_type == 'box':
+            fig = create_box_plot(
+                test_df,
+                x_col=x_col,
+                y_col=y_col,
+                color_col=color_col if color_col != 'test_name' else None,
+                title=f"{title_prefix}: {test_name}",
+                use_facets=False
+            )
+        elif chart_type == 'time_series':
+            fig = create_time_series_chart(
+                test_df,
+                x_col=x_col,
+                y_col=y_col,
+                color_col=color_col if color_col != 'test_name' else None,
+                title=f"{title_prefix}: {test_name}",
+                use_facets=False
+            )
+        else:
+            fig = create_empty_figure(f"Unknown chart type: {chart_type}")
+        
+        figures.append(fig)
+    
+    return figures
 
 
 def create_summary_cards_data(df: pd.DataFrame) -> dict:

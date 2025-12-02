@@ -29,7 +29,13 @@ class SyntheticDataGenerator:
         random.seed(seed)
         
         # Expanded configuration based on discovered schema
-        self.os_versions = ["9.2", "9.3", "9.4", "9.5", "9.6"]
+        # OS configurations: distribution -> list of versions
+        self.os_configs = {
+            "rhel": ["9.2", "9.3", "9.4", "9.5", "9.6"],
+            "ubuntu": ["20.04", "22.04", "24.04"],
+            "amazon": ["2", "2023"],
+            "sles": ["15.4", "15.5", "15.6"]
+        }
         self.cloud_providers = ["aws", "azure", "gcp"]
         
         # Expanded hardware configurations with more variety
@@ -196,6 +202,7 @@ class SyntheticDataGenerator:
         scenarios = self._generate_scenarios(num_scenarios)
         
         for scenario_idx, scenario in enumerate(scenarios):
+            os_distribution = scenario["os_distribution"]
             os_version = scenario["os_version"]
             cloud_provider = scenario["cloud_provider"]
             instance_type = scenario["instance_type"]
@@ -224,6 +231,7 @@ class SyntheticDataGenerator:
                 failure_type = self._select_failure_type() if should_fail else None
                 
                 doc = self._generate_document(
+                    os_distribution=os_distribution,
                     os_version=os_version,
                     cloud_provider=cloud_provider,
                     instance_type=instance_type,
@@ -248,7 +256,10 @@ class SyntheticDataGenerator:
         
         # Ensure each test type is represented
         for i in range(num_scenarios):
-            os_version = random.choice(self.os_versions)
+            # Select OS distribution and version
+            os_distribution = random.choice(list(self.os_configs.keys()))
+            os_version = random.choice(self.os_configs[os_distribution])
+            
             cloud_provider = random.choice(self.cloud_providers)
             instance_type = random.choice(self.instance_types[cloud_provider])
             
@@ -256,6 +267,7 @@ class SyntheticDataGenerator:
             test_type = self.test_types[i % len(self.test_types)]
             
             scenarios.append({
+                "os_distribution": os_distribution,
                 "os_version": os_version,
                 "cloud_provider": cloud_provider,
                 "instance_type": instance_type,
@@ -318,6 +330,7 @@ class SyntheticDataGenerator:
     
     def _generate_document(
         self,
+        os_distribution: str,
         os_version: str,
         cloud_provider: str,
         instance_type: str,
@@ -332,7 +345,7 @@ class SyntheticDataGenerator:
         """Generate a single synthetic benchmark document."""
         
         doc_id = f"{test_type}_{random.randbytes(8).hex()}"
-        scenario_name = f"rhel_{os_version.replace('.', '')}"
+        scenario_name = f"{os_distribution}_{os_version.replace('.', '')}"
         
         doc = {
             "metadata": {
@@ -342,7 +355,7 @@ class SyntheticDataGenerator:
                 "test_timestamp": test_date.isoformat() + "Z",
                 "processing_timestamp": (test_date + timedelta(hours=6)).isoformat() + "Z",
                 "collection_timestamp": test_date.isoformat() + "Z",
-                "os_vendor": "rhel",
+                "os_vendor": os_distribution,
                 "cloud_provider": cloud_provider,
                 "instance_type": instance_type,
                 "iteration": iteration,
@@ -354,10 +367,10 @@ class SyntheticDataGenerator:
                 "wrapper_version": "v1.22.zip"
             },
             "system_under_test": self._generate_system_info(
-                os_version, cloud_provider, instance_type
+                os_distribution, os_version, cloud_provider, instance_type
             ),
             "test_configuration": self._generate_test_config(
-                cloud_provider, instance_type, test_type
+                os_distribution, cloud_provider, instance_type, test_type
             ),
             "runtime_info": {
                 "command": "#/bin/bash",
@@ -378,7 +391,7 @@ class SyntheticDataGenerator:
         return doc
     
     def _generate_system_info(
-        self, os_version: str, cloud_provider: str, instance_type: str
+        self, os_distribution: str, os_version: str, cloud_provider: str, instance_type: str
     ) -> Dict[str, Any]:
         """Generate system_under_test object."""
         
@@ -409,6 +422,9 @@ class SyntheticDataGenerator:
         numa_nodes = 4 if cores >= 96 else 2 if cores >= 48 else 1
         sockets = 2 if cores >= 48 else 1
         
+        # Generate kernel version based on OS distribution
+        kernel_version = self._get_kernel_version(os_distribution, os_version)
+        
         return {
             "hardware": {
                 "cpu": {
@@ -434,9 +450,9 @@ class SyntheticDataGenerator:
                 }
             },
             "operating_system": {
-                "distribution": "rhel",
+                "distribution": os_distribution,
                 "version": os_version,
-                "kernel_version": f"5.14.0-503.11.1.el9_{os_version.split('.')[1]}.x86_64",
+                "kernel_version": kernel_version,
                 "hostname": f"test-{cloud_provider}-{random.randint(100, 999)}.internal"
             },
             "configuration": {
@@ -454,8 +470,32 @@ class SyntheticDataGenerator:
             }
         }
     
+    def _get_kernel_version(self, os_distribution: str, os_version: str) -> str:
+        """Generate realistic kernel version for the given OS distribution and version."""
+        if os_distribution == "rhel":
+            minor = os_version.split('.')[1] if '.' in os_version else os_version
+            return f"5.14.0-503.11.1.el9_{minor}.x86_64"
+        elif os_distribution == "ubuntu":
+            # Ubuntu kernel versions based on release
+            kernel_map = {
+                "20.04": "5.15.0-91-generic",
+                "22.04": "6.5.0-35-generic",
+                "24.04": "6.8.0-31-generic"
+            }
+            return kernel_map.get(os_version, "5.15.0-91-generic")
+        elif os_distribution == "amazon":
+            # Amazon Linux kernel versions
+            if os_version == "2":
+                return "5.10.220-173.862.amzn2.x86_64"
+            else:  # Amazon Linux 2023
+                return "6.1.82-99.168.amzn2023.x86_64"
+        elif os_distribution == "sles":
+            # SLES kernel versions
+            return f"5.14.21-150500.55.52-default"
+        return "5.15.0-generic"
+    
     def _generate_test_config(
-        self, cloud_provider: str, instance_type: str, test_type: str
+        self, os_distribution: str, cloud_provider: str, instance_type: str, test_type: str
     ) -> Dict[str, Any]:
         """Generate test_configuration object."""
         
@@ -468,7 +508,7 @@ class SyntheticDataGenerator:
         return {
             "iterations_requested": 1,
             "parameters": {
-                "os_vendor": "rhel",
+                "os_vendor": os_distribution,
                 "system_type": cloud_provider,
                 "host_config": instance_type,
                 "cloud_region": regions[cloud_provider],
@@ -730,6 +770,7 @@ def main():
     
     # Generate comprehensive summary statistics
     test_types = {}
+    os_distributions = {}
     os_versions = {}
     cloud_providers = {}
     instance_types = {}
@@ -740,13 +781,16 @@ def main():
     
     for doc in documents:
         test_name = doc["test"]["name"]
+        os_dist = doc["system_under_test"]["operating_system"]["distribution"]
         os_ver = doc["system_under_test"]["operating_system"]["version"]
         cloud = doc["metadata"]["cloud_provider"]
         instance = doc["metadata"]["instance_type"]
         status = doc["results"]["status"]
         
         test_types[test_name] = test_types.get(test_name, 0) + 1
-        os_versions[os_ver] = os_versions.get(os_ver, 0) + 1
+        os_distributions[os_dist] = os_distributions.get(os_dist, 0) + 1
+        os_key = f"{os_dist} {os_ver}"
+        os_versions[os_key] = os_versions.get(os_key, 0) + 1
         cloud_providers[cloud] = cloud_providers.get(cloud, 0) + 1
         instance_types[instance] = instance_types.get(instance, 0) + 1
         
@@ -765,9 +809,13 @@ def main():
     for test_name, count in sorted(test_types.items(), key=lambda x: x[1], reverse=True):
         print(f"  • {test_name:20s}: {count:4d} tests ({count/len(documents)*100:5.1f}%)")
     
-    print(f"\n🖥️  OS Version Distribution ({len(os_versions)} unique):")
-    for os_ver, count in sorted(os_versions.items()):
-        print(f"  • RHEL {os_ver:5s}: {count:4d} tests ({count/len(documents)*100:5.1f}%)")
+    print(f"\n🖥️  OS Distribution Summary ({len(os_distributions)} distributions):")
+    for os_dist, count in sorted(os_distributions.items(), key=lambda x: x[1], reverse=True):
+        print(f"  • {os_dist.upper():10s}: {count:4d} tests ({count/len(documents)*100:5.1f}%)")
+    
+    print(f"\n📦 OS Version Details ({len(os_versions)} unique versions):")
+    for os_key, count in sorted(os_versions.items()):
+        print(f"  • {os_key:20s}: {count:4d} tests ({count/len(documents)*100:5.1f}%)")
     
     print(f"\n☁️  Cloud Provider Distribution ({len(cloud_providers)} unique):")
     for cloud, count in sorted(cloud_providers.items(), key=lambda x: x[1], reverse=True):

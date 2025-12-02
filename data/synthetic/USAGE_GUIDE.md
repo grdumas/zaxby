@@ -5,10 +5,11 @@ Quick reference for working with the enhanced synthetic benchmark dataset.
 ## Quick Stats
 
 - **Documents**: 800 benchmark test results
-- **File Size**: 3.0 MB (103,317 lines)
-- **Date Range**: June 4, 2025 - December 2, 2025 (6 months)
-- **Success Rate**: 92.2% (738 PASS, 62 FAIL)
+- **File Size**: ~3.0 MB (~103,000 lines)
+- **Date Range**: June 2025 - December 2025 (6 months)
+- **Success Rate**: ~93% (varies by run)
 - **Test Coverage**: 12 benchmark types × 100 unique scenarios
+- **OS Coverage**: 4 distributions (RHEL, Ubuntu, Amazon Linux, SLES) with 13 versions
 
 ## Loading the Data
 
@@ -37,6 +38,7 @@ with open('data/synthetic/benchmark_results.json', 'r') as f:
 # Extract key fields
 df = pd.DataFrame([{
     'test_name': d['test']['name'],
+    'os_distribution': d['system_under_test']['operating_system']['distribution'],
     'os_version': d['system_under_test']['operating_system']['version'],
     'cloud_provider': d['metadata']['cloud_provider'],
     'instance_type': d['metadata']['instance_type'],
@@ -59,13 +61,25 @@ coremark_results = [d for d in documents if d['test']['name'] == 'coremark']
 print(f"Found {len(coremark_results)} CoreMark tests")
 ```
 
-### Filter by OS Version
+### Filter by OS Distribution and Version
 
 ```python
 # Get RHEL 9.5 results
 rhel95_results = [d for d in documents 
-                  if d['system_under_test']['operating_system']['version'] == '9.5']
+                  if d['system_under_test']['operating_system']['distribution'] == 'rhel'
+                  and d['system_under_test']['operating_system']['version'] == '9.5']
 print(f"Found {len(rhel95_results)} RHEL 9.5 tests")
+
+# Get all Ubuntu results
+ubuntu_results = [d for d in documents 
+                  if d['system_under_test']['operating_system']['distribution'] == 'ubuntu']
+print(f"Found {len(ubuntu_results)} Ubuntu tests")
+
+# Get Amazon Linux 2023 results
+al2023_results = [d for d in documents 
+                  if d['system_under_test']['operating_system']['distribution'] == 'amazon'
+                  and d['system_under_test']['operating_system']['version'] == '2023']
+print(f"Found {len(al2023_results)} Amazon Linux 2023 tests")
 ```
 
 ### Get All Failures
@@ -84,10 +98,10 @@ for reason, count in sorted(failure_types.items(), key=lambda x: x[1], reverse=T
     print(f"  {reason}: {count}")
 ```
 
-### Compare OS Versions
+### Compare OS Distributions and Versions
 
 ```python
-# Compare performance across OS versions for same test and hardware
+# Compare performance across OS distributions for same test and hardware
 test_type = 'streams'
 instance = 'm5.24xlarge'
 
@@ -97,18 +111,20 @@ for doc in documents:
         doc['metadata']['instance_type'] == instance and
         doc['results']['status'] == 'PASS'):
         
+        os_dist = doc['system_under_test']['operating_system']['distribution']
         os_ver = doc['system_under_test']['operating_system']['version']
+        os_key = f"{os_dist} {os_ver}"
         metric_value = doc['results']['primary_metric']['value']
         
-        if os_ver not in results_by_os:
-            results_by_os[os_ver] = []
-        results_by_os[os_ver].append(metric_value)
+        if os_key not in results_by_os:
+            results_by_os[os_key] = []
+        results_by_os[os_key].append(metric_value)
 
 # Calculate averages
-for os_ver in sorted(results_by_os.keys()):
-    values = results_by_os[os_ver]
+for os_key in sorted(results_by_os.keys()):
+    values = results_by_os[os_key]
     avg = sum(values) / len(values)
-    print(f"RHEL {os_ver}: {avg:.2f} (n={len(values)})")
+    print(f"{os_key}: {avg:.2f} (n={len(values)})")
 ```
 
 ### Extract Time Series

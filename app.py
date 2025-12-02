@@ -103,6 +103,7 @@ app.layout = dbc.Container([
             # Tabs for different views
             dbc.Tabs([
                 dbc.Tab(label="Overview", tab_id="tab-overview"),
+                dbc.Tab(label="By Benchmark", tab_id="tab-by-benchmark"),
                 dbc.Tab(label="Comparisons", tab_id="tab-comparisons"),
                 dbc.Tab(label="Time Series", tab_id="tab-timeseries"),
                 dbc.Tab(label="Heatmap", tab_id="tab-heatmap"),
@@ -234,6 +235,9 @@ def render_tab_content(active_tab, filtered_data_json):
     
     if active_tab == "tab-overview":
         # Overview with multiple charts
+        # Check if we have multiple test types with different scales
+        has_multiple_tests = len(filtered_df['test_name'].unique()) > 1
+        
         return html.Div([
             dbc.Row([
                 dbc.Col([
@@ -242,7 +246,8 @@ def render_tab_content(active_tab, filtered_data_json):
                             filtered_df,
                             x_col='test_name',
                             y_col='primary_metric_value',
-                            title="Performance Distribution by Benchmark Type"
+                            title="Performance Distribution by Benchmark Type",
+                            use_facets=has_multiple_tests
                         )
                     )
                 ], width=12)
@@ -255,7 +260,8 @@ def render_tab_content(active_tab, filtered_data_json):
                             x_col='os_version',
                             y_col='primary_metric_value',
                             color_col='test_name',
-                            title="Performance by OS Version"
+                            title="Performance by OS Version (All Tests Combined)",
+                            use_facets=False
                         )
                     )
                 ], width=6),
@@ -266,12 +272,54 @@ def render_tab_content(active_tab, filtered_data_json):
                             x_col='cloud_provider',
                             y_col='primary_metric_value',
                             color_col='test_name',
-                            title="Performance by Cloud Provider"
+                            title="Performance by Cloud Provider (All Tests Combined)",
+                            use_facets=False
                         )
                     )
                 ], width=6)
             ])
         ])
+    
+    elif active_tab == "tab-by-benchmark":
+        # Separate views for each benchmark to handle different scales
+        graphs = []
+        
+        # Create separate box plots for each test by OS version
+        os_figs = visualizations.create_separate_test_charts(
+            filtered_df,
+            chart_type='box',
+            x_col='os_version',
+            y_col='primary_metric_value',
+            title_prefix="Performance by OS Version"
+        )
+        
+        for fig in os_figs:
+            graphs.append(dbc.Row([
+                dbc.Col([dcc.Graph(figure=fig)], width=12)
+            ]))
+        
+        # Add spacing
+        if graphs:
+            graphs.append(html.Hr())
+        
+        # Create separate box plots for each test by instance type
+        instance_figs = visualizations.create_separate_test_charts(
+            filtered_df,
+            chart_type='box',
+            x_col='instance_type',
+            y_col='primary_metric_value',
+            title_prefix="Performance by Instance Type"
+        )
+        
+        for fig in instance_figs:
+            graphs.append(dbc.Row([
+                dbc.Col([dcc.Graph(figure=fig)], width=12)
+            ]))
+        
+        return html.Div(graphs) if graphs else html.Div(
+            "No data available for benchmark-specific views",
+            className="alert alert-info"
+        )
     
     elif active_tab == "tab-comparisons":
         # Comparison view
@@ -316,6 +364,8 @@ def render_tab_content(active_tab, filtered_data_json):
     
     elif active_tab == "tab-timeseries":
         # Time series view
+        has_multiple_tests = len(filtered_df['test_name'].unique()) > 1
+        
         return html.Div([
             dbc.Row([
                 dbc.Col([
@@ -325,7 +375,8 @@ def render_tab_content(active_tab, filtered_data_json):
                             x_col='timestamp',
                             y_col='primary_metric_value',
                             color_col='test_name',
-                            title="Performance Trends Over Time"
+                            title="Performance Trends Over Time (by Benchmark)",
+                            use_facets=has_multiple_tests
                         )
                     )
                 ], width=12)
@@ -338,7 +389,8 @@ def render_tab_content(active_tab, filtered_data_json):
                             x_col='timestamp',
                             y_col='primary_metric_value',
                             color_col='os_version',
-                            title="Average Performance by OS Version Over Time"
+                            title="Average Performance by OS Version Over Time",
+                            use_facets=False
                         )
                     )
                 ], width=12)
@@ -347,6 +399,8 @@ def render_tab_content(active_tab, filtered_data_json):
     
     elif active_tab == "tab-heatmap":
         # Heatmap view
+        has_multiple_tests = len(filtered_df['test_name'].unique()) > 1
+        
         return html.Div([
             dbc.Row([
                 dbc.Col([
@@ -356,7 +410,8 @@ def render_tab_content(active_tab, filtered_data_json):
                             row_dim='os_version',
                             col_dim='instance_type',
                             value_col='primary_metric_value',
-                            title="Performance Heatmap: OS Version × Instance Type"
+                            title="Performance Heatmap: OS Version × Instance Type (Normalized %)",
+                            normalize_by_test=has_multiple_tests
                         )
                     )
                 ], width=12)
@@ -369,7 +424,8 @@ def render_tab_content(active_tab, filtered_data_json):
                             row_dim='test_name',
                             col_dim='cloud_provider',
                             value_col='primary_metric_value',
-                            title="Performance Heatmap: Benchmark × Cloud Provider"
+                            title="Performance Heatmap: Benchmark × Cloud Provider (Normalized %)",
+                            normalize_by_test=has_multiple_tests
                         )
                     )
                 ], width=12)

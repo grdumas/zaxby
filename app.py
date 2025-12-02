@@ -779,12 +779,21 @@ def update_question2(analysis_json):
     competitive_count = q2_data.get('competitive_count', 0)
     total_benchmarks = q2_data.get('total_benchmarks', 0)
     
-    is_competitive = competitive_count >= (total_benchmarks * 0.7) if total_benchmarks > 0 else True
+    # Determine status based on data availability and competitiveness
+    if total_benchmarks == 0:
+        # No data available - show warning status
+        status_icon = "⚠️"
+        alert_color = "warning"
+    else:
+        # Data available - check competitiveness
+        is_competitive = competitive_count >= (total_benchmarks * 0.7)
+        status_icon = get_status_icon(0 if is_competitive else 3)
+        alert_color = "success" if is_competitive else "warning"
     
     summary_component = dbc.Alert([
-        html.H5([get_status_icon(0 if is_competitive else 3), " Summary"], className="mb-2"),
+        html.H5([status_icon, " Summary"], className="mb-2"),
         dcc.Markdown(summary_text)
-    ], color="success" if is_competitive else "warning")
+    ], color=alert_color)
     
     return fig, summary_component
 
@@ -827,12 +836,21 @@ def update_question3(cloud_provider, os_version, filtered_data_json):
     linear_count = q3_result.get('linear_scaling_count', 0)
     total = q3_result.get('total_benchmarks', 0)
     
-    good_scaling = linear_count >= (total * 0.7) if total > 0 else True
+    # Determine status based on data availability and scaling quality
+    if total == 0:
+        # No data available - show warning status
+        status_icon = "⚠️"
+        alert_color = "warning"
+    else:
+        # Data available - check scaling quality
+        good_scaling = linear_count >= (total * 0.7)
+        status_icon = get_status_icon(0 if good_scaling else 2)
+        alert_color = "success" if good_scaling else "info"
     
     summary_component = dbc.Alert([
-        html.H5([get_status_icon(0 if good_scaling else 2), " Summary"], className="mb-2"),
+        html.H5([status_icon, " Summary"], className="mb-2"),
         dcc.Markdown(summary_text)
-    ], color="success" if good_scaling else "info")
+    ], color=alert_color)
     
     return fig, summary_component
 

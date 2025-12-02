@@ -258,80 +258,76 @@ class SyntheticDataGenerator:
         1. Running all test types across all RHEL versions (for regression analysis)
         2. Providing good coverage for other OS distributions
         3. Filling remaining scenarios with random combinations
+        
+        IMPORTANT: For regression analysis to work, each test must run on the SAME
+        hardware configurations across different OS versions. This enables valid
+        apples-to-apples comparisons.
         """
         scenarios = []
         
+        # Create DETERMINISTIC hardware configuration assignments per test type
+        # This ensures each test runs on the same hardware across all OS versions
+        # Using a fixed assignment pattern for maximum reproducibility
+        
+        # Define a consistent set of hardware configs for each cloud provider
+        stable_configs = {
+            "aws": ["c6i.24xlarge", "m5.4xlarge", "r5.24xlarge"],
+            "azure": ["Standard_D64s_v3", "Standard_F48s_v2", "Standard_E64s_v5"],
+            "gcp": ["n2-standard-64", "c2-standard-60", "n2-highmem-96"]
+        }
+        
+        test_hardware_configs = {}
+        for idx, test_type in enumerate(self.test_types):
+            # Assign exactly 3 hardware configs per test (one from each cloud provider)
+            # Use modulo to cycle through available configs deterministically
+            test_configs = []
+            for cloud_provider in ["aws", "azure", "gcp"]:
+                instance_idx = idx % len(stable_configs[cloud_provider])
+                instance_type = stable_configs[cloud_provider][instance_idx]
+                test_configs.append((cloud_provider, instance_type))
+            test_hardware_configs[test_type] = test_configs
+        
         # Phase 1: Ensure COMPLETE coverage for RHEL regression analysis
-        # Run every test type on every RHEL version
+        # Run every test type on every RHEL version with CONSISTENT hardware
         rhel_versions = self.os_configs["rhel"]
         for rhel_version in rhel_versions:
             for test_type in self.test_types:
-                # Vary cloud providers and instance types for diversity
-                cloud_provider = random.choice(self.cloud_providers)
-                instance_type = random.choice(self.instance_types[cloud_provider])
-                
-                scenarios.append({
-                    "os_distribution": "rhel",
-                    "os_version": rhel_version,
-                    "cloud_provider": cloud_provider,
-                    "instance_type": instance_type,
-                    "test_type": test_type
-                })
-        
-        print(f"  Phase 1: Generated {len(scenarios)} RHEL scenarios (all tests × all versions)")
-        
-        # Phase 2: Ensure good coverage for other OS distributions
-        # Run each test type on each version of other distributions
-        other_os_distributions = [os_dist for os_dist in self.os_configs.keys() if os_dist != "rhel"]
-        for os_distribution in other_os_distributions:
-            for os_version in self.os_configs[os_distribution]:
-                for test_type in self.test_types:
-                    cloud_provider = random.choice(self.cloud_providers)
-                    instance_type = random.choice(self.instance_types[cloud_provider])
-                    
+                # Use the pre-assigned hardware configs for this test
+                # This ensures the same test runs on the same hardware across all versions
+                for cloud_provider, instance_type in test_hardware_configs[test_type]:
                     scenarios.append({
-                        "os_distribution": os_distribution,
-                        "os_version": os_version,
+                        "os_distribution": "rhel",
+                        "os_version": rhel_version,
                         "cloud_provider": cloud_provider,
                         "instance_type": instance_type,
                         "test_type": test_type
                     })
         
-        print(f"  Phase 2: Generated {len(scenarios)} total scenarios (including other OS)")
+        print(f"  Phase 1: Generated {len(scenarios)} RHEL scenarios (all tests × all versions × consistent HW)")
         
-        # Phase 3: Add random scenarios to reach num_scenarios if needed
-        while len(scenarios) < num_scenarios:
-            os_distribution = random.choice(list(self.os_configs.keys()))
-            os_version = random.choice(self.os_configs[os_distribution])
-            cloud_provider = random.choice(self.cloud_providers)
-            instance_type = random.choice(self.instance_types[cloud_provider])
-            test_type = random.choice(self.test_types)
-            
-            scenarios.append({
-                "os_distribution": os_distribution,
-                "os_version": os_version,
-                "cloud_provider": cloud_provider,
-                "instance_type": instance_type,
-                "test_type": test_type
-            })
+        # Phase 2: Ensure good coverage for other OS distributions
+        # Run each test type on each version of other distributions with CONSISTENT hardware
+        other_os_distributions = [os_dist for os_dist in self.os_configs.keys() if os_dist != "rhel"]
+        for os_distribution in other_os_distributions:
+            for os_version in self.os_configs[os_distribution]:
+                for test_type in self.test_types:
+                    # Use the same pre-assigned hardware configs for cross-OS comparison
+                    for cloud_provider, instance_type in test_hardware_configs[test_type]:
+                        scenarios.append({
+                            "os_distribution": os_distribution,
+                            "os_version": os_version,
+                            "cloud_provider": cloud_provider,
+                            "instance_type": instance_type,
+                            "test_type": test_type
+                        })
         
-        # If we have more scenarios than needed, randomly sample to match requested count
-        if len(scenarios) > num_scenarios:
-            print(f"  Note: Generated {len(scenarios)} base scenarios, randomly sampling {num_scenarios}")
-            # Keep all RHEL scenarios, sample from the rest
-            rhel_scenarios = [s for s in scenarios if s["os_distribution"] == "rhel"]
-            other_scenarios = [s for s in scenarios if s["os_distribution"] != "rhel"]
-            
-            # If we have room for RHEL and some others
-            if num_scenarios >= len(rhel_scenarios):
-                remaining = num_scenarios - len(rhel_scenarios)
-                random.shuffle(other_scenarios)
-                scenarios = rhel_scenarios + other_scenarios[:remaining]
-            else:
-                # If num_scenarios is too small, at least keep proportional RHEL coverage
-                print(f"  Warning: num_scenarios ({num_scenarios}) is small, reducing RHEL coverage")
-                random.shuffle(scenarios)
-                scenarios = scenarios[:num_scenarios]
+        print(f"  Phase 2: Generated {len(scenarios)} total scenarios (including other OS with consistent HW)")
+        
+        # Note: We're ignoring num_scenarios parameter and using ALL generated scenarios
+        # to ensure complete coverage. This is better than randomly sampling which could
+        # break the hardware consistency guarantees.
+        
+        print(f"  Final: Using all {len(scenarios)} scenarios to ensure complete coverage")
         
         # Shuffle to avoid temporal clustering by OS type
         random.shuffle(scenarios)
@@ -635,6 +631,12 @@ class SyntheticDataGenerator:
             value = (baseline_value * hw_multiplier * magnitude * 
                     iteration_variance * trend_factor)
             
+            # Ensure value is never zero or negative (can cause comparison issues)
+            # Use a minimum threshold of 20% of baseline to ensure meaningful comparisons
+            min_value = max(baseline_value * 0.20, 0.01)  # At least 20% or 0.01
+            if value <= 0 or value < min_value:
+                value = min_value * random.uniform(1.0, 1.5)  # Add some variance
+            
             # For metrics with statistical aggregations (mean, min, max, stddev)
             if not metric_name.endswith(("_mean", "_min", "_max", "_stddev", "_pct")):
                 metrics[metric_name] = value
@@ -657,7 +659,13 @@ class SyntheticDataGenerator:
         
         # Select primary metric
         primary_metric_name = list(baseline.keys())[0] if baseline else "score"
-        primary_metric_value = metrics.get(primary_metric_name, 0.0)
+        primary_metric_value = metrics.get(primary_metric_name, 100.0)
+        
+        # Ensure the primary metric is never zero or too small (can cause comparison issues)
+        if primary_metric_value <= 0 or primary_metric_value < 0.001:
+            # Use a reasonable positive value based on the baseline
+            baseline_for_metric = baseline.get(primary_metric_name, 100.0)
+            primary_metric_value = baseline_for_metric * random.uniform(0.30, 0.50)
         
         return {
             "status": status,
@@ -821,23 +829,27 @@ def main():
     print("\nGenerating comprehensive synthetic benchmark data...")
     print("This may take a moment...\n")
     
-    # Calculate scenario count to ensure complete coverage
-    # RHEL: 7 versions × 12 tests = 84 scenarios
-    # Other OS: 3 distributions × (3+2+3) versions × 12 tests = 288 scenarios
-    # Total base: 372 scenarios
-    # We'll generate more for additional diversity
+    # Deterministic scenario generation with guaranteed hardware consistency
+    # RHEL: 7 versions × 12 tests × 3 HW configs/test = 252 scenarios
+    # Other OS: 3 distributions × 8 versions × 12 tests × 3 HW configs = 864 scenarios
+    # Total: 1116 scenarios (all will be used to ensure complete coverage)
+    # 
+    # Each test is assigned exactly 3 hardware configs (one from each cloud provider)
+    # and these same configs are used across ALL OS versions for valid comparisons.
     
-    print("Phase-based scenario generation:")
+    print("Deterministic scenario generation with hardware consistency:")
     documents = generator.generate_dataset(
-        num_scenarios=500,  # Increased to accommodate full coverage + extras
-        iterations_per_scenario=5,  # Keep reasonable for file size
+        num_scenarios=1200,  # This parameter is now advisory; we use all generated scenarios
+        iterations_per_scenario=2,  # Keep file size reasonable while ensuring coverage
         include_temporal_trends=True,
         include_failures=True
     )
     
     print(f"\n✓ Generated {len(documents)} documents")
-    print(f"  Iterations per scenario: 5")
+    print(f"  Iterations per scenario: 2")
     print(f"  Temporal range: 180 days")
+    print(f"  Hardware consistency: DETERMINISTIC - Each test runs on exactly 3 HW configs")
+    print(f"  Coverage guarantee: All test×version×hardware combinations included")
     
     # Save to file
     output_file = "data/synthetic/benchmark_results.json"

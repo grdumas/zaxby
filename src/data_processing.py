@@ -456,6 +456,231 @@ class BenchmarkDataProcessor:
         
         return sorted(versions, key=version_key)
     
+    def analyze_rhel_simplified_regressions(
+        self,
+        df: pd.DataFrame,
+        regression_threshold: float = -5.0
+    ) -> Dict[str, Any]:
+        """
+        Simplified RHEL regression analysis with three specific comparisons:
+        1. Latest 9.X vs Latest 10.X (major release comparison)
+        2. Latest 9.X vs Previous 9.X (9.X sequential)
+        3. Latest 10.X vs Previous 10.X (10.X sequential)
+        
+        Args:
+            df: Input DataFrame
+            regression_threshold: Percentage threshold for regression detection (negative)
+            
+        Returns:
+            Dictionary with three comparison groups
+        """
+        df_with_cats = self.add_benchmark_categories(df)
+        
+        # Filter to only RHEL
+        df_rhel = df_with_cats[df_with_cats['os_distribution'].str.lower() == 'rhel'].copy()
+        
+        if df_rhel.empty:
+            return {
+                'major_release_comparison': None,
+                'rhel9_sequential': None,
+                'rhel10_sequential': None,
+                'summary': 'No RHEL data available'
+            }
+        
+        # Get sorted versions
+        all_versions = self._sort_versions(df_rhel['os_version'].dropna().unique())
+        
+        # Separate into 9.X and 10.X versions
+        rhel9_versions = [v for v in all_versions if v.startswith('9.')]
+        rhel10_versions = [v for v in all_versions if v.startswith('10.')]
+        
+        result = {
+            'major_release_comparison': None,
+            'rhel9_sequential': None,
+            'rhel10_sequential': None,
+            'summary': ''
+        }
+        
+        # Comparison 1: Latest 9.X vs Latest 10.X
+        if rhel9_versions and rhel10_versions:
+            latest_9 = rhel9_versions[-1]
+            latest_10 = rhel10_versions[-1]
+            result['major_release_comparison'] = self._compare_two_versions(
+                df_rhel, latest_9, latest_10, regression_threshold,
+                label=f"RHEL {latest_9} vs {latest_10} (Major Release)"
+            )
+        
+        # Comparison 2: Latest 9.X vs Previous 9.X
+        if len(rhel9_versions) >= 2:
+            prev_9 = rhel9_versions[-2]
+            latest_9 = rhel9_versions[-1]
+            result['rhel9_sequential'] = self._compare_two_versions(
+                df_rhel, prev_9, latest_9, regression_threshold,
+                label=f"RHEL {prev_9} vs {latest_9}"
+            )
+        
+        # Comparison 3: Latest 10.X vs Previous 10.X
+        if len(rhel10_versions) >= 2:
+            prev_10 = rhel10_versions[-2]
+            latest_10 = rhel10_versions[-1]
+            result['rhel10_sequential'] = self._compare_two_versions(
+                df_rhel, prev_10, latest_10, regression_threshold,
+                label=f"RHEL {prev_10} vs {latest_10}"
+            )
+        
+        # Generate overall summary
+        total_regressions = 0
+        summaries = []
+        
+        for key in ['major_release_comparison', 'rhel9_sequential', 'rhel10_sequential']:
+            comp = result[key]
+            if comp and comp['num_regressions'] > 0:
+                total_regressions += comp['num_regressions']
+                summaries.append(f"{comp['label']}: {comp['num_regressions']} regression(s)")
+        
+        if total_regressions > 0:
+            result['summary'] = f"Total: {total_regressions} regression(s) detected\n" + "\n".join(summaries)
+        else:
+            result['summary'] = "No significant regressions detected"
+        
+        result['total_regressions'] = total_regressions
+        
+        return result
+    
+    def _compare_two_versions(
+        self,
+        df: pd.DataFrame,
+        baseline_version: str,
+        comparison_version: str,
+        regression_threshold: float,
+        label: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Compare performance between two specific OS versions.
+        
+        IMPORTANT: Only compares tests that ran on the same hardware configuration
+        (same cloud_provider + instance_type combination).
+        
+        Args:
+            df: Input DataFrame (already filtered to OS distribution)
+            baseline_version: Baseline version
+            comparison_version: Version to compare against baseline
+            regression_threshold: Percentage threshold for regression
+            label: Human-readable label for this comparison
+            
+        Returns:
+            Dictionary with comparison results including hardware configurations used
+        """
+        test_names = sorted(df['test_name'].dropna().unique())
+        comparison_results = []
+        hardware_configs = set()
+        
+        for test in test_names:
+            # Get baseline data for this test
+            baseline_test_df = df[
+                (df['os_version'] == baseline_version) & 
+                (df['test_name'] == test)
+            ]
+            
+            # Get comparison data for this test
+            comparison_test_df = df[
+                (df['os_version'] == comparison_version) & 
+                (df['test_name'] == test)
+            ]
+            
+            if baseline_test_df.empty or comparison_test_df.empty:
+                continue
+            
+            # Find hardware configurations that exist in BOTH versions
+            baseline_hw_configs = set(
+                zip(baseline_test_df['cloud_provider'], baseline_test_df['instance_type'])
+            )
+            comparison_hw_configs = set(
+                zip(comparison_test_df['cloud_provider'], comparison_test_df['instance_type'])
+            )
+            
+            # Only use hardware configs that exist in both datasets
+            common_hw_configs = baseline_hw_configs & comparison_hw_configs
+            
+            if not common_hw_configs:
+                # No matching hardware configurations for this test
+                continue
+            
+            # For each matching hardware config, compute comparison
+            for cloud_provider, instance_type in common_hw_configs:
+                hardware_configs.add((cloud_provider, instance_type))
+                
+                baseline_hw_data = baseline_test_df[
+                    (baseline_test_df['cloud_provider'] == cloud_provider) &
+                    (baseline_test_df['instance_type'] == instance_type)
+                ]['primary_metric_value']
+                
+                comparison_hw_data = comparison_test_df[
+                    (comparison_test_df['cloud_provider'] == cloud_provider) &
+                    (comparison_test_df['instance_type'] == instance_type)
+                ]['primary_metric_value']
+                
+                if len(baseline_hw_data) > 0 and len(comparison_hw_data) > 0:
+                    baseline_mean = baseline_hw_data.mean()
+                    comparison_mean = comparison_hw_data.mean()
+                    pct_change = ((comparison_mean - baseline_mean) / baseline_mean) * 100
+                    
+                    comparison_results.append({
+                        'test_name': test,
+                        'cloud_provider': cloud_provider,
+                        'instance_type': instance_type,
+                        'hardware_config': f"{cloud_provider}/{instance_type}",
+                        'benchmark_category': df[df['test_name'] == test]['benchmark_category'].iloc[0] if 'benchmark_category' in df.columns else 'Unknown',
+                        'baseline_version': baseline_version,
+                        'comparison_version': comparison_version,
+                        'baseline_mean': baseline_mean,
+                        'baseline_count': len(baseline_hw_data),
+                        'comparison_mean': comparison_mean,
+                        'comparison_count': len(comparison_hw_data),
+                        'percent_change': pct_change,
+                        'is_regression': pct_change < regression_threshold
+                    })
+        
+        comparison_df = pd.DataFrame(comparison_results)
+        
+        # Identify regressions
+        regressions = comparison_df[comparison_df['is_regression']].sort_values('percent_change') if not comparison_df.empty else pd.DataFrame()
+        
+        # Generate summary for this comparison
+        num_regressions = len(regressions)
+        num_hardware_configs = len(hardware_configs)
+        
+        if num_regressions > 0:
+            top_regressions = regressions.head(3)
+            summary_lines = []
+            for _, row in top_regressions.iterrows():
+                summary_lines.append(
+                    f"• {row['test_name']} on {row['hardware_config']}: {row['percent_change']:.1f}%"
+                )
+            summary = '\n'.join(summary_lines)
+        else:
+            summary = "No significant regressions detected"
+        
+        # Create hardware config summary
+        hw_config_list = sorted([f"{cloud}/{inst}" for cloud, inst in hardware_configs])
+        hw_summary = f"Compared on {num_hardware_configs} hardware configuration(s): " + ", ".join(hw_config_list[:3])
+        if num_hardware_configs > 3:
+            hw_summary += f" and {num_hardware_configs - 3} more"
+        
+        return {
+            'label': label,
+            'baseline_version': baseline_version,
+            'comparison_version': comparison_version,
+            'comparison_data': comparison_df,
+            'regressions': regressions.to_dict('records') if not regressions.empty else [],
+            'num_regressions': num_regressions,
+            'num_comparisons': len(comparison_results),
+            'num_hardware_configs': num_hardware_configs,
+            'hardware_configs': hw_config_list,
+            'hardware_summary': hw_summary,
+            'summary': summary
+        }
+    
     def analyze_os_version_regressions(
         self,
         df: pd.DataFrame,

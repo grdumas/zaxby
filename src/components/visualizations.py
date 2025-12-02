@@ -634,6 +634,118 @@ def create_regression_heatmap(
     return fig
 
 
+def create_version_comparison_bar_chart(
+    comparison_df: pd.DataFrame,
+    baseline_version: str,
+    comparison_version: str,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Create a bar chart comparing performance between two OS versions.
+    
+    Args:
+        comparison_df: DataFrame with comparison data (must have columns:
+                      test_name, baseline_mean, comparison_mean, percent_change, is_regression,
+                      hardware_config (optional))
+        baseline_version: Baseline version name
+        comparison_version: Comparison version name
+        title: Chart title (auto-generated if None)
+        
+    Returns:
+        Plotly Figure
+    """
+    if comparison_df.empty:
+        return create_empty_figure("No comparison data available")
+    
+    if title is None:
+        title = f"Performance Comparison: {baseline_version} vs {comparison_version}"
+    
+    # Check if we have multiple hardware configs per test
+    has_hardware = 'hardware_config' in comparison_df.columns
+    if has_hardware:
+        # Group by test name and show average, but include hardware in hover
+        grouped = comparison_df.groupby('test_name').agg({
+            'percent_change': 'mean',
+            'is_regression': 'any',  # If any hardware config shows regression
+            'baseline_mean': 'mean',
+            'comparison_mean': 'mean'
+        }).reset_index()
+        
+        # Create labels that include hardware info
+        test_labels = []
+        for test_name in grouped['test_name']:
+            hw_configs = comparison_df[comparison_df['test_name'] == test_name]['hardware_config'].unique()
+            if len(hw_configs) > 1:
+                test_labels.append(f"{test_name} (avg across {len(hw_configs)} configs)")
+            else:
+                test_labels.append(f"{test_name} ({hw_configs[0]})")
+        
+        grouped['test_label'] = test_labels
+        comparison_df_sorted = grouped.sort_values('percent_change')
+    else:
+        # No hardware config info, use as-is
+        comparison_df_sorted = comparison_df.sort_values('percent_change')
+        comparison_df_sorted['test_label'] = comparison_df_sorted['test_name']
+    
+    # Color bars based on regression status
+    colors = ['#d73027' if is_reg else '#1a9850' if pct > 5 else '#e0e0e0' 
+              for is_reg, pct in zip(comparison_df_sorted['is_regression'], 
+                                     comparison_df_sorted['percent_change'])]
+    
+    # Build hover template
+    hover_texts = []
+    for idx, row in comparison_df_sorted.iterrows():
+        test_name = row['test_name']
+        if has_hardware:
+            # Show all hardware configs for this test
+            test_hw_data = comparison_df[comparison_df['test_name'] == test_name]
+            hw_lines = []
+            for _, hw_row in test_hw_data.iterrows():
+                hw_lines.append(
+                    f"  {hw_row['hardware_config']}: {hw_row['percent_change']:+.1f}% "
+                    f"({hw_row['baseline_mean']:.2f} → {hw_row['comparison_mean']:.2f})"
+                )
+            hw_detail = "<br>".join(hw_lines)
+            hover_text = (
+                f"<b>{test_name}</b><br>"
+                f"Average change: {row['percent_change']:+.1f}%<br>"
+                f"<br><b>By Hardware:</b><br>{hw_detail}"
+            )
+        else:
+            hover_text = (
+                f"<b>{test_name}</b><br>"
+                f"Change: {row['percent_change']:+.1f}%<br>"
+                f"{baseline_version}: {row['baseline_mean']:.2f}<br>"
+                f"{comparison_version}: {row['comparison_mean']:.2f}"
+            )
+        hover_texts.append(hover_text)
+    
+    fig = go.Figure(data=[
+        go.Bar(
+            y=comparison_df_sorted['test_label'],
+            x=comparison_df_sorted['percent_change'],
+            orientation='h',
+            marker=dict(color=colors),
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_texts,
+            text=comparison_df_sorted['percent_change'].apply(lambda x: f'{x:+.1f}%'),
+            textposition='outside'
+        )
+    ])
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title="Performance Change (%)",
+        yaxis_title="Benchmark",
+        template='plotly_white',
+        height=max(400, len(comparison_df_sorted) * 30),
+        showlegend=False,
+        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='black')
+    )
+    
+    return fig
+
+
 def create_peer_os_comparison_chart(
     comparison_df: pd.DataFrame,
     baseline_os: str = "RHEL",

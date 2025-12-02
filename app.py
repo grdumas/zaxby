@@ -129,10 +129,34 @@ app.layout = dbc.Container([
 ], fluid=True)
 
 
+def create_comparison_collapse(comparison_id, title, graph_id, summary_id):
+    """Create a collapsible comparison section."""
+    return dbc.Card([
+        dbc.CardHeader([
+            dbc.Button(
+                [html.I(className="bi bi-chevron-down me-2"), title],
+                id=f"btn-toggle-{comparison_id}",
+                color="link",
+                className="text-start w-100 text-decoration-none",
+                size="sm"
+            )
+        ], className="p-0"),
+        dbc.Collapse([
+            dbc.CardBody([
+                html.Div(id=summary_id, className="mb-3"),
+                dcc.Loading(
+                    dcc.Graph(id=graph_id),
+                    type="default"
+                )
+            ])
+        ], id=f"collapse-{comparison_id}", is_open=True)
+    ], className="mb-2")
+
+
 def create_overview_layout():
     """Create the main three-question overview layout."""
     return html.Div([
-        # Question 1: OS Version Regressions
+        # Question 1: OS Version Regressions - SIMPLIFIED
         dbc.Card([
             dbc.CardHeader([
                 html.H4([
@@ -140,19 +164,28 @@ def create_overview_layout():
                 ], className="mb-0")
             ]),
             dbc.CardBody([
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Loading(
-                            dcc.Graph(id='q1-heatmap'),
-                            type="default"
-                        )
-                    ], width=12)
-                ]),
-                dbc.Row([
-                    dbc.Col([
-                        html.Div(id='q1-summary', className="mt-3")
-                    ])
-                ])
+                html.Div(id='q1-overall-summary', className="mb-3"),
+                # Major Release Comparison (9.X vs 10.X)
+                create_comparison_collapse(
+                    "major-release",
+                    "Compare Latest Major Releases (9.X vs 10.X)",
+                    "q1-major-graph",
+                    "q1-major-summary"
+                ),
+                # RHEL 9.X Sequential Comparison
+                create_comparison_collapse(
+                    "rhel9-seq",
+                    "Compare RHEL 9.X Versions (Sequential)",
+                    "q1-rhel9-graph",
+                    "q1-rhel9-summary"
+                ),
+                # RHEL 10.X Sequential Comparison
+                create_comparison_collapse(
+                    "rhel10-seq",
+                    "Compare RHEL 10.X Versions (Sequential)",
+                    "q1-rhel10-graph",
+                    "q1-rhel10-summary"
+                )
             ])
         ], className="mb-4"),
         
@@ -323,6 +356,39 @@ def toggle_filters(n_clicks, is_open):
 
 
 @app.callback(
+    Output('collapse-major-release', 'is_open'),
+    Input('btn-toggle-major-release', 'n_clicks'),
+    State('collapse-major-release', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_major_release(n_clicks, is_open):
+    """Toggle major release comparison."""
+    return not is_open
+
+
+@app.callback(
+    Output('collapse-rhel9-seq', 'is_open'),
+    Input('btn-toggle-rhel9-seq', 'n_clicks'),
+    State('collapse-rhel9-seq', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_rhel9_seq(n_clicks, is_open):
+    """Toggle RHEL 9 sequential comparison."""
+    return not is_open
+
+
+@app.callback(
+    Output('collapse-rhel10-seq', 'is_open'),
+    Input('btn-toggle-rhel10-seq', 'n_clicks'),
+    State('collapse-rhel10-seq', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_rhel10_seq(n_clicks, is_open):
+    """Toggle RHEL 10 sequential comparison."""
+    return not is_open
+
+
+@app.callback(
     Output('filtered-data-store', 'data'),
     [
         Input('filter-os-version', 'value'),
@@ -378,12 +444,18 @@ def analyze_filtered_data(filtered_data_json):
     # Run all three analyses
     results = {}
     
-    # Question 1: OS Version Regressions (RHEL only)
+    # Question 1: OS Version Regressions (RHEL only) - Simplified
     try:
-        results['q1'] = processor.analyze_os_version_regressions(filtered_df, os_distribution='rhel')
+        results['q1'] = processor.analyze_rhel_simplified_regressions(filtered_df)
     except Exception as e:
         print(f"Error in Q1 analysis: {e}")
-        results['q1'] = {'summary': 'Analysis error', 'regressions': [], 'heatmap_data': pd.DataFrame(), 'num_regressions': 0}
+        results['q1'] = {
+            'summary': 'Analysis error', 
+            'major_release_comparison': None,
+            'rhel9_sequential': None,
+            'rhel10_sequential': None,
+            'total_regressions': 0
+        }
     
     # Question 2: Peer OS Comparison
     try:
@@ -396,12 +468,14 @@ def analyze_filtered_data(filtered_data_json):
     results['q3'] = {}
     
     # Serialize DataFrames to JSON
-    if 'heatmap_data' in results['q1'] and isinstance(results['q1']['heatmap_data'], pd.DataFrame):
-        results['q1']['heatmap_data'] = results['q1']['heatmap_data'].to_json(orient='split')
+    # Q1 simplified comparisons
+    for comp_key in ['major_release_comparison', 'rhel9_sequential', 'rhel10_sequential']:
+        if comp_key in results['q1'] and results['q1'][comp_key]:
+            comp = results['q1'][comp_key]
+            if 'comparison_data' in comp and isinstance(comp['comparison_data'], pd.DataFrame):
+                comp['comparison_data'] = comp['comparison_data'].to_json(orient='split')
     
-    if 'comparison_data' in results['q1'] and isinstance(results['q1']['comparison_data'], pd.DataFrame):
-        results['q1']['comparison_data'] = results['q1']['comparison_data'].to_json(orient='split')
-    
+    # Q2 peer comparison
     if 'comparison_data' in results['q2'] and isinstance(results['q2']['comparison_data'], pd.DataFrame):
         results['q2']['comparison_data'] = results['q2']['comparison_data'].to_json(orient='split')
     
@@ -409,35 +483,167 @@ def analyze_filtered_data(filtered_data_json):
 
 
 @app.callback(
-    [Output('q1-heatmap', 'figure'),
-     Output('q1-summary', 'children')],
+    Output('q1-overall-summary', 'children'),
     Input('analysis-results-store', 'data')
 )
-def update_question1(analysis_json):
-    """Update Question 1 visualizations."""
+def update_q1_overall_summary(analysis_json):
+    """Update overall Q1 summary."""
     import pandas as pd
     
     if not analysis_json:
-        empty_fig = visualizations.create_empty_figure("Loading...")
-        return empty_fig, "Analyzing..."
+        return "Analyzing..."
     
     analysis = json.loads(analysis_json)
     q1_data = analysis.get('q1', {})
     
-    # Recreate DataFrame from JSON
-    if 'heatmap_data' in q1_data and q1_data['heatmap_data']:
-        heatmap_df = pd.read_json(StringIO(q1_data['heatmap_data']), orient='split')
-        fig = visualizations.create_regression_heatmap(heatmap_df)
-    else:
-        fig = visualizations.create_empty_figure("No regression data available")
+    total_regressions = q1_data.get('total_regressions', 0)
+    summary_text = q1_data.get('summary', 'No data available')
+    icon = get_status_icon(total_regressions)
     
-    # Format summary
-    summary_text = format_regression_summary(q1_data)
-    num_regressions = q1_data.get('num_regressions', 0)
+    return dbc.Alert([
+        html.H5([icon, " Overall Summary"], className="mb-2"),
+        dcc.Markdown(summary_text)
+    ], color="warning" if total_regressions > 0 else "success")
+
+
+@app.callback(
+    [Output('q1-major-graph', 'figure'),
+     Output('q1-major-summary', 'children')],
+    Input('analysis-results-store', 'data')
+)
+def update_major_release_comparison(analysis_json):
+    """Update major release comparison (9.X vs 10.X)."""
+    import pandas as pd
+    
+    if not analysis_json:
+        return visualizations.create_empty_figure("Loading..."), ""
+    
+    analysis = json.loads(analysis_json)
+    q1_data = analysis.get('q1', {})
+    comp_data = q1_data.get('major_release_comparison')
+    
+    if not comp_data:
+        return visualizations.create_empty_figure("No data available for this comparison"), dbc.Alert("No data available", color="info")
+    
+    # Recreate DataFrame from JSON
+    if comp_data.get('comparison_data'):
+        comparison_df = pd.read_json(StringIO(comp_data['comparison_data']), orient='split')
+        fig = visualizations.create_version_comparison_bar_chart(
+            comparison_df,
+            comp_data['baseline_version'],
+            comp_data['comparison_version']
+        )
+    else:
+        fig = visualizations.create_empty_figure("No data available")
+    
+    # Format summary with hardware information
+    num_regressions = comp_data.get('num_regressions', 0)
+    num_comparisons = comp_data.get('num_comparisons', 0)
+    summary_text = comp_data.get('summary', 'No analysis available')
+    hw_summary = comp_data.get('hardware_summary', '')
     icon = get_status_icon(num_regressions)
     
     summary_component = dbc.Alert([
-        html.H5([icon, f" Summary"], className="mb-2"),
+        html.Strong([icon, f" {num_regressions} regression(s) detected"]),
+        html.Br(),
+        html.Small(f"{num_comparisons} test×hardware comparison(s) | {hw_summary}", className="text-muted"),
+        html.Hr(className="my-2"),
+        dcc.Markdown(summary_text)
+    ], color="warning" if num_regressions > 0 else "success")
+    
+    return fig, summary_component
+
+
+@app.callback(
+    [Output('q1-rhel9-graph', 'figure'),
+     Output('q1-rhel9-summary', 'children')],
+    Input('analysis-results-store', 'data')
+)
+def update_rhel9_sequential(analysis_json):
+    """Update RHEL 9 sequential comparison."""
+    import pandas as pd
+    
+    if not analysis_json:
+        return visualizations.create_empty_figure("Loading..."), ""
+    
+    analysis = json.loads(analysis_json)
+    q1_data = analysis.get('q1', {})
+    comp_data = q1_data.get('rhel9_sequential')
+    
+    if not comp_data:
+        return visualizations.create_empty_figure("No data available for this comparison"), dbc.Alert("No data available", color="info")
+    
+    # Recreate DataFrame from JSON
+    if comp_data.get('comparison_data'):
+        comparison_df = pd.read_json(StringIO(comp_data['comparison_data']), orient='split')
+        fig = visualizations.create_version_comparison_bar_chart(
+            comparison_df,
+            comp_data['baseline_version'],
+            comp_data['comparison_version']
+        )
+    else:
+        fig = visualizations.create_empty_figure("No data available")
+    
+    # Format summary with hardware information
+    num_regressions = comp_data.get('num_regressions', 0)
+    num_comparisons = comp_data.get('num_comparisons', 0)
+    summary_text = comp_data.get('summary', 'No analysis available')
+    hw_summary = comp_data.get('hardware_summary', '')
+    icon = get_status_icon(num_regressions)
+    
+    summary_component = dbc.Alert([
+        html.Strong([icon, f" {num_regressions} regression(s) detected"]),
+        html.Br(),
+        html.Small(f"{num_comparisons} test×hardware comparison(s) | {hw_summary}", className="text-muted"),
+        html.Hr(className="my-2"),
+        dcc.Markdown(summary_text)
+    ], color="warning" if num_regressions > 0 else "success")
+    
+    return fig, summary_component
+
+
+@app.callback(
+    [Output('q1-rhel10-graph', 'figure'),
+     Output('q1-rhel10-summary', 'children')],
+    Input('analysis-results-store', 'data')
+)
+def update_rhel10_sequential(analysis_json):
+    """Update RHEL 10 sequential comparison."""
+    import pandas as pd
+    
+    if not analysis_json:
+        return visualizations.create_empty_figure("Loading..."), ""
+    
+    analysis = json.loads(analysis_json)
+    q1_data = analysis.get('q1', {})
+    comp_data = q1_data.get('rhel10_sequential')
+    
+    if not comp_data:
+        return visualizations.create_empty_figure("No data available for this comparison"), dbc.Alert("No data available", color="info")
+    
+    # Recreate DataFrame from JSON
+    if comp_data.get('comparison_data'):
+        comparison_df = pd.read_json(StringIO(comp_data['comparison_data']), orient='split')
+        fig = visualizations.create_version_comparison_bar_chart(
+            comparison_df,
+            comp_data['baseline_version'],
+            comp_data['comparison_version']
+        )
+    else:
+        fig = visualizations.create_empty_figure("No data available")
+    
+    # Format summary with hardware information
+    num_regressions = comp_data.get('num_regressions', 0)
+    num_comparisons = comp_data.get('num_comparisons', 0)
+    summary_text = comp_data.get('summary', 'No analysis available')
+    hw_summary = comp_data.get('hardware_summary', '')
+    icon = get_status_icon(num_regressions)
+    
+    summary_component = dbc.Alert([
+        html.Strong([icon, f" {num_regressions} regression(s) detected"]),
+        html.Br(),
+        html.Small(f"{num_comparisons} test×hardware comparison(s) | {hw_summary}", className="text-muted"),
+        html.Hr(className="my-2"),
         dcc.Markdown(summary_text)
     ], color="warning" if num_regressions > 0 else "success")
     
@@ -552,14 +758,17 @@ def render_main_content(nav_state):
 
 @app.callback(
     Output('navigation-state', 'data'),
-    [Input('q1-heatmap', 'clickData'),
+    [Input('q1-major-graph', 'clickData'),
+     Input('q1-rhel9-graph', 'clickData'),
+     Input('q1-rhel10-graph', 'clickData'),
      Input('btn-view-benchmarks', 'n_clicks'),
      Input('btn-view-comparisons', 'n_clicks'),
      Input('btn-view-table', 'n_clicks')],
-    State('navigation-state', 'data'),
+    [State('navigation-state', 'data'),
+     State('analysis-results-store', 'data')],
     prevent_initial_call=True
 )
-def handle_navigation(heatmap_click, benchmarks_click, comparisons_click, table_click, current_nav):
+def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, comparisons_click, table_click, current_nav, analysis_json):
     """Handle navigation between views."""
     from dash import ctx
     
@@ -568,35 +777,43 @@ def handle_navigation(heatmap_click, benchmarks_click, comparisons_click, table_
     
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    # Heatmap cell click - drill into investigation
-    if trigger_id == 'q1-heatmap' and heatmap_click:
-        # Extract test name and versions from click data
-        try:
-            point = heatmap_click['points'][0]
-            test_name = point.get('y', 'Unknown')
-            version_transition = point.get('x', '')
-            
-            # Parse version transition (e.g., "9.5→9.6")
-            if '→' in version_transition:
-                versions = version_transition.split('→')
-                baseline_version = versions[0].strip()
-                comparison_version = versions[1].strip()
-            else:
-                baseline_version = 'N/A'
-                comparison_version = 'N/A'
-            
-            return {
-                'view': 'investigation',
-                'investigation_params': {
-                    'test_name': test_name,
-                    'baseline_version': baseline_version,
-                    'comparison_version': comparison_version,
-                    'os_distribution': 'rhel'  # Q1 is RHEL-specific
-                }
-            }
-        except Exception as e:
-            print(f"Error parsing heatmap click: {e}")
-            return current_nav
+    # Bar chart click - drill into investigation
+    if trigger_id in ['q1-major-graph', 'q1-rhel9-graph', 'q1-rhel10-graph']:
+        click_data = None
+        comp_key = None
+        
+        if trigger_id == 'q1-major-graph' and major_click:
+            click_data = major_click
+            comp_key = 'major_release_comparison'
+        elif trigger_id == 'q1-rhel9-graph' and rhel9_click:
+            click_data = rhel9_click
+            comp_key = 'rhel9_sequential'
+        elif trigger_id == 'q1-rhel10-graph' and rhel10_click:
+            click_data = rhel10_click
+            comp_key = 'rhel10_sequential'
+        
+        if click_data and analysis_json:
+            try:
+                analysis = json.loads(analysis_json)
+                q1_data = analysis.get('q1', {})
+                comp_data = q1_data.get(comp_key)
+                
+                if comp_data:
+                    point = click_data['points'][0]
+                    test_name = point.get('y', 'Unknown')
+                    
+                    return {
+                        'view': 'investigation',
+                        'investigation_params': {
+                            'test_name': test_name,
+                            'baseline_version': comp_data['baseline_version'],
+                            'comparison_version': comp_data['comparison_version'],
+                            'os_distribution': 'rhel'
+                        }
+                    }
+            except Exception as e:
+                print(f"Error parsing bar chart click: {e}")
+                return current_nav
     
     # Other navigation buttons - stay on overview for now (future: navigate to specific tabs)
     return current_nav

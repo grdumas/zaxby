@@ -153,7 +153,7 @@ app.layout = dbc.Container([
             "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
             "borderRadius": "0.75rem"
         })
-    ], className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
+    ], id="dashboard-header", className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
     
     # Advanced Filters Collapse
     dbc.Collapse([

@@ -216,6 +216,41 @@ body.dark-mode .Select-value-label {
   color: #f1f5f9 !important;
 }
 
+body.dark-mode .Select-value {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-mode .Select-input input {
+  background-color: transparent !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-mode .Select-placeholder {
+  color: #64748b !important;
+}
+
+body.dark-mode .Select-clear-zone,
+body.dark-mode .Select-arrow-zone {
+  color: #94a3b8 !important;
+}
+
+body.dark-mode .Select--multi .Select-value {
+  background-color: #3b82f6 !important;
+  border-color: #60a5fa !important;
+  color: #ffffff !important;
+}
+
+body.dark-mode .Select--multi .Select-value-icon {
+  border-right-color: #60a5fa !important;
+}
+
+body.dark-mode .Select--multi .Select-value-icon:hover {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
 /* Labels in Dark Mode */
 body.dark-mode label {
   color: #cbd5e1 !important;
@@ -254,6 +289,24 @@ body.dark-mode .js-plotly-plot text {
 body.dark-mode .js-plotly-plot .xtick text,
 body.dark-mode .js-plotly-plot .ytick text {
   fill: #94a3b8 !important;
+}
+
+/* Plotly legend and other elements */
+body.dark-mode .js-plotly-plot .legend,
+body.dark-mode .js-plotly-plot .legend .bg {
+  fill: #1e293b !important;
+}
+
+body.dark-mode .js-plotly-plot .modebar {
+  background-color: transparent !important;
+}
+
+body.dark-mode .js-plotly-plot .modebar-btn path {
+  fill: #94a3b8 !important;
+}
+
+body.dark-mode .js-plotly-plot .modebar-btn:hover path {
+  fill: #f1f5f9 !important;
 }
 
 /* Collapse Sections in Dark Mode */
@@ -365,7 +418,7 @@ body.dark-mode *:focus {
   left: 3px;
   width: 24px;
   height: 24px;
-  background-color: #ffffff;
+  background-color: #f1f5f9;
   border-radius: 50%;
   transition: transform 0.3s ease;
   display: flex;
@@ -405,6 +458,53 @@ body.dark-mode .card.mb-4:nth-of-type(4) {
 body.dark-mode small,
 body.dark-mode .small {
   color: #94a3b8 !important;
+}
+
+/* Override any inline white backgrounds */
+body.dark-mode [style*="background: linear-gradient(135deg, #ffffff"],
+body.dark-mode [style*="background:linear-gradient(135deg, #ffffff"],
+body.dark-mode [style*="background-color: #ffffff"],
+body.dark-mode [style*="backgroundColor: #ffffff"],
+body.dark-mode [style*="background: #ffffff"],
+body.dark-mode [style*="background: white"],
+body.dark-mode [style*="background-color: white"],
+body.dark-mode [style*="background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)"] {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+}
+
+/* Dashboard header card - override inline styles */
+body.dark-mode .card > .card-body[style*="background"] {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+}
+
+body.dark-mode #dashboard-header,
+body.dark-mode #dashboard-header .card-body {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+}
+
+body.dark-mode #dashboard-header hr {
+  border-top-color: #475569 !important;
+}
+
+/* Catch-all for Bootstrap and common white backgrounds */
+body.dark-mode .bg-white,
+body.dark-mode .bg-light {
+  background-color: #1e293b !important;
+}
+
+body.dark-mode .modal-content,
+body.dark-mode .dropdown-menu,
+body.dark-mode .popover,
+body.dark-mode .tooltip-inner {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+}
+
+/* Ensure all divs with white backgrounds are dark */
+body.dark-mode div[style*="white"],
+body.dark-mode div[style*="#fff"] {
+  background-color: #1e293b !important;
 }
 
 /* Print Styles - Force Light Mode */

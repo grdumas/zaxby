@@ -553,14 +553,13 @@ def render_main_content(nav_state):
 @app.callback(
     Output('navigation-state', 'data'),
     [Input('q1-heatmap', 'clickData'),
-     Input('btn-back-to-overview', 'n_clicks'),
      Input('btn-view-benchmarks', 'n_clicks'),
      Input('btn-view-comparisons', 'n_clicks'),
      Input('btn-view-table', 'n_clicks')],
     State('navigation-state', 'data'),
     prevent_initial_call=True
 )
-def handle_navigation(heatmap_click, back_click, benchmarks_click, comparisons_click, table_click, current_nav):
+def handle_navigation(heatmap_click, benchmarks_click, comparisons_click, table_click, current_nav):
     """Handle navigation between views."""
     from dash import ctx
     
@@ -568,10 +567,6 @@ def handle_navigation(heatmap_click, back_click, benchmarks_click, comparisons_c
         return current_nav
     
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    # Back to overview
-    if trigger_id == 'btn-back-to-overview':
-        return {'view': 'overview', 'investigation_params': None}
     
     # Heatmap cell click - drill into investigation
     if trigger_id == 'q1-heatmap' and heatmap_click:
@@ -605,6 +600,16 @@ def handle_navigation(heatmap_click, back_click, benchmarks_click, comparisons_c
     
     # Other navigation buttons - stay on overview for now (future: navigate to specific tabs)
     return current_nav
+
+
+@app.callback(
+    Output('navigation-state', 'data', allow_duplicate=True),
+    Input('btn-back-to-overview', 'n_clicks'),
+    prevent_initial_call=True
+)
+def handle_back_to_overview(n_clicks):
+    """Handle back to overview navigation."""
+    return {'view': 'overview', 'investigation_params': None}
 
 
 @app.callback(

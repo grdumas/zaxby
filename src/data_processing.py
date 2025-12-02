@@ -434,6 +434,28 @@ class BenchmarkDataProcessor:
         
         return df_copy
     
+    def _sort_versions(self, versions: List[str]) -> List[str]:
+        """
+        Sort OS versions in natural order (e.g., 9.2, 9.3, ..., 9.6, 10.0, 10.1).
+        
+        Args:
+            versions: List of version strings
+            
+        Returns:
+            Sorted list of version strings
+        """
+        def version_key(version_str):
+            """Convert version string to tuple for natural sorting."""
+            try:
+                # Split on '.' and convert each part to int
+                parts = version_str.split('.')
+                return tuple(int(part) for part in parts)
+            except (ValueError, AttributeError):
+                # If conversion fails, return a tuple that sorts last
+                return (999, 999, version_str)
+        
+        return sorted(versions, key=version_key)
+    
     def analyze_os_version_regressions(
         self,
         df: pd.DataFrame,
@@ -469,7 +491,7 @@ class BenchmarkDataProcessor:
         
         # Auto-detect OS versions if not provided
         if not os_versions:
-            os_versions = sorted(df_os['os_version'].dropna().unique())
+            os_versions = self._sort_versions(df_os['os_version'].dropna().unique())
         
         if len(os_versions) < 2:
             return {

@@ -31,7 +31,7 @@ class SyntheticDataGenerator:
         # Expanded configuration based on discovered schema
         # OS configurations: distribution -> list of versions
         self.os_configs = {
-            "rhel": ["9.2", "9.3", "9.4", "9.5", "9.6"],
+            "rhel": ["9.2", "9.3", "9.4", "9.5", "9.6", "10.0", "10.1"],
             "ubuntu": ["20.04", "22.04", "24.04"],
             "amazon": ["2", "2023"],
             "sles": ["15.4", "15.5", "15.6"]
@@ -251,20 +251,61 @@ class SyntheticDataGenerator:
         return documents
     
     def _generate_scenarios(self, num_scenarios: int) -> List[Dict[str, Any]]:
-        """Generate a diverse set of test scenarios with controlled distribution."""
+        """
+        Generate a diverse set of test scenarios with controlled distribution.
+        
+        Ensures comprehensive coverage by:
+        1. Running all test types across all RHEL versions (for regression analysis)
+        2. Providing good coverage for other OS distributions
+        3. Filling remaining scenarios with random combinations
+        """
         scenarios = []
         
-        # Ensure each test type is represented
-        for i in range(num_scenarios):
-            # Select OS distribution and version
+        # Phase 1: Ensure COMPLETE coverage for RHEL regression analysis
+        # Run every test type on every RHEL version
+        rhel_versions = self.os_configs["rhel"]
+        for rhel_version in rhel_versions:
+            for test_type in self.test_types:
+                # Vary cloud providers and instance types for diversity
+                cloud_provider = random.choice(self.cloud_providers)
+                instance_type = random.choice(self.instance_types[cloud_provider])
+                
+                scenarios.append({
+                    "os_distribution": "rhel",
+                    "os_version": rhel_version,
+                    "cloud_provider": cloud_provider,
+                    "instance_type": instance_type,
+                    "test_type": test_type
+                })
+        
+        print(f"  Phase 1: Generated {len(scenarios)} RHEL scenarios (all tests × all versions)")
+        
+        # Phase 2: Ensure good coverage for other OS distributions
+        # Run each test type on each version of other distributions
+        other_os_distributions = [os_dist for os_dist in self.os_configs.keys() if os_dist != "rhel"]
+        for os_distribution in other_os_distributions:
+            for os_version in self.os_configs[os_distribution]:
+                for test_type in self.test_types:
+                    cloud_provider = random.choice(self.cloud_providers)
+                    instance_type = random.choice(self.instance_types[cloud_provider])
+                    
+                    scenarios.append({
+                        "os_distribution": os_distribution,
+                        "os_version": os_version,
+                        "cloud_provider": cloud_provider,
+                        "instance_type": instance_type,
+                        "test_type": test_type
+                    })
+        
+        print(f"  Phase 2: Generated {len(scenarios)} total scenarios (including other OS)")
+        
+        # Phase 3: Add random scenarios to reach num_scenarios if needed
+        while len(scenarios) < num_scenarios:
             os_distribution = random.choice(list(self.os_configs.keys()))
             os_version = random.choice(self.os_configs[os_distribution])
-            
             cloud_provider = random.choice(self.cloud_providers)
             instance_type = random.choice(self.instance_types[cloud_provider])
-            
-            # Cycle through test types to ensure coverage
-            test_type = self.test_types[i % len(self.test_types)]
+            test_type = random.choice(self.test_types)
             
             scenarios.append({
                 "os_distribution": os_distribution,
@@ -273,6 +314,27 @@ class SyntheticDataGenerator:
                 "instance_type": instance_type,
                 "test_type": test_type
             })
+        
+        # If we have more scenarios than needed, randomly sample to match requested count
+        if len(scenarios) > num_scenarios:
+            print(f"  Note: Generated {len(scenarios)} base scenarios, randomly sampling {num_scenarios}")
+            # Keep all RHEL scenarios, sample from the rest
+            rhel_scenarios = [s for s in scenarios if s["os_distribution"] == "rhel"]
+            other_scenarios = [s for s in scenarios if s["os_distribution"] != "rhel"]
+            
+            # If we have room for RHEL and some others
+            if num_scenarios >= len(rhel_scenarios):
+                remaining = num_scenarios - len(rhel_scenarios)
+                random.shuffle(other_scenarios)
+                scenarios = rhel_scenarios + other_scenarios[:remaining]
+            else:
+                # If num_scenarios is too small, at least keep proportional RHEL coverage
+                print(f"  Warning: num_scenarios ({num_scenarios}) is small, reducing RHEL coverage")
+                random.shuffle(scenarios)
+                scenarios = scenarios[:num_scenarios]
+        
+        # Shuffle to avoid temporal clustering by OS type
+        random.shuffle(scenarios)
         
         return scenarios
     
@@ -473,8 +535,16 @@ class SyntheticDataGenerator:
     def _get_kernel_version(self, os_distribution: str, os_version: str) -> str:
         """Generate realistic kernel version for the given OS distribution and version."""
         if os_distribution == "rhel":
-            minor = os_version.split('.')[1] if '.' in os_version else os_version
-            return f"5.14.0-503.11.1.el9_{minor}.x86_64"
+            # Handle both RHEL 9.x and 10.x
+            major = os_version.split('.')[0] if '.' in os_version else os_version
+            minor = os_version.split('.')[1] if '.' in os_version else "0"
+            
+            if major == "10":
+                # RHEL 10 uses newer kernel (6.x series)
+                return f"6.8.0-203.11.1.el10_{minor}.x86_64"
+            else:
+                # RHEL 9 uses 5.14.0 kernel
+                return f"5.14.0-503.11.1.el9_{minor}.x86_64"
         elif os_distribution == "ubuntu":
             # Ubuntu kernel versions based on release
             kernel_map = {
@@ -751,17 +821,22 @@ def main():
     print("\nGenerating comprehensive synthetic benchmark data...")
     print("This may take a moment...\n")
     
-    # Generate main dataset with expanded coverage
+    # Calculate scenario count to ensure complete coverage
+    # RHEL: 7 versions × 12 tests = 84 scenarios
+    # Other OS: 3 distributions × (3+2+3) versions × 12 tests = 288 scenarios
+    # Total base: 372 scenarios
+    # We'll generate more for additional diversity
+    
+    print("Phase-based scenario generation:")
     documents = generator.generate_dataset(
-        num_scenarios=100,  # Increased from 30
-        iterations_per_scenario=8,  # Increased from 5
+        num_scenarios=500,  # Increased to accommodate full coverage + extras
+        iterations_per_scenario=5,  # Keep reasonable for file size
         include_temporal_trends=True,
         include_failures=True
     )
     
-    print(f"✓ Generated {len(documents)} documents")
-    print(f"  Unique scenarios: 100")
-    print(f"  Iterations per scenario: 8")
+    print(f"\n✓ Generated {len(documents)} documents")
+    print(f"  Iterations per scenario: 5")
     print(f"  Temporal range: 180 days")
     
     # Save to file

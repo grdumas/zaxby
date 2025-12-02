@@ -124,7 +124,7 @@ body.dark-mode .alert-success {
 }
 
 body.dark-mode .alert-warning {
-  background: linear-gradient(135deg, #78350f 0%, #92400e 100%) !important;
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e4976 100%) !important;
   border-left-color: #fbbf24 !important;
   color: #fef3c7 !important;
 }

@@ -1,5 +1,5 @@
 """
-Performance Engineering Dashboard - Redesigned
+RHEL Multi Arch Performance Engineering Dashboard - Redesigned
 
 Main Dash application for visualizing benchmark results with three key analyses:
 1. RHEL Regression Analysis: Track version-to-version performance changes
@@ -37,7 +37,7 @@ app = Dash(
     external_stylesheets=[dbc.themes.BOOTSTRAP],
     suppress_callback_exceptions=True
 )
-app.title = "Performance Engineering Dashboard"
+app.title = "RHEL Multi Arch Performance Engineering Dashboard"
 
 # Determine data mode
 DATA_MODE = os.getenv('DATA_MODE', 'synthetic').lower()
@@ -90,7 +90,7 @@ app.layout = dbc.Container([
                     html.Div([
                         html.H1([
                             html.Span("🔬 ", style={"fontSize": "2rem"}),
-                            "Performance Engineering Dashboard"
+                            "RHEL Multi Arch Performance Engineering Dashboard"
                         ], className="mb-2"),
                         html.P(
                             "Benchmark Analysis & Regression Detection",
@@ -1055,7 +1055,7 @@ if __name__ == '__main__':
     debug = os.getenv('DEBUG', 'True').lower() == 'true'
     
     print("\n" + "="*60)
-    print("Performance Engineering Dashboard (Redesigned)")
+    print("RHEL Multi Arch Performance Engineering Dashboard (Redesigned)")
     print("="*60)
     print(f"Data Mode: {DATA_MODE.upper()}")
     print(f"Records Loaded: {len(df)}")

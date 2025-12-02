@@ -406,9 +406,10 @@ def update_filtered_data(os_vers, inst_types, tests, clouds, start_date, end_dat
     # Convert date strings to timezone-aware datetime objects
     date_range_param = None
     if start_date and end_date:
-        from datetime import timezone
+        from datetime import timezone, timedelta
         start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
-        end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+        # Set end_dt to end of day (23:59:59) to include all records on that date
+        end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
         date_range_param = (start_dt, end_dt)
     
     filtered_df = processor.filter_data(

@@ -25,6 +25,9 @@ Essential technical documentation for working with the dashboard:
 
 Documentation of bugs that have been identified and resolved:
 
+- **[DATE_FILTER_BUG_FIX.md](fixes/DATE_FILTER_BUG_FIX.md)** ⭐ NEW  
+  Fixed date filter excluding end-of-day records, causing only 3-5 benchmarks to appear instead of all 12 (Dec 2025)
+
 - **[OS_REGRESSION_FIX.md](fixes/OS_REGRESSION_FIX.md)**  
   Fixed OS version regression analysis to compare within same OS distribution only (Dec 2025)
 
@@ -73,6 +76,7 @@ docs/
 │   ├── OPENSEARCH_CONNECTION_GUIDE.md
 │   └── SCHEMA.md
 ├── fixes/                       # Bug fix documentation
+│   ├── DATE_FILTER_BUG_FIX.md
 │   ├── OS_REGRESSION_FIX.md
 │   ├── FIX_SUMMARY.md
 │   ├── SCALE_FIX_SUMMARY.md

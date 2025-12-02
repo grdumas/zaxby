@@ -306,6 +306,11 @@ def create_overview_layout():
             }),
             dbc.Collapse([
                 dbc.CardBody([
+                    html.Div([
+                        html.P("Compare RHEL performance against peer operating systems on the same hardware:", 
+                               className="text-muted mb-3"),
+                        html.Div(id='q2-comparison-selector', className="mb-4"),
+                    ]),
                     dbc.Row([
                         dbc.Col([
                             dcc.Loading(
@@ -632,12 +637,9 @@ def analyze_filtered_data(filtered_data_json):
             'total_regressions': 0
         }
     
-    # Section 2: Competitive Performance
-    try:
-        results['q2'] = processor.analyze_peer_os_comparison(filtered_df, baseline_os='RHEL')
-    except Exception as e:
-        print(f"Error in Competitive Performance analysis: {e}")
-        results['q2'] = {'summary': 'Analysis error', 'comparison_data': pd.DataFrame()}
+    # Section 2: Competitive Performance (computed on-demand per user selection)
+    # Just store a placeholder since we'll compute this when user selects a comparison
+    results['q2'] = {'computed': 'on_demand'}
     
     # Section 3: Cloud Scaling (will be done dynamically based on user selection)
     results['q3'] = {}
@@ -650,9 +652,7 @@ def analyze_filtered_data(filtered_data_json):
             if 'comparison_data' in comp and isinstance(comp['comparison_data'], pd.DataFrame):
                 comp['comparison_data'] = comp['comparison_data'].to_json(orient='split')
     
-    # Q2 peer comparison
-    if 'comparison_data' in results['q2'] and isinstance(results['q2']['comparison_data'], pd.DataFrame):
-        results['q2']['comparison_data'] = results['q2']['comparison_data'].to_json(orient='split')
+    # Q2 is computed on-demand, no serialization needed
     
     return json.dumps(results)
 
@@ -826,32 +826,99 @@ def update_rhel10_sequential(analysis_json):
 
 
 @app.callback(
-    [Output('q2-comparison', 'figure'),
-     Output('q2-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    Output('q2-comparison-selector', 'children'),
+    Input('filtered-data-store', 'data')
 )
-def update_question2(analysis_json):
-    """Update Competitive Performance section visualizations."""
+def update_q2_comparison_selector(filtered_data_json):
+    """Update competitive comparison selector with available comparisons."""
     import pandas as pd
     
-    if not analysis_json:
-        empty_fig = visualizations.create_empty_figure("Loading...")
-        return empty_fig, "Analyzing..."
+    if not filtered_data_json:
+        return html.Div("Loading comparison options...", className="text-muted")
     
-    analysis = json.loads(analysis_json)
-    q2_data = analysis.get('q2', {})
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
-    # Recreate DataFrame from JSON
-    if 'comparison_data' in q2_data and q2_data['comparison_data']:
-        comparison_df = pd.read_json(StringIO(q2_data['comparison_data']), orient='split')
-        fig = visualizations.create_peer_os_comparison_chart(comparison_df, baseline_os="RHEL")
+    # Get available comparisons
+    available_comparisons = processor._get_available_comparisons(filtered_df, 'rhel')
+    
+    if not available_comparisons:
+        return dbc.Alert([
+            html.Strong("⚠️ No competitive comparisons available"),
+            html.Br(),
+            html.Small("Competitive comparisons require both RHEL and peer OS data on the same hardware.", 
+                      className="text-muted")
+        ], color="warning")
+    
+    # Create radio buttons for quick comparison selection
+    radio_options = [
+        {"label": comp['label'], "value": json.dumps(comp)} 
+        for comp in available_comparisons
+    ]
+    
+    return dbc.Row([
+        dbc.Col([
+            html.Label("Select Comparison:", className="fw-bold mb-2"),
+            dcc.RadioItems(
+                id='q2-comparison-choice',
+                options=radio_options,
+                value=json.dumps(available_comparisons[0]) if available_comparisons else None,
+                className="mb-2",
+                labelClassName="d-block mb-1",
+                inputClassName="me-2"
+            ),
+        ], width=12)
+    ])
+
+
+@app.callback(
+    [Output('q2-comparison', 'figure'),
+     Output('q2-summary', 'children')],
+    [Input('q2-comparison-choice', 'value'),
+     Input('filtered-data-store', 'data')]
+)
+def update_question2(comparison_choice, filtered_data_json):
+    """Update Competitive Performance section visualizations based on selected comparison."""
+    import pandas as pd
+    
+    if not filtered_data_json or not comparison_choice:
+        empty_fig = visualizations.create_empty_figure("Select a comparison to view results")
+        return empty_fig, ""
+    
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Parse the selected comparison
+    try:
+        comp_config = json.loads(comparison_choice)
+    except:
+        empty_fig = visualizations.create_empty_figure("Invalid comparison selection")
+        return empty_fig, dbc.Alert("Invalid comparison selection", color="danger")
+    
+    # Run targeted competitive analysis
+    q2_result = processor.analyze_peer_os_comparison(
+        filtered_df,
+        baseline_os='rhel',
+        peer_os_list=[comp_config['peer_os']],
+        baseline_version=comp_config['baseline_version'],
+        peer_version=comp_config['peer_version'],
+        cloud_provider=comp_config['cloud_provider'],
+        instance_type=None  # Don't filter to single HW, show all common HW
+    )
+    
+    # Create visualization
+    if not q2_result['comparison_data'].empty:
+        comparison_df = q2_result['comparison_data']
+        fig = visualizations.create_peer_os_comparison_chart(
+            comparison_df, 
+            baseline_os="RHEL",
+            title=f"Performance Comparison: {comp_config['label']}"
+        )
     else:
-        fig = visualizations.create_empty_figure("No peer comparison data available")
+        fig = visualizations.create_empty_figure("No comparison data available for selected configuration")
     
     # Format summary
-    summary_text = format_peer_comparison_summary(q2_data)
-    competitive_count = q2_data.get('competitive_count', 0)
-    total_benchmarks = q2_data.get('total_benchmarks', 0)
+    summary_text = q2_result.get('summary', 'No summary available')
+    competitive_count = q2_result.get('competitive_count', 0)
+    total_benchmarks = q2_result.get('total_benchmarks', 0)
     
     # Determine status based on data availability and competitiveness
     if total_benchmarks == 0:
@@ -862,7 +929,7 @@ def update_question2(analysis_json):
         # Data available - check competitiveness
         is_competitive = competitive_count >= (total_benchmarks * 0.7)
         status_icon = get_status_icon(0 if is_competitive else 3)
-        alert_color = "success" if is_competitive else "warning"
+        alert_color = "success" if is_competitive else "info"
     
     summary_component = dbc.Alert([
         html.H5([status_icon, " Summary"], className="mb-2"),

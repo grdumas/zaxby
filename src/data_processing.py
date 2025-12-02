@@ -817,7 +817,11 @@ class BenchmarkDataProcessor:
         self,
         df: pd.DataFrame,
         baseline_os: str = 'RHEL',
-        peer_os_list: Optional[List[str]] = None
+        peer_os_list: Optional[List[str]] = None,
+        baseline_version: Optional[str] = None,
+        peer_version: Optional[str] = None,
+        cloud_provider: Optional[str] = None,
+        instance_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Compare RHEL performance against peer operating systems.
@@ -826,11 +830,37 @@ class BenchmarkDataProcessor:
             df: Input DataFrame
             baseline_os: OS to use as baseline (default: RHEL)
             peer_os_list: List of peer OS vendors to compare, or None for auto-detect
+            baseline_version: Specific baseline OS version (e.g., "10.1")
+            peer_version: Specific peer OS version (e.g., "24.04")
+            cloud_provider: Specific cloud provider to filter by
+            instance_type: Specific instance type for hardware-specific comparison
             
         Returns:
-            Dictionary with peer comparison results
+            Dictionary with peer comparison results including hardware-aware comparisons
         """
         df_with_cats = self.add_benchmark_categories(df)
+        
+        # Apply version filters if specified
+        if baseline_version:
+            df_with_cats = df_with_cats[
+                (df_with_cats['os_vendor'] != baseline_os) | 
+                (df_with_cats['os_version'] == baseline_version)
+            ]
+        
+        if peer_version and peer_os_list and len(peer_os_list) == 1:
+            # Filter peer OS to specific version
+            df_with_cats = df_with_cats[
+                (df_with_cats['os_vendor'] != peer_os_list[0]) | 
+                (df_with_cats['os_version'] == peer_version)
+            ]
+        
+        # Apply cloud provider filter if specified
+        if cloud_provider:
+            df_with_cats = df_with_cats[df_with_cats['cloud_provider'] == cloud_provider]
+        
+        # Apply instance type filter if specified
+        if instance_type:
+            df_with_cats = df_with_cats[df_with_cats['instance_type'] == instance_type]
         
         # Auto-detect OS vendors if not provided
         if not peer_os_list:
@@ -842,10 +872,11 @@ class BenchmarkDataProcessor:
                 'comparison_data': pd.DataFrame(),
                 'summary': 'No peer operating systems found for comparison',
                 'competitive_count': 0,
-                'total_benchmarks': 0
+                'total_benchmarks': 0,
+                'available_comparisons': []
             }
         
-        # Group by benchmark category and compare
+        # Group by benchmark category, hardware, and compare
         comparison_results = []
         
         for category in df_with_cats['benchmark_category'].unique():
@@ -854,51 +885,86 @@ class BenchmarkDataProcessor:
             for test in category_df['test_name'].unique():
                 test_df = category_df[category_df['test_name'] == test]
                 
-                baseline_data = test_df[test_df['os_vendor'] == baseline_os]['primary_metric_value']
-                
-                if len(baseline_data) > 0:
-                    baseline_mean = baseline_data.mean()
+                # Group by hardware to ensure apples-to-apples comparison
+                for hw in test_df['instance_type'].dropna().unique():
+                    hw_test_df = test_df[test_df['instance_type'] == hw]
                     
-                    for peer_os in peer_os_list:
-                        peer_data = test_df[test_df['os_vendor'] == peer_os]['primary_metric_value']
+                    baseline_data = hw_test_df[hw_test_df['os_vendor'] == baseline_os]['primary_metric_value']
+                    
+                    if len(baseline_data) > 0:
+                        baseline_mean = baseline_data.mean()
+                        baseline_std = baseline_data.std()
+                        baseline_count = len(baseline_data)
                         
-                        if len(peer_data) > 0:
-                            peer_mean = peer_data.mean()
-                            relative_perf = (peer_mean / baseline_mean) * 100 if baseline_mean > 0 else 100
+                        for peer_os in peer_os_list:
+                            peer_data = hw_test_df[hw_test_df['os_vendor'] == peer_os]['primary_metric_value']
                             
-                            comparison_results.append({
-                                'benchmark_category': category,
-                                'test_name': test,
-                                'baseline_os': baseline_os,
-                                'peer_os': peer_os,
-                                'baseline_value': baseline_mean,
-                                'peer_value': peer_mean,
-                                'relative_performance': relative_perf,
-                                'is_competitive': relative_perf >= 90  # Within 10%
-                            })
+                            if len(peer_data) > 0:
+                                peer_mean = peer_data.mean()
+                                peer_std = peer_data.std()
+                                peer_count = len(peer_data)
+                                relative_perf = (peer_mean / baseline_mean) * 100 if baseline_mean > 0 else 100
+                                
+                                # Get actual versions used in comparison (convert to strings)
+                                baseline_versions = [str(v) for v in hw_test_df[hw_test_df['os_vendor'] == baseline_os]['os_version'].unique()]
+                                peer_versions = [str(v) for v in hw_test_df[hw_test_df['os_vendor'] == peer_os]['os_version'].unique()]
+                                
+                                comparison_results.append({
+                                    'benchmark_category': category,
+                                    'test_name': test,
+                                    'baseline_os': baseline_os,
+                                    'peer_os': peer_os,
+                                    'baseline_version': ', '.join(sorted(baseline_versions)),
+                                    'peer_version': ', '.join(sorted(peer_versions)),
+                                    'instance_type': hw,
+                                    'cloud_provider': hw_test_df['cloud_provider'].iloc[0],
+                                    'baseline_value': baseline_mean,
+                                    'baseline_std': baseline_std,
+                                    'baseline_count': baseline_count,
+                                    'peer_value': peer_mean,
+                                    'peer_std': peer_std,
+                                    'peer_count': peer_count,
+                                    'relative_performance': relative_perf,
+                                    'is_competitive': relative_perf >= 90  # Within 10%
+                                })
         
         comparison_df = pd.DataFrame(comparison_results)
+        
+        # Get available comparison combinations
+        available_comparisons = self._get_available_comparisons(df_with_cats, baseline_os)
         
         # Generate summary
         if not comparison_df.empty:
             total_comparisons = len(comparison_df)
             competitive_count = comparison_df['is_competitive'].sum()
             
+            # Find areas where RHEL wins
+            rhel_advantages = comparison_df[comparison_df['relative_performance'] < 85].sort_values('relative_performance')
+            
             # Find areas where peers are significantly better
             peer_advantages = comparison_df[comparison_df['relative_performance'] > 115].sort_values('relative_performance', ascending=False)
             
-            summary_lines = [f"{baseline_os} competitive in {competitive_count}/{total_comparisons} benchmark comparisons"]
+            summary_lines = [f"**{baseline_os} competitive in {competitive_count}/{total_comparisons} benchmark×hardware comparisons**"]
+            
+            if len(rhel_advantages) > 0:
+                summary_lines.append(f"\n**{baseline_os} Performance Advantages:**")
+                for _, row in rhel_advantages.head(3).iterrows():
+                    advantage = 100 - row['relative_performance']
+                    summary_lines.append(
+                        f"✓ {advantage:.0f}% faster than {row['peer_os']} in {row['test_name']} on {row['instance_type']}"
+                    )
             
             if len(peer_advantages) > 0:
+                summary_lines.append(f"\n**Areas for Improvement:**")
                 for _, row in peer_advantages.head(3).iterrows():
                     advantage = row['relative_performance'] - 100
                     summary_lines.append(
-                        f"⚠️ {row['peer_os']} {advantage:.0f}% faster in {row['test_name']}"
+                        f"⚠️ {row['peer_os']} {advantage:.0f}% faster in {row['test_name']} on {row['instance_type']}"
                     )
             
             summary = '\n'.join(summary_lines)
         else:
-            summary = "Insufficient data for peer comparison"
+            summary = "⚠️ **No competitive comparison data available**\n\nPlease adjust filters or ensure test data exists for the selected configuration."
             competitive_count = 0
             total_comparisons = 0
         
@@ -906,8 +972,107 @@ class BenchmarkDataProcessor:
             'comparison_data': comparison_df,
             'summary': summary,
             'competitive_count': competitive_count,
-            'total_benchmarks': total_comparisons
+            'total_benchmarks': total_comparisons,
+            'available_comparisons': available_comparisons
         }
+    
+    def _get_available_comparisons(self, df: pd.DataFrame, baseline_os: str) -> List[Dict[str, Any]]:
+        """
+        Get list of available competitive comparisons based on data.
+        
+        Returns list of dicts with comparison metadata for UI toggles.
+        Generates comparisons for latest minor version of each MAJOR version.
+        """
+        from packaging import version
+        
+        comparisons = []
+        
+        # Find all unique combinations that have both baseline and peer data
+        peer_os_list = [os for os in df['os_vendor'].dropna().unique() if os != baseline_os]
+        
+        # Get baseline OS versions and group by major version
+        baseline_data = df[df['os_vendor'] == baseline_os]
+        baseline_versions = baseline_data['os_version'].dropna().unique()
+        
+        # Group baseline versions by major version (e.g., 9.x and 10.x)
+        baseline_by_major = {}
+        for ver in baseline_versions:
+            try:
+                major = str(ver).split('.')[0]
+                if major not in baseline_by_major:
+                    baseline_by_major[major] = []
+                baseline_by_major[major].append(ver)
+            except:
+                continue
+        
+        # For each major version, get the latest minor version
+        baseline_versions_to_compare = []
+        for major, versions in baseline_by_major.items():
+            try:
+                latest_minor = sorted(versions, 
+                                    key=lambda v: version.parse(str(v)), 
+                                    reverse=True)[0]
+                baseline_versions_to_compare.append(latest_minor)
+            except:
+                # Fallback to string sort
+                latest_minor = sorted(versions, reverse=True)[0]
+                baseline_versions_to_compare.append(latest_minor)
+        
+        # Generate comparisons for each baseline version
+        for baseline_ver in baseline_versions_to_compare:
+            for peer_os in peer_os_list:
+                for cloud in df['cloud_provider'].dropna().unique():
+                    # Get data for this specific baseline version and cloud
+                    cloud_baseline = df[
+                        (df['os_vendor'] == baseline_os) & 
+                        (df['os_version'] == baseline_ver) &
+                        (df['cloud_provider'] == cloud)
+                    ]
+                    peer_data = df[
+                        (df['os_vendor'] == peer_os) &
+                        (df['cloud_provider'] == cloud)
+                    ]
+                    
+                    if len(cloud_baseline) > 0 and len(peer_data) > 0:
+                        # Find common hardware
+                        baseline_hw = set(cloud_baseline['instance_type'].dropna().unique())
+                        peer_hw = set(peer_data['instance_type'].dropna().unique())
+                        common_hw = baseline_hw.intersection(peer_hw)
+                        
+                        if common_hw:
+                            # Get latest peer version
+                            peer_versions = peer_data['os_version'].dropna().unique()
+                            
+                            if len(peer_versions) > 0:
+                                try:
+                                    peer_latest = sorted(peer_versions, 
+                                                        key=lambda v: version.parse(str(v)), 
+                                                        reverse=True)[0]
+                                except:
+                                    peer_latest = sorted(peer_versions, reverse=True)[0]
+                                
+                                comparisons.append({
+                                    'baseline_os': baseline_os,
+                                    'baseline_version': baseline_ver,
+                                    'peer_os': peer_os,
+                                    'peer_version': peer_latest,
+                                    'cloud_provider': cloud,
+                                    'common_hardware': sorted(list(common_hw)),
+                                    'label': f"{baseline_os.upper()} {baseline_ver} vs {peer_os.upper()} {peer_latest} on {cloud.upper()}"
+                                })
+        
+        # Sort comparisons by baseline version (descending) then by cloud
+        try:
+            comparisons.sort(key=lambda c: (
+                -version.parse(str(c['baseline_version'])),
+                c['cloud_provider'],
+                c['peer_os']
+            ))
+        except:
+            # Fallback to simple sort
+            comparisons.sort(key=lambda c: (c['baseline_version'], c['cloud_provider'], c['peer_os']), reverse=True)
+        
+        return comparisons
     
     def analyze_cloud_scaling(
         self,

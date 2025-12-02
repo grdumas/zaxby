@@ -262,7 +262,7 @@ def create_overview_layout():
     ])
 
 
-def create_investigation_layout(test_name, baseline_version, comparison_version):
+def create_investigation_layout(test_name, baseline_version, comparison_version, os_distribution='rhel'):
     """Create the investigation drill-down layout."""
     return html.Div([
         # Breadcrumb / Back button
@@ -274,7 +274,9 @@ def create_investigation_layout(test_name, baseline_version, comparison_version)
                     color="link",
                     size="sm"
                 ),
-                html.H3(f"Investigating: {test_name}", className="mt-2")
+                html.H3(f"Investigating: {test_name}", className="mt-2"),
+                html.P(f"OS: {os_distribution.upper()} | Comparing {baseline_version} → {comparison_version}", 
+                       className="text-muted")
             ])
         ], className="mb-3"),
         
@@ -376,12 +378,12 @@ def analyze_filtered_data(filtered_data_json):
     # Run all three analyses
     results = {}
     
-    # Question 1: OS Version Regressions
+    # Question 1: OS Version Regressions (RHEL only)
     try:
-        results['q1'] = processor.analyze_os_version_regressions(filtered_df)
+        results['q1'] = processor.analyze_os_version_regressions(filtered_df, os_distribution='rhel')
     except Exception as e:
         print(f"Error in Q1 analysis: {e}")
-        results['q1'] = {'summary': 'Analysis error', 'regressions': [], 'heatmap_data': pd.DataFrame()}
+        results['q1'] = {'summary': 'Analysis error', 'regressions': [], 'heatmap_data': pd.DataFrame(), 'num_regressions': 0}
     
     # Question 2: Peer OS Comparison
     try:
@@ -541,7 +543,8 @@ def render_main_content(nav_state):
         return create_investigation_layout(
             test_name=params.get('test_name', 'Unknown'),
             baseline_version=params.get('baseline_version', 'N/A'),
-            comparison_version=params.get('comparison_version', 'N/A')
+            comparison_version=params.get('comparison_version', 'N/A'),
+            os_distribution=params.get('os_distribution', 'rhel')
         )
     else:
         return create_overview_layout()
@@ -592,7 +595,8 @@ def handle_navigation(heatmap_click, back_click, benchmarks_click, comparisons_c
                 'investigation_params': {
                     'test_name': test_name,
                     'baseline_version': baseline_version,
-                    'comparison_version': comparison_version
+                    'comparison_version': comparison_version,
+                    'os_distribution': 'rhel'  # Q1 is RHEL-specific
                 }
             }
         except Exception as e:
@@ -624,11 +628,15 @@ def update_investigation_view(nav_state, filtered_data_json):
     test_name = params.get('test_name', 'Unknown')
     baseline_version = params.get('baseline_version', 'N/A')
     comparison_version = params.get('comparison_version', 'N/A')
+    os_distribution = params.get('os_distribution', 'rhel')
     
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
-    # Filter data for this specific test
-    test_df = filtered_df[filtered_df['test_name'] == test_name]
+    # Filter data for this specific test and OS distribution
+    test_df = filtered_df[
+        (filtered_df['test_name'] == test_name) & 
+        (filtered_df['os_distribution'].str.lower() == os_distribution.lower())
+    ]
     
     if test_df.empty:
         empty_fig = visualizations.create_empty_figure(f"No data for {test_name}")

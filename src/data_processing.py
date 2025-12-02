@@ -437,14 +437,16 @@ class BenchmarkDataProcessor:
     def analyze_os_version_regressions(
         self,
         df: pd.DataFrame,
+        os_distribution: str = 'rhel',
         os_versions: Optional[List[str]] = None,
         regression_threshold: float = -5.0
     ) -> Dict[str, Any]:
         """
-        Analyze performance regressions across OS versions.
+        Analyze performance regressions across OS versions within a single OS distribution.
         
         Args:
             df: Input DataFrame
+            os_distribution: OS distribution to analyze (e.g., 'rhel', 'ubuntu', 'sles')
             os_versions: List of OS versions to analyze (in order), or None for auto-detect
             regression_threshold: Percentage threshold for regression detection (negative)
             
@@ -453,34 +455,48 @@ class BenchmarkDataProcessor:
         """
         df_with_cats = self.add_benchmark_categories(df)
         
+        # Filter to only the specified OS distribution
+        df_os = df_with_cats[df_with_cats['os_distribution'].str.lower() == os_distribution.lower()].copy()
+        
+        if df_os.empty:
+            return {
+                'regressions': [],
+                'summary': f'No data available for {os_distribution.upper()}',
+                'heatmap_data': pd.DataFrame(),
+                'num_regressions': 0,
+                'comparison_data': pd.DataFrame()
+            }
+        
         # Auto-detect OS versions if not provided
         if not os_versions:
-            os_versions = sorted(df_with_cats['os_version'].dropna().unique())
+            os_versions = sorted(df_os['os_version'].dropna().unique())
         
         if len(os_versions) < 2:
             return {
                 'regressions': [],
-                'summary': 'Insufficient OS versions for comparison',
-                'heatmap_data': pd.DataFrame()
+                'summary': f'Insufficient {os_distribution.upper()} versions for comparison (found {len(os_versions)})',
+                'heatmap_data': pd.DataFrame(),
+                'num_regressions': 0,
+                'comparison_data': pd.DataFrame()
             }
         
-        # Create comparison matrix: benchmark × OS version
+        # Create comparison matrix: benchmark × OS version (within the same distribution)
         comparison_results = []
-        test_names = sorted(df_with_cats['test_name'].dropna().unique())
+        test_names = sorted(df_os['test_name'].dropna().unique())
         
         for i in range(1, len(os_versions)):
             baseline_ver = os_versions[i-1]
             current_ver = os_versions[i]
             
             for test in test_names:
-                baseline_data = df_with_cats[
-                    (df_with_cats['os_version'] == baseline_ver) & 
-                    (df_with_cats['test_name'] == test)
+                baseline_data = df_os[
+                    (df_os['os_version'] == baseline_ver) & 
+                    (df_os['test_name'] == test)
                 ]['primary_metric_value']
                 
-                current_data = df_with_cats[
-                    (df_with_cats['os_version'] == current_ver) & 
-                    (df_with_cats['test_name'] == test)
+                current_data = df_os[
+                    (df_os['os_version'] == current_ver) & 
+                    (df_os['test_name'] == test)
                 ]['primary_metric_value']
                 
                 if len(baseline_data) > 0 and len(current_data) > 0:
@@ -490,7 +506,7 @@ class BenchmarkDataProcessor:
                     
                     comparison_results.append({
                         'test_name': test,
-                        'benchmark_category': df_with_cats[df_with_cats['test_name'] == test]['benchmark_category'].iloc[0],
+                        'benchmark_category': df_os[df_os['test_name'] == test]['benchmark_category'].iloc[0],
                         'baseline_version': baseline_ver,
                         'current_version': current_ver,
                         'baseline_mean': baseline_mean,
@@ -504,8 +520,8 @@ class BenchmarkDataProcessor:
         # Identify regressions
         regressions = comparison_df[comparison_df['is_regression']].sort_values('percent_change')
         
-        # Create heatmap data (pivot table)
-        heatmap_data = df_with_cats.pivot_table(
+        # Create heatmap data (pivot table) - only for the specified OS distribution
+        heatmap_data = df_os.pivot_table(
             values='primary_metric_value',
             index='test_name',
             columns='os_version',

@@ -146,6 +146,14 @@ The dashboard runs with `debug=True` by default, enabling hot reload during deve
 - **Testing**: pytest
 - **Grid Component**: dash-ag-grid
 
+## Recent Fixes
+
+### OS Version Regression Analysis (Dec 2025)
+- **Fixed:** OS version regression analysis now correctly compares versions within the same OS distribution only
+- **Previous Behavior:** The analysis was comparing versions alphabetically across all OS distributions (e.g., RHEL 9.6 → SLES 15.4)
+- **Current Behavior:** Comparisons are now limited to versions within the same OS (e.g., RHEL 9.5 → RHEL 9.6)
+- **Details:** See `OS_REGRESSION_FIX.md` for full technical details
+
 ## Contributing
 
 When committing changes, include AI attribution if assisted:

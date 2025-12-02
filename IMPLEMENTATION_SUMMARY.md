@@ -42,7 +42,7 @@ A clean, focused landing page that directly answers:
 - Updated `assets/style.css` - Improved styling
 
 **Key Functions:**
-- `analyze_os_version_regressions()` - Detects regressions between versions
+- `analyze_os_version_regressions(os_distribution)` - Detects regressions between versions within a specific OS
 - `analyze_peer_os_comparison()` - Compares RHEL vs competitors
 - `analyze_cloud_scaling()` - Analyzes performance scaling
 - `create_regression_heatmap()` - Interactive heatmap visualization

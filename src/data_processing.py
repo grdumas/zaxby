@@ -17,9 +17,50 @@ logger = logging.getLogger(__name__)
 class BenchmarkDataProcessor:
     """Process and transform benchmark results for visualization."""
     
+    # Benchmark categorization for grouping
+    BENCHMARK_GROUPS = {
+        'Networking': ['uperf'],
+        'Storage/IO': ['fio'],
+        'HPC/Compute': ['streams', 'specjbb', 'auto_hpl'],
+        'System': ['sysbench', 'coremark_pro', 'pig', 'coremark', 'phoronix', 'passmark']
+    }
+    
     def __init__(self):
         """Initialize the data processor."""
         pass
+    
+    def get_benchmark_category(self, test_name: str) -> str:
+        """
+        Get the category for a benchmark test.
+        
+        Args:
+            test_name: Name of the test
+            
+        Returns:
+            Category name or 'Other'
+        """
+        if not test_name:
+            return 'Other'
+        
+        test_lower = test_name.lower()
+        for category, tests in self.BENCHMARK_GROUPS.items():
+            if any(test.lower() in test_lower or test_lower in test.lower() for test in tests):
+                return category
+        return 'Other'
+    
+    def add_benchmark_categories(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add benchmark category column to DataFrame.
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with 'benchmark_category' column added
+        """
+        df_copy = df.copy()
+        df_copy['benchmark_category'] = df_copy['test_name'].apply(self.get_benchmark_category)
+        return df_copy
     
     def documents_to_dataframe(self, documents: List[Dict[str, Any]]) -> pd.DataFrame:
         """
@@ -392,6 +433,318 @@ class BenchmarkDataProcessor:
         logger.info(f"Detected {outlier_count} outliers using {method} method")
         
         return df_copy
+    
+    def analyze_os_version_regressions(
+        self,
+        df: pd.DataFrame,
+        os_versions: Optional[List[str]] = None,
+        regression_threshold: float = -5.0
+    ) -> Dict[str, Any]:
+        """
+        Analyze performance regressions across OS versions.
+        
+        Args:
+            df: Input DataFrame
+            os_versions: List of OS versions to analyze (in order), or None for auto-detect
+            regression_threshold: Percentage threshold for regression detection (negative)
+            
+        Returns:
+            Dictionary with regression analysis results
+        """
+        df_with_cats = self.add_benchmark_categories(df)
+        
+        # Auto-detect OS versions if not provided
+        if not os_versions:
+            os_versions = sorted(df_with_cats['os_version'].dropna().unique())
+        
+        if len(os_versions) < 2:
+            return {
+                'regressions': [],
+                'summary': 'Insufficient OS versions for comparison',
+                'heatmap_data': pd.DataFrame()
+            }
+        
+        # Create comparison matrix: benchmark × OS version
+        comparison_results = []
+        test_names = sorted(df_with_cats['test_name'].dropna().unique())
+        
+        for i in range(1, len(os_versions)):
+            baseline_ver = os_versions[i-1]
+            current_ver = os_versions[i]
+            
+            for test in test_names:
+                baseline_data = df_with_cats[
+                    (df_with_cats['os_version'] == baseline_ver) & 
+                    (df_with_cats['test_name'] == test)
+                ]['primary_metric_value']
+                
+                current_data = df_with_cats[
+                    (df_with_cats['os_version'] == current_ver) & 
+                    (df_with_cats['test_name'] == test)
+                ]['primary_metric_value']
+                
+                if len(baseline_data) > 0 and len(current_data) > 0:
+                    baseline_mean = baseline_data.mean()
+                    current_mean = current_data.mean()
+                    pct_change = ((current_mean - baseline_mean) / baseline_mean) * 100
+                    
+                    comparison_results.append({
+                        'test_name': test,
+                        'benchmark_category': df_with_cats[df_with_cats['test_name'] == test]['benchmark_category'].iloc[0],
+                        'baseline_version': baseline_ver,
+                        'current_version': current_ver,
+                        'baseline_mean': baseline_mean,
+                        'current_mean': current_mean,
+                        'percent_change': pct_change,
+                        'is_regression': pct_change < regression_threshold
+                    })
+        
+        comparison_df = pd.DataFrame(comparison_results)
+        
+        # Identify regressions
+        regressions = comparison_df[comparison_df['is_regression']].sort_values('percent_change')
+        
+        # Create heatmap data (pivot table)
+        heatmap_data = df_with_cats.pivot_table(
+            values='primary_metric_value',
+            index='test_name',
+            columns='os_version',
+            aggfunc='mean'
+        )
+        
+        # Calculate percent change for heatmap
+        pct_change_data = pd.DataFrame(index=heatmap_data.index)
+        for i in range(1, len(os_versions)):
+            if os_versions[i-1] in heatmap_data.columns and os_versions[i] in heatmap_data.columns:
+                col_name = f"{os_versions[i-1]}→{os_versions[i]}"
+                pct_change_data[col_name] = (
+                    (heatmap_data[os_versions[i]] - heatmap_data[os_versions[i-1]]) / 
+                    heatmap_data[os_versions[i-1]] * 100
+                )
+        
+        # Generate summary
+        num_regressions = len(regressions)
+        if num_regressions > 0:
+            top_regressions = regressions.head(3)
+            summary_lines = [f"{num_regressions} regression(s) detected"]
+            for _, row in top_regressions.iterrows():
+                summary_lines.append(
+                    f"• {row['test_name']}: {row['percent_change']:.1f}% in {row['current_version']} vs {row['baseline_version']}"
+                )
+            summary = '\n'.join(summary_lines)
+        else:
+            summary = "No significant regressions detected"
+        
+        return {
+            'regressions': regressions.to_dict('records') if not regressions.empty else [],
+            'summary': summary,
+            'heatmap_data': pct_change_data,
+            'comparison_data': comparison_df,
+            'num_regressions': num_regressions
+        }
+    
+    def analyze_peer_os_comparison(
+        self,
+        df: pd.DataFrame,
+        baseline_os: str = 'RHEL',
+        peer_os_list: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Compare RHEL performance against peer operating systems.
+        
+        Args:
+            df: Input DataFrame
+            baseline_os: OS to use as baseline (default: RHEL)
+            peer_os_list: List of peer OS vendors to compare, or None for auto-detect
+            
+        Returns:
+            Dictionary with peer comparison results
+        """
+        df_with_cats = self.add_benchmark_categories(df)
+        
+        # Auto-detect OS vendors if not provided
+        if not peer_os_list:
+            all_os = df_with_cats['os_vendor'].dropna().unique()
+            peer_os_list = [os for os in all_os if os != baseline_os]
+        
+        if len(peer_os_list) == 0:
+            return {
+                'comparison_data': pd.DataFrame(),
+                'summary': 'No peer operating systems found for comparison',
+                'competitive_count': 0,
+                'total_benchmarks': 0
+            }
+        
+        # Group by benchmark category and compare
+        comparison_results = []
+        
+        for category in df_with_cats['benchmark_category'].unique():
+            category_df = df_with_cats[df_with_cats['benchmark_category'] == category]
+            
+            for test in category_df['test_name'].unique():
+                test_df = category_df[category_df['test_name'] == test]
+                
+                baseline_data = test_df[test_df['os_vendor'] == baseline_os]['primary_metric_value']
+                
+                if len(baseline_data) > 0:
+                    baseline_mean = baseline_data.mean()
+                    
+                    for peer_os in peer_os_list:
+                        peer_data = test_df[test_df['os_vendor'] == peer_os]['primary_metric_value']
+                        
+                        if len(peer_data) > 0:
+                            peer_mean = peer_data.mean()
+                            relative_perf = (peer_mean / baseline_mean) * 100 if baseline_mean > 0 else 100
+                            
+                            comparison_results.append({
+                                'benchmark_category': category,
+                                'test_name': test,
+                                'baseline_os': baseline_os,
+                                'peer_os': peer_os,
+                                'baseline_value': baseline_mean,
+                                'peer_value': peer_mean,
+                                'relative_performance': relative_perf,
+                                'is_competitive': relative_perf >= 90  # Within 10%
+                            })
+        
+        comparison_df = pd.DataFrame(comparison_results)
+        
+        # Generate summary
+        if not comparison_df.empty:
+            total_comparisons = len(comparison_df)
+            competitive_count = comparison_df['is_competitive'].sum()
+            
+            # Find areas where peers are significantly better
+            peer_advantages = comparison_df[comparison_df['relative_performance'] > 115].sort_values('relative_performance', ascending=False)
+            
+            summary_lines = [f"{baseline_os} competitive in {competitive_count}/{total_comparisons} benchmark comparisons"]
+            
+            if len(peer_advantages) > 0:
+                for _, row in peer_advantages.head(3).iterrows():
+                    advantage = row['relative_performance'] - 100
+                    summary_lines.append(
+                        f"⚠️ {row['peer_os']} {advantage:.0f}% faster in {row['test_name']}"
+                    )
+            
+            summary = '\n'.join(summary_lines)
+        else:
+            summary = "Insufficient data for peer comparison"
+            competitive_count = 0
+            total_comparisons = 0
+        
+        return {
+            'comparison_data': comparison_df,
+            'summary': summary,
+            'competitive_count': competitive_count,
+            'total_benchmarks': total_comparisons
+        }
+    
+    def analyze_cloud_scaling(
+        self,
+        df: pd.DataFrame,
+        cloud_provider: str,
+        os_version: str,
+        instance_family: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze how performance scales across cloud instance sizes.
+        
+        Args:
+            df: Input DataFrame
+            cloud_provider: Cloud provider to analyze
+            os_version: OS version to analyze
+            instance_family: Instance family pattern to filter (e.g., 'c2-standard'), or None for all
+            
+        Returns:
+            Dictionary with scaling analysis results
+        """
+        df_with_cats = self.add_benchmark_categories(df)
+        
+        # Filter data
+        filtered_df = df_with_cats[
+            (df_with_cats['cloud_provider'] == cloud_provider) &
+            (df_with_cats['os_version'] == os_version)
+        ]
+        
+        if instance_family:
+            filtered_df = filtered_df[filtered_df['instance_type'].str.contains(instance_family, na=False)]
+        
+        if filtered_df.empty:
+            return {
+                'scaling_data': pd.DataFrame(),
+                'summary': 'No data available for selected configuration',
+                'linear_scaling_count': 0,
+                'total_benchmarks': 0
+            }
+        
+        # Group by instance type and benchmark
+        scaling_results = []
+        
+        instance_types = sorted(filtered_df['instance_type'].unique())
+        
+        for category in filtered_df['benchmark_category'].unique():
+            category_df = filtered_df[filtered_df['benchmark_category'] == category]
+            
+            for test in category_df['test_name'].unique():
+                test_df = category_df[category_df['test_name'] == test]
+                
+                for instance in instance_types:
+                    instance_data = test_df[test_df['instance_type'] == instance]['primary_metric_value']
+                    
+                    if len(instance_data) > 0:
+                        # Extract CPU cores if available
+                        cores_data = test_df[test_df['instance_type'] == instance]['cpu_cores']
+                        cores = cores_data.iloc[0] if len(cores_data) > 0 and not pd.isna(cores_data.iloc[0]) else None
+                        
+                        scaling_results.append({
+                            'benchmark_category': category,
+                            'test_name': test,
+                            'instance_type': instance,
+                            'cpu_cores': cores,
+                            'mean_performance': instance_data.mean(),
+                            'std_performance': instance_data.std()
+                        })
+        
+        scaling_df = pd.DataFrame(scaling_results)
+        
+        # Analyze scaling efficiency
+        summary_lines = []
+        linear_scaling_count = 0
+        total_benchmarks = len(scaling_df['test_name'].unique()) if not scaling_df.empty else 0
+        
+        if not scaling_df.empty and len(instance_types) >= 2:
+            for test in scaling_df['test_name'].unique():
+                test_data = scaling_df[scaling_df['test_name'] == test].sort_values('cpu_cores')
+                
+                if len(test_data) >= 2:
+                    # Check if performance scales linearly with cores
+                    first_perf = test_data.iloc[0]['mean_performance']
+                    first_cores = test_data.iloc[0]['cpu_cores']
+                    last_perf = test_data.iloc[-1]['mean_performance']
+                    last_cores = test_data.iloc[-1]['cpu_cores']
+                    
+                    if first_cores and last_cores and first_cores > 0 and first_perf > 0:
+                        expected_scaling = last_cores / first_cores
+                        actual_scaling = last_perf / first_perf
+                        scaling_efficiency = (actual_scaling / expected_scaling) * 100
+                        
+                        if scaling_efficiency >= 85:  # Within 15% of linear
+                            linear_scaling_count += 1
+                        elif scaling_efficiency < 70:  # Poor scaling
+                            summary_lines.append(
+                                f"⚠️ {test} shows diminishing returns (scaling efficiency: {scaling_efficiency:.0f}%)"
+                            )
+            
+            summary = f"✅ Linear scaling observed for {linear_scaling_count}/{total_benchmarks} workloads\n" + '\n'.join(summary_lines)
+        else:
+            summary = "Insufficient data for scaling analysis"
+        
+        return {
+            'scaling_data': scaling_df,
+            'summary': summary,
+            'linear_scaling_count': linear_scaling_count,
+            'total_benchmarks': total_benchmarks
+        }
 
 
 def load_synthetic_data(filepath: str = "data/synthetic/benchmark_results.json") -> List[Dict[str, Any]]:

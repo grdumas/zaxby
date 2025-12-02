@@ -1,7 +1,11 @@
 """
-Performance Engineering Dashboard
+Performance Engineering Dashboard - Redesigned
 
-Main Dash application for visualizing benchmark results from OpenSearch.
+Main Dash application for visualizing benchmark results with a focus on
+answering three key questions:
+1. Did RHEL regress between OS versions?
+2. Is RHEL performing competitively with peer operating systems?
+3. How does performance scale across cloud instance classes?
 """
 
 import os
@@ -16,6 +20,14 @@ from dotenv import load_dotenv
 from src.opensearch_client import BenchmarkDataSource
 from src.data_processing import BenchmarkDataProcessor, load_synthetic_data
 from src.components import filters, visualizations
+from src.components.summaries import (
+    format_regression_summary,
+    format_peer_comparison_summary,
+    format_scaling_summary,
+    get_status_icon,
+    summarize_investigation_details,
+    format_investigation_summary_text
+)
 
 # Load environment variables
 load_dotenv()
@@ -66,8 +78,10 @@ max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-
 
 # App Layout
 app.layout = dbc.Container([
-    # Store for filtered data
+    # Store for filtered data and analysis results
     dcc.Store(id='filtered-data-store'),
+    dcc.Store(id='analysis-results-store'),
+    dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
     
     # Header
     dbc.Row([
@@ -75,49 +89,236 @@ app.layout = dbc.Container([
             html.H1("Performance Engineering Dashboard", className="text-primary mb-2"),
             html.P(
                 f"Benchmark Results Viewer | Mode: {DATA_MODE.upper()} | Records: {len(df)}",
-                className="text-muted"
+                className="text-muted mb-3"
             ),
-        ])
-    ], className="mb-4 mt-3"),
-    
-    # Summary Cards
-    dbc.Row(id='summary-cards-row', className="mb-4"),
-    
-    # Main Content
-    dbc.Row([
-        # Left Sidebar - Filters
+        ], width=8),
         dbc.Col([
-            filters.create_filter_panel(
-                os_versions=os_versions,
-                instance_types=instance_types,
-                test_names=test_names,
-                cloud_providers=cloud_providers,
-                min_date=min_date,
-                max_date=max_date
-            ),
-            filters.create_comparison_controls()
-        ], width=3),
-        
-        # Main Content Area
-        dbc.Col([
-            # Tabs for different views
-            dbc.Tabs([
-                dbc.Tab(label="Overview", tab_id="tab-overview"),
-                dbc.Tab(label="By Benchmark", tab_id="tab-by-benchmark"),
-                dbc.Tab(label="Comparisons", tab_id="tab-comparisons"),
-                dbc.Tab(label="Time Series", tab_id="tab-timeseries"),
-                dbc.Tab(label="Heatmap", tab_id="tab-heatmap"),
-                dbc.Tab(label="Detailed Table", tab_id="tab-table"),
-            ], id="tabs", active_tab="tab-overview", className="mb-3"),
-            
-            # Tab content
-            html.Div(id="tab-content")
-        ], width=9)
-    ])
+            html.Div([
+                html.Label("Date Range:", className="small mb-1"),
+                dcc.DatePickerRange(
+                    id='header-date-range',
+                    start_date=min_date,
+                    end_date=max_date,
+                    display_format='YYYY-MM-DD',
+                    className="mb-2"
+                ),
+                dbc.Button("Advanced Filters", id="btn-show-filters", size="sm", color="secondary", className="w-100"),
+            ])
+        ], width=4)
+    ], className="mb-3 mt-3"),
+    
+    # Advanced Filters Collapse
+    dbc.Collapse([
+        dbc.Card([
+            dbc.CardBody([
+                filters.create_filter_panel(
+                    os_versions=os_versions,
+                    instance_types=instance_types,
+                    test_names=test_names,
+                    cloud_providers=cloud_providers,
+                    min_date=min_date,
+                    max_date=max_date
+                )
+            ])
+        ], className="mb-3")
+    ], id="collapse-filters", is_open=False),
+    
+    # Main Content - switches between overview and investigation
+    html.Div(id="main-content")
+    
 ], fluid=True)
 
 
+def create_overview_layout():
+    """Create the main three-question overview layout."""
+    return html.Div([
+        # Question 1: OS Version Regressions
+        dbc.Card([
+            dbc.CardHeader([
+                html.H4([
+                    "RHEL Version Regression Analysis",
+                ], className="mb-0")
+            ]),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Loading(
+                            dcc.Graph(id='q1-heatmap'),
+                            type="default"
+                        )
+                    ], width=12)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        html.Div(id='q1-summary', className="mt-3")
+                    ])
+                ])
+            ])
+        ], className="mb-4"),
+        
+        # Question 2: Peer OS Comparison
+        dbc.Card([
+            dbc.CardHeader([
+                html.H4([
+                    "Competitive OS Performance Analysis",
+                ], className="mb-0")
+            ]),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Loading(
+                            dcc.Graph(id='q2-comparison'),
+                            type="default"
+                        )
+                    ], width=12)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        html.Div(id='q2-summary', className="mt-3")
+                    ])
+                ])
+            ])
+        ], className="mb-4"),
+        
+        # Question 3: Cloud Scaling
+        dbc.Card([
+            dbc.CardHeader([
+                html.H4([
+                    "Cloud Instance Scaling Analysis",
+                ], className="mb-0")
+            ]),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.Label("Cloud Provider:"),
+                        dcc.Dropdown(
+                            id='q3-cloud-provider',
+                            options=[{'label': cp, 'value': cp} for cp in cloud_providers],
+                            value=cloud_providers[0] if cloud_providers else None,
+                            clearable=False
+                        )
+                    ], width=3),
+                    dbc.Col([
+                        html.Label("OS Version:"),
+                        dcc.Dropdown(
+                            id='q3-os-version',
+                            options=[{'label': osv, 'value': osv} for osv in os_versions],
+                            value=os_versions[-1] if os_versions else None,
+                            clearable=False
+                        )
+                    ], width=3)
+                ], className="mb-3"),
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Loading(
+                            dcc.Graph(id='q3-scaling'),
+                            type="default"
+                        )
+                    ], width=12)
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        html.Div(id='q3-summary', className="mt-3")
+                    ])
+                ])
+            ])
+        ], className="mb-4"),
+        
+        # Quick Links to Detailed Views
+        dbc.Card([
+            dbc.CardBody([
+                html.H5("Detailed Analysis", className="mb-3"),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Button(
+                            "View All Benchmarks →",
+                            id="btn-view-benchmarks",
+                            color="primary",
+                            outline=True,
+                            className="w-100"
+                        )
+                    ], width=4),
+                    dbc.Col([
+                        dbc.Button(
+                            "Compare Configurations →",
+                            id="btn-view-comparisons",
+                            color="primary",
+                            outline=True,
+                            className="w-100"
+                        )
+                    ], width=4),
+                    dbc.Col([
+                        dbc.Button(
+                            "View Detailed Table →",
+                            id="btn-view-table",
+                            color="primary",
+                            outline=True,
+                            className="w-100"
+                        )
+                    ], width=4)
+                ])
+            ])
+        ])
+    ])
+
+
+def create_investigation_layout(test_name, baseline_version, comparison_version):
+    """Create the investigation drill-down layout."""
+    return html.Div([
+        # Breadcrumb / Back button
+        dbc.Row([
+            dbc.Col([
+                dbc.Button(
+                    "← Back to Overview",
+                    id="btn-back-to-overview",
+                    color="link",
+                    size="sm"
+                ),
+                html.H3(f"Investigating: {test_name}", className="mt-2")
+            ])
+        ], className="mb-3"),
+        
+        # Investigation content
+        dbc.Card([
+            dbc.CardBody([
+                html.Div(id='investigation-summary', className="mb-3"),
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Loading(
+                            dcc.Graph(id='investigation-comparison-chart'),
+                            type="default"
+                        )
+                    ], width=6),
+                    dbc.Col([
+                        dcc.Loading(
+                            dcc.Graph(id='investigation-timeline-chart'),
+                            type="default"
+                        )
+                    ], width=6)
+                ]),
+                html.Hr(),
+                html.H5("Test Run Details", className="mt-3 mb-3"),
+                dcc.Loading(
+                    html.Div(id='investigation-table'),
+                    type="default"
+                )
+            ])
+        ])
+    ])
+
+
 # Callbacks
+
+@app.callback(
+    Output('collapse-filters', 'is_open'),
+    Input('btn-show-filters', 'n_clicks'),
+    State('collapse-filters', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_filters(n_clicks, is_open):
+    """Toggle advanced filters panel."""
+    return not is_open
+
 
 @app.callback(
     Output('filtered-data-store', 'data'),
@@ -126,8 +327,8 @@ app.layout = dbc.Container([
         Input('filter-instance-type', 'value'),
         Input('filter-test-name', 'value'),
         Input('filter-cloud-provider', 'value'),
-        Input('filter-date-range', 'start_date'),
-        Input('filter-date-range', 'end_date'),
+        Input('header-date-range', 'start_date'),
+        Input('header-date-range', 'end_date'),
         Input('filter-status', 'value'),
     ]
 )
@@ -157,300 +358,332 @@ def update_filtered_data(os_vers, inst_types, tests, clouds, start_date, end_dat
 
 
 @app.callback(
-    Output('summary-cards-row', 'children'),
+    Output('analysis-results-store', 'data'),
     Input('filtered-data-store', 'data')
 )
-def update_summary_cards(filtered_data_json):
-    """Update summary statistic cards."""
+def analyze_filtered_data(filtered_data_json):
+    """Perform all three analyses on filtered data."""
     import pandas as pd
     
     if not filtered_data_json:
-        return []
-    
-    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
-    summary = visualizations.create_summary_cards_data(filtered_df)
-    
-    cards = [
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H4(f"{summary['total_tests']}", className="text-primary"),
-                    html.P("Total Tests", className="mb-0")
-                ])
-            ])
-        ], width=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H4(f"{summary['unique_configs']}", className="text-info"),
-                    html.P("Unique Configs", className="mb-0")
-                ])
-            ])
-        ], width=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H4(f"{summary['pass_rate']:.1f}%", className="text-success"),
-                    html.P("Pass Rate", className="mb-0")
-                ])
-            ])
-        ], width=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H4(f"{summary['avg_metric']:.0f}", className="text-warning"),
-                    html.P("Avg Metric", className="mb-0")
-                ])
-            ])
-        ], width=3),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Small(f"{summary['date_range']}", className="text-muted"),
-                    html.P("Date Range", className="mb-0 small")
-                ])
-            ])
-        ], width=3),
-    ]
-    
-    return cards
-
-
-@app.callback(
-    Output('tab-content', 'children'),
-    [Input('tabs', 'active_tab'),
-     Input('filtered-data-store', 'data')]
-)
-def render_tab_content(active_tab, filtered_data_json):
-    """Render content based on active tab."""
-    import pandas as pd
-    
-    if not filtered_data_json:
-        return html.Div("No data available", className="alert alert-warning")
+        return {}
     
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
     if filtered_df.empty:
-        return html.Div("No data matches the current filters", className="alert alert-info")
+        return {}
     
-    if active_tab == "tab-overview":
-        # Overview with multiple charts
-        # Check if we have multiple test types with different scales
-        has_multiple_tests = len(filtered_df['test_name'].unique()) > 1
-        
-        return html.Div([
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_box_plot(
-                            filtered_df,
-                            x_col='test_name',
-                            y_col='primary_metric_value',
-                            title="Performance Distribution by Benchmark Type",
-                            use_facets=has_multiple_tests
-                        )
-                    )
-                ], width=12)
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_box_plot(
-                            filtered_df,
-                            x_col='os_version',
-                            y_col='primary_metric_value',
-                            color_col='test_name',
-                            title="Performance by OS Version (All Tests Combined)",
-                            use_facets=False
-                        )
-                    )
-                ], width=6),
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_box_plot(
-                            filtered_df,
-                            x_col='cloud_provider',
-                            y_col='primary_metric_value',
-                            color_col='test_name',
-                            title="Performance by Cloud Provider (All Tests Combined)",
-                            use_facets=False
-                        )
-                    )
-                ], width=6)
-            ])
-        ])
+    # Run all three analyses
+    results = {}
     
-    elif active_tab == "tab-by-benchmark":
-        # Separate views for each benchmark to handle different scales
-        graphs = []
-        
-        # Create separate box plots for each test by OS version
-        os_figs = visualizations.create_separate_test_charts(
-            filtered_df,
-            chart_type='box',
-            x_col='os_version',
-            y_col='primary_metric_value',
-            title_prefix="Performance by OS Version"
-        )
-        
-        for fig in os_figs:
-            graphs.append(dbc.Row([
-                dbc.Col([dcc.Graph(figure=fig)], width=12)
-            ]))
-        
-        # Add spacing
-        if graphs:
-            graphs.append(html.Hr())
-        
-        # Create separate box plots for each test by instance type
-        instance_figs = visualizations.create_separate_test_charts(
-            filtered_df,
-            chart_type='box',
-            x_col='instance_type',
-            y_col='primary_metric_value',
-            title_prefix="Performance by Instance Type"
-        )
-        
-        for fig in instance_figs:
-            graphs.append(dbc.Row([
-                dbc.Col([dcc.Graph(figure=fig)], width=12)
-            ]))
-        
-        return html.Div(graphs) if graphs else html.Div(
-            "No data available for benchmark-specific views",
-            className="alert alert-info"
-        )
+    # Question 1: OS Version Regressions
+    try:
+        results['q1'] = processor.analyze_os_version_regressions(filtered_df)
+    except Exception as e:
+        print(f"Error in Q1 analysis: {e}")
+        results['q1'] = {'summary': 'Analysis error', 'regressions': [], 'heatmap_data': pd.DataFrame()}
     
-    elif active_tab == "tab-comparisons":
-        # Comparison view
-        if len(filtered_df['os_version'].unique()) >= 2:
-            # Auto-compare first two OS versions
-            os_list = sorted(filtered_df['os_version'].unique())
-            comparison = processor.calculate_comparison(
-                filtered_df,
-                baseline_filters={'os_versions': [os_list[0]]},
-                comparison_filters={'os_versions': [os_list[1]]},
-                group_by='test_name'
-            )
+    # Question 2: Peer OS Comparison
+    try:
+        results['q2'] = processor.analyze_peer_os_comparison(filtered_df, baseline_os='RHEL')
+    except Exception as e:
+        print(f"Error in Q2 analysis: {e}")
+        results['q2'] = {'summary': 'Analysis error', 'comparison_data': pd.DataFrame()}
+    
+    # Question 3: Cloud Scaling (will be done dynamically based on user selection)
+    results['q3'] = {}
+    
+    # Serialize DataFrames to JSON
+    if 'heatmap_data' in results['q1'] and isinstance(results['q1']['heatmap_data'], pd.DataFrame):
+        results['q1']['heatmap_data'] = results['q1']['heatmap_data'].to_json(orient='split')
+    
+    if 'comparison_data' in results['q1'] and isinstance(results['q1']['comparison_data'], pd.DataFrame):
+        results['q1']['comparison_data'] = results['q1']['comparison_data'].to_json(orient='split')
+    
+    if 'comparison_data' in results['q2'] and isinstance(results['q2']['comparison_data'], pd.DataFrame):
+        results['q2']['comparison_data'] = results['q2']['comparison_data'].to_json(orient='split')
+    
+    return json.dumps(results)
+
+
+@app.callback(
+    [Output('q1-heatmap', 'figure'),
+     Output('q1-summary', 'children')],
+    Input('analysis-results-store', 'data')
+)
+def update_question1(analysis_json):
+    """Update Question 1 visualizations."""
+    import pandas as pd
+    
+    if not analysis_json:
+        empty_fig = visualizations.create_empty_figure("Loading...")
+        return empty_fig, "Analyzing..."
+    
+    analysis = json.loads(analysis_json)
+    q1_data = analysis.get('q1', {})
+    
+    # Recreate DataFrame from JSON
+    if 'heatmap_data' in q1_data and q1_data['heatmap_data']:
+        heatmap_df = pd.read_json(StringIO(q1_data['heatmap_data']), orient='split')
+        fig = visualizations.create_regression_heatmap(heatmap_df)
+    else:
+        fig = visualizations.create_empty_figure("No regression data available")
+    
+    # Format summary
+    summary_text = format_regression_summary(q1_data)
+    num_regressions = q1_data.get('num_regressions', 0)
+    icon = get_status_icon(num_regressions)
+    
+    summary_component = dbc.Alert([
+        html.H5([icon, f" Summary"], className="mb-2"),
+        dcc.Markdown(summary_text)
+    ], color="warning" if num_regressions > 0 else "success")
+    
+    return fig, summary_component
+
+
+@app.callback(
+    [Output('q2-comparison', 'figure'),
+     Output('q2-summary', 'children')],
+    Input('analysis-results-store', 'data')
+)
+def update_question2(analysis_json):
+    """Update Question 2 visualizations."""
+    import pandas as pd
+    
+    if not analysis_json:
+        empty_fig = visualizations.create_empty_figure("Loading...")
+        return empty_fig, "Analyzing..."
+    
+    analysis = json.loads(analysis_json)
+    q2_data = analysis.get('q2', {})
+    
+    # Recreate DataFrame from JSON
+    if 'comparison_data' in q2_data and q2_data['comparison_data']:
+        comparison_df = pd.read_json(StringIO(q2_data['comparison_data']), orient='split')
+        fig = visualizations.create_peer_os_comparison_chart(comparison_df, baseline_os="RHEL")
+    else:
+        fig = visualizations.create_empty_figure("No peer comparison data available")
+    
+    # Format summary
+    summary_text = format_peer_comparison_summary(q2_data)
+    competitive_count = q2_data.get('competitive_count', 0)
+    total_benchmarks = q2_data.get('total_benchmarks', 0)
+    
+    is_competitive = competitive_count >= (total_benchmarks * 0.7) if total_benchmarks > 0 else True
+    
+    summary_component = dbc.Alert([
+        html.H5([get_status_icon(0 if is_competitive else 3), " Summary"], className="mb-2"),
+        dcc.Markdown(summary_text)
+    ], color="success" if is_competitive else "warning")
+    
+    return fig, summary_component
+
+
+@app.callback(
+    [Output('q3-scaling', 'figure'),
+     Output('q3-summary', 'children')],
+    [Input('q3-cloud-provider', 'value'),
+     Input('q3-os-version', 'value'),
+     Input('filtered-data-store', 'data')]
+)
+def update_question3(cloud_provider, os_version, filtered_data_json):
+    """Update Question 3 visualizations."""
+    import pandas as pd
+    
+    if not filtered_data_json or not cloud_provider or not os_version:
+        empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
+        return empty_fig, ""
+    
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Run scaling analysis
+    q3_result = processor.analyze_cloud_scaling(
+        filtered_df,
+        cloud_provider=cloud_provider,
+        os_version=os_version
+    )
+    
+    # Create visualization
+    if not q3_result['scaling_data'].empty:
+        fig = visualizations.create_cloud_scaling_chart(
+            q3_result['scaling_data'],
+            title=f"Performance Scaling: {os_version} on {cloud_provider}"
+        )
+    else:
+        fig = visualizations.create_empty_figure("No scaling data available for selected configuration")
+    
+    # Format summary
+    summary_text = format_scaling_summary(q3_result)
+    linear_count = q3_result.get('linear_scaling_count', 0)
+    total = q3_result.get('total_benchmarks', 0)
+    
+    good_scaling = linear_count >= (total * 0.7) if total > 0 else True
+    
+    summary_component = dbc.Alert([
+        html.H5([get_status_icon(0 if good_scaling else 2), " Summary"], className="mb-2"),
+        dcc.Markdown(summary_text)
+    ], color="success" if good_scaling else "info")
+    
+    return fig, summary_component
+
+
+@app.callback(
+    Output('main-content', 'children'),
+    Input('navigation-state', 'data')
+)
+def render_main_content(nav_state):
+    """Render main content based on navigation state."""
+    if not nav_state or nav_state['view'] == 'overview':
+        return create_overview_layout()
+    elif nav_state['view'] == 'investigation':
+        params = nav_state.get('investigation_params', {})
+        return create_investigation_layout(
+            test_name=params.get('test_name', 'Unknown'),
+            baseline_version=params.get('baseline_version', 'N/A'),
+            comparison_version=params.get('comparison_version', 'N/A')
+        )
+    else:
+        return create_overview_layout()
+
+
+@app.callback(
+    Output('navigation-state', 'data'),
+    [Input('q1-heatmap', 'clickData'),
+     Input('btn-back-to-overview', 'n_clicks'),
+     Input('btn-view-benchmarks', 'n_clicks'),
+     Input('btn-view-comparisons', 'n_clicks'),
+     Input('btn-view-table', 'n_clicks')],
+    State('navigation-state', 'data'),
+    prevent_initial_call=True
+)
+def handle_navigation(heatmap_click, back_click, benchmarks_click, comparisons_click, table_click, current_nav):
+    """Handle navigation between views."""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return current_nav
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Back to overview
+    if trigger_id == 'btn-back-to-overview':
+        return {'view': 'overview', 'investigation_params': None}
+    
+    # Heatmap cell click - drill into investigation
+    if trigger_id == 'q1-heatmap' and heatmap_click:
+        # Extract test name and versions from click data
+        try:
+            point = heatmap_click['points'][0]
+            test_name = point.get('y', 'Unknown')
+            version_transition = point.get('x', '')
             
-            return html.Div([
-                html.H4(f"Comparison: {os_list[0]} vs {os_list[1]}", className="mb-3"),
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Graph(
-                            figure=visualizations.create_comparison_chart(
-                                comparison,
-                                title=f"Performance: {os_list[0]} (baseline) vs {os_list[1]}"
-                            )
-                        )
-                    ], width=12)
-                ]),
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Graph(
-                            figure=visualizations.create_performance_delta_chart(
-                                comparison,
-                                title="Percentage Change"
-                            )
-                        )
-                    ], width=12)
-                ])
-            ])
-        else:
-            return html.Div(
-                "Need at least 2 OS versions in filtered data for comparison",
-                className="alert alert-info"
-            )
+            # Parse version transition (e.g., "9.5→9.6")
+            if '→' in version_transition:
+                versions = version_transition.split('→')
+                baseline_version = versions[0].strip()
+                comparison_version = versions[1].strip()
+            else:
+                baseline_version = 'N/A'
+                comparison_version = 'N/A'
+            
+            return {
+                'view': 'investigation',
+                'investigation_params': {
+                    'test_name': test_name,
+                    'baseline_version': baseline_version,
+                    'comparison_version': comparison_version
+                }
+            }
+        except Exception as e:
+            print(f"Error parsing heatmap click: {e}")
+            return current_nav
     
-    elif active_tab == "tab-timeseries":
-        # Time series view
-        has_multiple_tests = len(filtered_df['test_name'].unique()) > 1
-        
-        return html.Div([
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_time_series_chart(
-                            filtered_df,
-                            x_col='timestamp',
-                            y_col='primary_metric_value',
-                            color_col='test_name',
-                            title="Performance Trends Over Time (by Benchmark)",
-                            use_facets=has_multiple_tests
-                        )
-                    )
-                ], width=12)
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_time_series_chart(
-                            filtered_df.groupby(['timestamp', 'os_version'])['primary_metric_value'].mean().reset_index(),
-                            x_col='timestamp',
-                            y_col='primary_metric_value',
-                            color_col='os_version',
-                            title="Average Performance by OS Version Over Time",
-                            use_facets=False
-                        )
-                    )
-                ], width=12)
-            ])
-        ])
+    # Other navigation buttons - stay on overview for now (future: navigate to specific tabs)
+    return current_nav
+
+
+@app.callback(
+    [Output('investigation-summary', 'children'),
+     Output('investigation-comparison-chart', 'figure'),
+     Output('investigation-timeline-chart', 'figure'),
+     Output('investigation-table', 'children')],
+    [Input('navigation-state', 'data'),
+     Input('filtered-data-store', 'data')],
+    prevent_initial_call=True
+)
+def update_investigation_view(nav_state, filtered_data_json):
+    """Update investigation drill-down view."""
+    import pandas as pd
     
-    elif active_tab == "tab-heatmap":
-        # Heatmap view
-        has_multiple_tests = len(filtered_df['test_name'].unique()) > 1
-        
-        return html.Div([
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_heatmap(
-                            filtered_df,
-                            row_dim='os_version',
-                            col_dim='instance_type',
-                            value_col='primary_metric_value',
-                            title="Performance Heatmap: OS Version × Instance Type (Normalized %)",
-                            normalize_by_test=has_multiple_tests
-                        )
-                    )
-                ], width=12)
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(
-                        figure=visualizations.create_heatmap(
-                            filtered_df,
-                            row_dim='test_name',
-                            col_dim='cloud_provider',
-                            value_col='primary_metric_value',
-                            title="Performance Heatmap: Benchmark × Cloud Provider (Normalized %)",
-                            normalize_by_test=has_multiple_tests
-                        )
-                    )
-                ], width=12)
-            ])
-        ])
+    if not nav_state or nav_state['view'] != 'investigation' or not filtered_data_json:
+        empty_fig = visualizations.create_empty_figure("No investigation data")
+        return "", empty_fig, empty_fig, ""
     
-    elif active_tab == "tab-table":
-        # Detailed table view
-        display_cols = [
-            'test_name', 'os_version', 'instance_type', 'cloud_provider',
-            'timestamp', 'status', 'primary_metric_value', 'primary_metric_unit'
-        ]
-        available_cols = [col for col in display_cols if col in filtered_df.columns]
-        
-        return html.Div([
-            html.H4("Detailed Test Results", className="mb-3"),
-            dcc.Graph(
-                figure=visualizations.create_metrics_table(
-                    filtered_df[available_cols].head(100),
-                    title=f"Showing {min(100, len(filtered_df))} of {len(filtered_df)} records"
-                )
-            )
-        ])
+    params = nav_state.get('investigation_params', {})
+    test_name = params.get('test_name', 'Unknown')
+    baseline_version = params.get('baseline_version', 'N/A')
+    comparison_version = params.get('comparison_version', 'N/A')
     
-    return html.Div("Unknown tab")
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Filter data for this specific test
+    test_df = filtered_df[filtered_df['test_name'] == test_name]
+    
+    if test_df.empty:
+        empty_fig = visualizations.create_empty_figure(f"No data for {test_name}")
+        summary = dbc.Alert("No data available for this test", color="warning")
+        return summary, empty_fig, empty_fig, ""
+    
+    # Split into baseline and comparison
+    baseline_df = test_df[test_df['os_version'] == baseline_version]
+    comparison_df = test_df[test_df['os_version'] == comparison_version]
+    
+    # Generate summary
+    summary_data = summarize_investigation_details(
+        baseline_df, comparison_df, test_name, baseline_version, comparison_version
+    )
+    
+    summary_text = format_investigation_summary_text(summary_data)
+    
+    # Determine alert color based on status
+    alert_color = summary_data.get('status', 'info')
+    status_icon = get_status_icon(1 if summary_data.get('is_regression', False) else 0)
+    
+    summary_component = dbc.Alert([
+        html.H4([status_icon, f" {summary_data.get('status_text', 'Analysis')}"], className="mb-3"),
+        dcc.Markdown(summary_text)
+    ], color=alert_color)
+    
+    # Create comparison chart
+    comparison_fig = visualizations.create_investigation_detail_chart(
+        baseline_df, comparison_df, test_name, baseline_version, comparison_version
+    )
+    
+    # Create timeline chart
+    timeline_fig = visualizations.create_time_series_chart(
+        test_df,
+        x_col='timestamp',
+        y_col='primary_metric_value',
+        color_col='os_version',
+        title=f"Performance Trend: {test_name}",
+        use_facets=False
+    )
+    
+    # Create detailed table
+    table_df = test_df[[
+        'timestamp', 'os_version', 'instance_type', 'cloud_provider',
+        'primary_metric_value', 'primary_metric_unit', 'status'
+    ]].sort_values('timestamp', ascending=False).head(50)
+    
+    table_fig = visualizations.create_metrics_table(
+        table_df,
+        title=f"Recent Test Runs (showing {len(table_df)} of {len(test_df)} total)"
+    )
+    
+    table_component = dcc.Graph(figure=table_fig)
+    
+    return summary_component, comparison_fig, timeline_fig, table_component
 
 
 @app.callback(
@@ -473,7 +706,7 @@ if __name__ == '__main__':
     debug = os.getenv('DEBUG', 'True').lower() == 'true'
     
     print("\n" + "="*60)
-    print("Performance Engineering Dashboard")
+    print("Performance Engineering Dashboard (Redesigned)")
     print("="*60)
     print(f"Data Mode: {DATA_MODE.upper()}")
     print(f"Records Loaded: {len(df)}")

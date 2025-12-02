@@ -552,3 +552,338 @@ def create_summary_cards_data(df: pd.DataFrame) -> dict:
     
     return summary
 
+
+def create_regression_heatmap(
+    pct_change_df: pd.DataFrame,
+    title: str = "OS Version Regressions by Benchmark"
+) -> go.Figure:
+    """
+    Create a heatmap showing percentage changes between OS versions.
+    
+    Args:
+        pct_change_df: DataFrame with test_name as index, version transitions as columns
+        title: Chart title
+        
+    Returns:
+        Plotly Figure
+    """
+    if pct_change_df.empty:
+        return create_empty_figure("No regression data available")
+    
+    # Define color scale: red for regressions, green for improvements, gray for stable
+    colorscale = [
+        [0.0, '#d73027'],    # Strong regression (red)
+        [0.4, '#fee090'],    # Mild regression (yellow)
+        [0.5, '#e0e0e0'],    # Stable (gray)
+        [0.6, '#e0f3db'],    # Mild improvement (light green)
+        [1.0, '#1a9850']     # Strong improvement (green)
+    ]
+    
+    # Create hover text
+    hover_text = []
+    for i, row_name in enumerate(pct_change_df.index):
+        hover_row = []
+        for j, col_name in enumerate(pct_change_df.columns):
+            val = pct_change_df.iloc[i, j]
+            if pd.isna(val):
+                hover_row.append("No data")
+            else:
+                direction = "↑" if val > 0 else "↓" if val < 0 else "→"
+                hover_row.append(f"{row_name}<br>{col_name}<br>{direction} {abs(val):.1f}%")
+        hover_text.append(hover_row)
+    
+    # Create text annotations for cells
+    text_values = []
+    for i, row_name in enumerate(pct_change_df.index):
+        text_row = []
+        for j, col_name in enumerate(pct_change_df.columns):
+            val = pct_change_df.iloc[i, j]
+            if pd.isna(val):
+                text_row.append("")
+            else:
+                text_row.append(f"{val:.1f}%")
+        text_values.append(text_row)
+    
+    fig = go.Figure(data=go.Heatmap(
+        z=pct_change_df.values,
+        x=pct_change_df.columns,
+        y=pct_change_df.index,
+        colorscale=colorscale,
+        zmid=0,  # Center the color scale at 0
+        text=text_values,
+        hovertext=hover_text,
+        hovertemplate='%{hovertext}<extra></extra>',
+        texttemplate='%{text}',
+        textfont={"size": 11, "color": "black"},
+        colorbar=dict(
+            title="% Change",
+            ticksuffix="%"
+        )
+    ))
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title="OS Version Transition",
+        yaxis_title="Benchmark",
+        template='plotly_white',
+        height=max(400, len(pct_change_df.index) * 40),
+        xaxis={'side': 'bottom'},
+        yaxis={'autorange': 'reversed'}  # Top to bottom
+    )
+    
+    return fig
+
+
+def create_peer_os_comparison_chart(
+    comparison_df: pd.DataFrame,
+    baseline_os: str = "RHEL",
+    title: str = "RHEL vs Peer Operating Systems"
+) -> go.Figure:
+    """
+    Create a grouped bar chart comparing RHEL against peer OSes.
+    
+    Args:
+        comparison_df: DataFrame with comparison data
+        baseline_os: Name of baseline OS
+        title: Chart title
+        
+    Returns:
+        Plotly Figure
+    """
+    if comparison_df.empty:
+        return create_empty_figure("No peer comparison data available")
+    
+    # Group by benchmark category
+    fig = go.Figure()
+    
+    peer_os_list = sorted(comparison_df['peer_os'].unique())
+    categories = sorted(comparison_df['benchmark_category'].unique())
+    
+    # Create grouped bars by benchmark category
+    for peer_os in peer_os_list:
+        peer_data = comparison_df[comparison_df['peer_os'] == peer_os]
+        
+        y_values = []
+        x_labels = []
+        colors = []
+        
+        for category in categories:
+            cat_data = peer_data[peer_data['benchmark_category'] == category]
+            if not cat_data.empty:
+                # Average relative performance for this category
+                avg_rel_perf = cat_data['relative_performance'].mean()
+                y_values.append(avg_rel_perf)
+                x_labels.append(category)
+                
+                # Color: green if within 10%, yellow if within 20%, red otherwise
+                if avg_rel_perf >= 90 and avg_rel_perf <= 110:
+                    colors.append('#1a9850')  # Green - competitive
+                elif avg_rel_perf >= 80 and avg_rel_perf <= 120:
+                    colors.append('#fee090')  # Yellow - moderate difference
+                else:
+                    colors.append('#d73027')  # Red - significant difference
+        
+        fig.add_trace(go.Bar(
+            name=peer_os,
+            x=x_labels,
+            y=y_values,
+            text=[f"{v:.0f}%" for v in y_values],
+            textposition='outside',
+            marker_color=colors
+        ))
+    
+    # Add baseline reference line at 100%
+    fig.add_hline(
+        y=100,
+        line_dash="dash",
+        line_color="gray",
+        annotation_text=f"{baseline_os} baseline (100%)",
+        annotation_position="right"
+    )
+    
+    # Add competitive zone (90-110%)
+    fig.add_hrect(
+        y0=90, y1=110,
+        fillcolor="green",
+        opacity=0.1,
+        line_width=0,
+        annotation_text="Competitive zone",
+        annotation_position="top right"
+    )
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title="Benchmark Category",
+        yaxis_title=f"Performance Relative to {baseline_os} (%)",
+        barmode='group',
+        template='plotly_white',
+        height=500,
+        hovermode='x unified',
+        legend=dict(
+            title="Peer OS",
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    return fig
+
+
+def create_cloud_scaling_chart(
+    scaling_df: pd.DataFrame,
+    title: str = "Performance Scaling Across Instance Sizes"
+) -> go.Figure:
+    """
+    Create a line chart showing how performance scales with instance size.
+    
+    Args:
+        scaling_df: DataFrame with scaling analysis data
+        title: Chart title
+        
+    Returns:
+        Plotly Figure
+    """
+    if scaling_df.empty:
+        return create_empty_figure("No scaling data available")
+    
+    fig = go.Figure()
+    
+    # Group by benchmark category or test name
+    if 'benchmark_category' in scaling_df.columns:
+        group_col = 'benchmark_category'
+    else:
+        group_col = 'test_name'
+    
+    categories = sorted(scaling_df[group_col].unique())
+    
+    for category in categories:
+        cat_data = scaling_df[scaling_df[group_col] == category]
+        
+        # Sort by CPU cores or instance type
+        if 'cpu_cores' in cat_data.columns and cat_data['cpu_cores'].notna().any():
+            cat_data = cat_data.sort_values('cpu_cores')
+            x_values = cat_data['cpu_cores']
+            x_title = "CPU Cores"
+        else:
+            cat_data = cat_data.sort_values('instance_type')
+            x_values = cat_data['instance_type']
+            x_title = "Instance Type"
+        
+        # Average performance if multiple tests per category
+        if 'mean_performance' in cat_data.columns:
+            y_values = cat_data['mean_performance']
+        else:
+            y_values = cat_data.groupby(x_title)['mean_performance'].mean()
+        
+        fig.add_trace(go.Scatter(
+            x=x_values,
+            y=y_values,
+            mode='lines+markers',
+            name=category,
+            line=dict(width=3),
+            marker=dict(size=10)
+        ))
+    
+    # Add ideal linear scaling line if we have CPU cores
+    if 'cpu_cores' in scaling_df.columns and scaling_df['cpu_cores'].notna().any():
+        min_cores = scaling_df['cpu_cores'].min()
+        max_cores = scaling_df['cpu_cores'].max()
+        
+        # Use first category's first point as baseline
+        if not scaling_df.empty:
+            first_cat = categories[0]
+            first_data = scaling_df[scaling_df[group_col] == first_cat].sort_values('cpu_cores')
+            if not first_data.empty:
+                baseline_perf = first_data.iloc[0]['mean_performance']
+                baseline_cores = first_data.iloc[0]['cpu_cores']
+                
+                if baseline_cores and baseline_cores > 0:
+                    ideal_x = [min_cores, max_cores]
+                    ideal_y = [
+                        baseline_perf * (min_cores / baseline_cores),
+                        baseline_perf * (max_cores / baseline_cores)
+                    ]
+                    
+                    fig.add_trace(go.Scatter(
+                        x=ideal_x,
+                        y=ideal_y,
+                        mode='lines',
+                        name='Ideal Linear Scaling',
+                        line=dict(dash='dash', color='gray', width=2),
+                        showlegend=True
+                    ))
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_title if 'cpu_cores' in scaling_df.columns else "Instance Type",
+        yaxis_title="Performance (mean metric value)",
+        template='plotly_white',
+        height=500,
+        hovermode='x unified',
+        legend=dict(
+            title="Benchmark",
+            orientation="v",
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            bgcolor="rgba(255,255,255,0.8)"
+        )
+    )
+    
+    return fig
+
+
+def create_investigation_detail_chart(
+    baseline_df: pd.DataFrame,
+    comparison_df: pd.DataFrame,
+    test_name: str,
+    baseline_label: str,
+    comparison_label: str
+) -> go.Figure:
+    """
+    Create a detailed comparison chart for investigation drill-down.
+    
+    Args:
+        baseline_df: DataFrame with baseline data
+        comparison_df: DataFrame with comparison data
+        test_name: Name of the test being investigated
+        baseline_label: Label for baseline data
+        comparison_label: Label for comparison data
+        
+    Returns:
+        Plotly Figure with side-by-side box plots
+    """
+    fig = go.Figure()
+    
+    # Baseline box plot
+    if not baseline_df.empty and 'primary_metric_value' in baseline_df.columns:
+        fig.add_trace(go.Box(
+            y=baseline_df['primary_metric_value'],
+            name=baseline_label,
+            marker_color='lightblue',
+            boxmean='sd'
+        ))
+    
+    # Comparison box plot
+    if not comparison_df.empty and 'primary_metric_value' in comparison_df.columns:
+        fig.add_trace(go.Box(
+            y=comparison_df['primary_metric_value'],
+            name=comparison_label,
+            marker_color='lightcoral',
+            boxmean='sd'
+        ))
+    
+    fig.update_layout(
+        title=f"Performance Distribution: {test_name}",
+        yaxis_title="Performance Metric",
+        template='plotly_white',
+        height=400,
+        showlegend=True
+    )
+    
+    return fig
+

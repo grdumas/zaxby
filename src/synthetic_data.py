@@ -55,7 +55,11 @@ class SyntheticDataGenerator:
             "gcp": [
                 "n2-highmem-96", "n2-highmem-64", "n2-highmem-48", "n2-highmem-32",
                 "c2-standard-60", "c2-standard-48", "c2-standard-30",
-                "n2-standard-96", "n2-standard-64"
+                "n2-standard-96", "n2-standard-64",
+                # C4 series for cloud scaling analysis
+                "c4-standard-2", "c4-standard-4", "c4-standard-8", "c4-standard-16",
+                "c4-standard-24", "c4-standard-32", "c4-standard-48", "c4-standard-96",
+                "c4-standard-144", "c4-standard-192", "c4-standard-288"
             ]
         }
         
@@ -67,9 +71,25 @@ class SyntheticDataGenerator:
         
         # Hardware performance tiers (affects baseline performance)
         self.hardware_tiers = {
-            "high": ["24xlarge", "96", "60"],
+            "high": ["24xlarge", "96", "60", "144", "192", "288"],
             "medium": ["12xlarge", "64", "48"],
-            "low": ["8xlarge", "4xlarge", "32", "30"]
+            "low": ["8xlarge", "4xlarge", "32", "30", "24", "16", "8", "4", "2"]
+        }
+        
+        # C4 series instance specifications for cloud scaling analysis
+        # Maps instance type to (vCPUs, RAM in GiB)
+        self.c4_series_specs = {
+            "c4-standard-2": (2, 7),
+            "c4-standard-4": (4, 15),
+            "c4-standard-8": (8, 30),
+            "c4-standard-16": (16, 60),
+            "c4-standard-24": (24, 90),
+            "c4-standard-32": (32, 120),
+            "c4-standard-48": (48, 180),
+            "c4-standard-96": (96, 360),
+            "c4-standard-144": (144, 540),
+            "c4-standard-192": (192, 720),
+            "c4-standard-288": (288, 1080),
         }
         
         # Baseline metric values (will be varied based on hardware tier)
@@ -323,6 +343,29 @@ class SyntheticDataGenerator:
         
         print(f"  Phase 2: Generated {len(scenarios)} total scenarios (including other OS with consistent HW)")
         
+        # Phase 3: Cloud Scaling Scenarios - RHEL 10 on GCP C4 series
+        # This enables investigating how RHEL 10 performance scales across the C4 instance family
+        c4_instances = [
+            "c4-standard-2", "c4-standard-4", "c4-standard-8", "c4-standard-16",
+            "c4-standard-24", "c4-standard-32", "c4-standard-48", "c4-standard-96",
+            "c4-standard-144", "c4-standard-192", "c4-standard-288"
+        ]
+        rhel_10_versions = [v for v in self.os_configs["rhel"] if v.startswith("10")]
+        
+        for rhel_version in rhel_10_versions:
+            for c4_instance in c4_instances:
+                for test_type in self.test_types:
+                    scenarios.append({
+                        "os_distribution": "rhel",
+                        "os_version": rhel_version,
+                        "cloud_provider": "gcp",
+                        "instance_type": c4_instance,
+                        "test_type": test_type
+                    })
+        
+        print(f"  Phase 3: Added RHEL 10 + GCP C4 cloud scaling scenarios")
+        print(f"           {len(rhel_10_versions)} RHEL 10 versions × {len(c4_instances)} C4 instances × {len(self.test_types)} tests")
+        
         # Note: We're ignoring num_scenarios parameter and using ALL generated scenarios
         # to ensure complete coverage. This is better than randomly sampling which could
         # break the hardware consistency guarantees.
@@ -495,11 +538,7 @@ class SyntheticDataGenerator:
                     "numa_nodes": numa_nodes,
                     "cache_l3": f"{35.75 * sockets} MiB ({sockets} instances)" if sockets > 1 else f"{35.75} MiB"
                 },
-                "memory": {
-                    "total_gb": 373 if cores >= 96 else 256,
-                    "total_kb": 391500104 if cores >= 96 else 268435456,
-                    "available_kb": 388185644 if cores >= 96 else 265000000
-                },
+                "memory": self._get_memory_specs(instance_type, cores),
                 "storage": {
                     "device_0": {
                         "path": "10.7GB",
@@ -527,6 +566,32 @@ class SyntheticDataGenerator:
                 }
             }
         }
+    
+    def _get_memory_specs(self, instance_type: str, cores: int) -> Dict[str, int]:
+        """Get memory specifications based on instance type."""
+        # Handle C4 series with exact RAM specs
+        if instance_type in self.c4_series_specs:
+            ram_gib = self.c4_series_specs[instance_type][1]
+            total_kb = ram_gib * 1024 * 1024  # GiB to KiB
+            return {
+                "total_gb": ram_gib,
+                "total_kb": total_kb,
+                "available_kb": int(total_kb * 0.98)  # ~98% available
+            }
+        
+        # Default logic for other instance types
+        if cores >= 96:
+            return {
+                "total_gb": 373,
+                "total_kb": 391500104,
+                "available_kb": 388185644
+            }
+        else:
+            return {
+                "total_gb": 256,
+                "total_kb": 268435456,
+                "available_kb": 265000000
+            }
     
     def _get_kernel_version(self, os_distribution: str, os_version: str) -> str:
         """Generate realistic kernel version for the given OS distribution and version."""
@@ -690,7 +755,17 @@ class SyntheticDataGenerator:
     
     def _get_cpu_cores(self, instance_type: str) -> int:
         """Extract CPU core count from instance type."""
-        if "96" in instance_type or "24xlarge" in instance_type:
+        # Handle C4 series instances with exact vCPU counts
+        if instance_type in self.c4_series_specs:
+            return self.c4_series_specs[instance_type][0]
+        
+        if "288" in instance_type:
+            return 288
+        elif "192" in instance_type:
+            return 192
+        elif "144" in instance_type:
+            return 144
+        elif "96" in instance_type or "24xlarge" in instance_type:
             return 96
         elif "64" in instance_type or "16xlarge" in instance_type:
             return 64
@@ -702,11 +777,31 @@ class SyntheticDataGenerator:
             return 32
         elif "30" in instance_type:
             return 30
+        elif "24" in instance_type:
+            return 24
+        elif "16" in instance_type:
+            return 16
+        elif "8" in instance_type:
+            return 8
+        elif "4" in instance_type:
+            return 4
+        elif "2" in instance_type:
+            return 2
         else:
             return 16  # default for 4xlarge and smaller
     
     def _get_hardware_multiplier(self, instance_type: str) -> float:
         """Calculate performance multiplier based on hardware tier."""
+        # Special handling for C4 series - scale based on vCPU count
+        # This provides realistic scaling behavior for cloud scaling analysis
+        if instance_type in self.c4_series_specs:
+            vcpus = self.c4_series_specs[instance_type][0]
+            # Base scaling: roughly linear with diminishing returns at high core counts
+            # Normalized so c4-standard-96 returns ~1.0 (baseline)
+            base_multiplier = (vcpus / 96) ** 0.85  # Sub-linear scaling
+            # Add small variance for realism
+            return base_multiplier * random.uniform(0.97, 1.03)
+        
         for tier, patterns in self.hardware_tiers.items():
             if any(pattern in instance_type for pattern in patterns):
                 if tier == "high":

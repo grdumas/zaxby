@@ -144,3 +144,5 @@ def test_query_with_filters(mock_opensearch_client):
             # Verify search was called
             client.client.search.assert_called_once()
 
+
+

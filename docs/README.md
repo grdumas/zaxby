@@ -36,6 +36,9 @@ Essential technical documentation for working with the dashboard:
 - **[DARK_MODE_GUIDE.md](guides/DARK_MODE_GUIDE.md)** 🌓 NEW  
   Dark mode implementation guide with toggle button and theme persistence (Dec 2025)
 
+- **[JIRA_BREAKDOWN.md](guides/JIRA_BREAKDOWN.md)** 📋 NEW  
+  Complete JIRA work breakdown with Features, Stories, and Tasks for remaining dashboard work (Dec 2025)
+
 ### Bug Fixes & Issues (`fixes/`)
 
 Documentation of bugs that have been identified and resolved:
@@ -181,7 +184,7 @@ When adding new documentation:
 
 ---
 
-**Last Updated**: December 2, 2025  
+**Last Updated**: December 4, 2025  
 **Project Status**: Active Development  
 **Version**: v2.0
 

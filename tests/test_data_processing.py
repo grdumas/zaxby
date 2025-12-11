@@ -196,3 +196,5 @@ def test_extract_record_missing_fields(processor):
     assert 'test_name' in record
     assert 'status' in record
 
+
+

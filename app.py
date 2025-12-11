@@ -76,18 +76,6 @@ os_distributions = processor.get_unique_values(df, 'os_distribution')
 min_date = df['timestamp'].min().strftime('%Y-%m-%d') if len(df) > 0 else '2025-01-01'
 max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-12-31'
 
-# Build instance types per cloud provider mapping
-instance_types_by_cloud = {}
-for cp in cloud_providers:
-    cp_df = df[df['cloud_provider'] == cp]
-    instance_types_by_cloud[cp] = processor.get_unique_values(cp_df, 'instance_type')
-
-# Build OS versions per distribution mapping
-os_versions_by_distribution = {}
-for dist in os_distributions:
-    dist_df = df[df['os_distribution'] == dist]
-    os_versions_by_distribution[dist] = processor.get_unique_values(dist_df, 'os_version')
-
 # App Layout
 app.layout = dbc.Container([
     # Store for filtered data and analysis results
@@ -367,9 +355,6 @@ def create_overview_layout():
             }),
             dbc.Collapse([
                 dbc.CardBody([
-                    # Store for instance types and OS versions mappings
-                    dcc.Store(id='instance-types-by-cloud', data=instance_types_by_cloud),
-                    dcc.Store(id='os-versions-by-distribution', data=os_versions_by_distribution),
                     dbc.Row([
                         dbc.Col([
                             html.Label("Cloud Provider:", className="fw-bold small"),
@@ -384,7 +369,7 @@ def create_overview_layout():
                             html.Label("Instance Type:", className="fw-bold small"),
                             dcc.Dropdown(
                                 id='q3-instance-type',
-                                options=[],  # Populated by callback based on cloud provider
+                                options=[],  # Populated by callback based on cloud provider and available data
                                 value=None,
                                 placeholder="Select instance type...",
                                 clearable=True
@@ -394,8 +379,9 @@ def create_overview_layout():
                             html.Label("OS:", className="fw-bold small"),
                             dcc.Dropdown(
                                 id='q3-os-distribution',
-                                options=[{'label': dist.upper(), 'value': dist} for dist in os_distributions],
-                                value=os_distributions[0] if os_distributions else None,
+                                options=[],  # Populated by callback based on available data
+                                value=None,
+                                placeholder="Select OS...",
                                 clearable=False
                             )
                         ], width=3),
@@ -403,7 +389,7 @@ def create_overview_layout():
                             html.Label("OS Version:", className="fw-bold small"),
                             dcc.Dropdown(
                                 id='q3-os-version',
-                                options=[],  # Populated by callback based on OS distribution
+                                options=[],  # Populated by callback based on OS distribution and available data
                                 value=None,
                                 placeholder="Select version...",
                                 clearable=False
@@ -976,19 +962,33 @@ def update_question2(filtered_data_json):
 @app.callback(
     [Output('q3-instance-type', 'options'),
      Output('q3-instance-type', 'value')],
-    [Input('q3-cloud-provider', 'value')],
-    [State('instance-types-by-cloud', 'data')]
+    [Input('q3-cloud-provider', 'value'),
+     Input('filtered-data-store', 'data')],
+    [State('q3-instance-type', 'value')]
 )
-def update_instance_type_options(cloud_provider, instance_types_mapping):
-    """Update instance type dropdown options based on selected cloud provider."""
-    if not cloud_provider or not instance_types_mapping:
+def update_instance_type_options(cloud_provider, filtered_data_json, current_value):
+    """Update instance type dropdown options based on selected cloud provider and available data."""
+    import pandas as pd
+    
+    if not cloud_provider or not filtered_data_json:
         return [], None
     
-    instance_types = instance_types_mapping.get(cloud_provider, [])
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Filter to selected cloud provider and get available instance types
+    cloud_df = filtered_df[filtered_df['cloud_provider'] == cloud_provider]
+    instance_types = sorted(cloud_df['instance_type'].dropna().unique().tolist())
+    
+    if not instance_types:
+        return [], None
+    
     options = [{'label': it, 'value': it} for it in instance_types]
     
-    # Default to first instance type if available
-    default_value = instance_types[0] if instance_types else None
+    # Keep current value if still valid, otherwise default to first
+    if current_value in instance_types:
+        default_value = current_value
+    else:
+        default_value = instance_types[0]
     
     return options, default_value
 
@@ -996,19 +996,82 @@ def update_instance_type_options(cloud_provider, instance_types_mapping):
 @app.callback(
     [Output('q3-os-version', 'options'),
      Output('q3-os-version', 'value')],
-    [Input('q3-os-distribution', 'value')],
-    [State('os-versions-by-distribution', 'data')]
+    [Input('q3-os-distribution', 'value'),
+     Input('q3-cloud-provider', 'value'),
+     Input('q3-instance-type', 'value'),
+     Input('filtered-data-store', 'data')],
+    [State('q3-os-version', 'value')]
 )
-def update_os_version_options(os_distribution, os_versions_mapping):
-    """Update OS version dropdown options based on selected OS distribution."""
-    if not os_distribution or not os_versions_mapping:
+def update_os_version_options(os_distribution, cloud_provider, instance_type, filtered_data_json, current_value):
+    """Update OS version dropdown options based on selected OS and available data."""
+    import pandas as pd
+    
+    if not os_distribution or not filtered_data_json:
         return [], None
     
-    versions = os_versions_mapping.get(os_distribution, [])
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Apply filters to find what OS versions have data for the current selection
+    os_df = filtered_df[filtered_df['os_distribution'] == os_distribution]
+    
+    if cloud_provider:
+        os_df = os_df[os_df['cloud_provider'] == cloud_provider]
+    
+    if instance_type:
+        os_df = os_df[os_df['instance_type'] == instance_type]
+    
+    versions = sorted(os_df['os_version'].dropna().unique().tolist())
+    
+    if not versions:
+        return [], None
+    
     options = [{'label': v, 'value': v} for v in versions]
     
-    # Default to latest version (last in sorted list) if available
-    default_value = versions[-1] if versions else None
+    # Keep current value if still valid, otherwise default to latest (last in sorted list)
+    if current_value in versions:
+        default_value = current_value
+    else:
+        default_value = versions[-1]
+    
+    return options, default_value
+
+
+@app.callback(
+    [Output('q3-os-distribution', 'options'),
+     Output('q3-os-distribution', 'value')],
+    [Input('q3-cloud-provider', 'value'),
+     Input('q3-instance-type', 'value'),
+     Input('filtered-data-store', 'data')],
+    [State('q3-os-distribution', 'value')]
+)
+def update_os_distribution_options(cloud_provider, instance_type, filtered_data_json, current_value):
+    """Update OS distribution dropdown options based on available data."""
+    import pandas as pd
+    
+    if not filtered_data_json:
+        return [], None
+    
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Apply filters to find what OS distributions have data
+    if cloud_provider:
+        filtered_df = filtered_df[filtered_df['cloud_provider'] == cloud_provider]
+    
+    if instance_type:
+        filtered_df = filtered_df[filtered_df['instance_type'] == instance_type]
+    
+    distributions = sorted(filtered_df['os_distribution'].dropna().unique().tolist())
+    
+    if not distributions:
+        return [], None
+    
+    options = [{'label': dist.upper(), 'value': dist} for dist in distributions]
+    
+    # Keep current value if still valid, otherwise default to first
+    if current_value in distributions:
+        default_value = current_value
+    else:
+        default_value = distributions[0]
     
     return options, default_value
 

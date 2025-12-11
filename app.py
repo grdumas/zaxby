@@ -72,8 +72,21 @@ os_versions = processor.get_unique_values(df, 'os_version')
 instance_types = processor.get_unique_values(df, 'instance_type')
 test_names = processor.get_unique_values(df, 'test_name')
 cloud_providers = processor.get_unique_values(df, 'cloud_provider')
+os_distributions = processor.get_unique_values(df, 'os_distribution')
 min_date = df['timestamp'].min().strftime('%Y-%m-%d') if len(df) > 0 else '2025-01-01'
 max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-12-31'
+
+# Build instance types per cloud provider mapping
+instance_types_by_cloud = {}
+for cp in cloud_providers:
+    cp_df = df[df['cloud_provider'] == cp]
+    instance_types_by_cloud[cp] = processor.get_unique_values(cp_df, 'instance_type')
+
+# Build OS versions per distribution mapping
+os_versions_by_distribution = {}
+for dist in os_distributions:
+    dist_df = df[df['os_distribution'] == dist]
+    os_versions_by_distribution[dist] = processor.get_unique_values(dist_df, 'os_version')
 
 # App Layout
 app.layout = dbc.Container([
@@ -354,22 +367,45 @@ def create_overview_layout():
             }),
             dbc.Collapse([
                 dbc.CardBody([
+                    # Store for instance types and OS versions mappings
+                    dcc.Store(id='instance-types-by-cloud', data=instance_types_by_cloud),
+                    dcc.Store(id='os-versions-by-distribution', data=os_versions_by_distribution),
                     dbc.Row([
                         dbc.Col([
-                            html.Label("Cloud Provider:"),
+                            html.Label("Cloud Provider:", className="fw-bold small"),
                             dcc.Dropdown(
                                 id='q3-cloud-provider',
-                                options=[{'label': cp, 'value': cp} for cp in cloud_providers],
+                                options=[{'label': cp.upper(), 'value': cp} for cp in cloud_providers],
                                 value=cloud_providers[0] if cloud_providers else None,
                                 clearable=False
                             )
                         ], width=3),
                         dbc.Col([
-                            html.Label("OS Version:"),
+                            html.Label("Instance Type:", className="fw-bold small"),
+                            dcc.Dropdown(
+                                id='q3-instance-type',
+                                options=[],  # Populated by callback based on cloud provider
+                                value=None,
+                                placeholder="Select instance type...",
+                                clearable=True
+                            )
+                        ], width=3),
+                        dbc.Col([
+                            html.Label("OS:", className="fw-bold small"),
+                            dcc.Dropdown(
+                                id='q3-os-distribution',
+                                options=[{'label': dist.upper(), 'value': dist} for dist in os_distributions],
+                                value=os_distributions[0] if os_distributions else None,
+                                clearable=False
+                            )
+                        ], width=3),
+                        dbc.Col([
+                            html.Label("OS Version:", className="fw-bold small"),
                             dcc.Dropdown(
                                 id='q3-os-version',
-                                options=[{'label': osv, 'value': osv} for osv in os_versions],
-                                value=os_versions[-1] if os_versions else None,
+                                options=[],  # Populated by callback based on OS distribution
+                                value=None,
+                                placeholder="Select version...",
                                 clearable=False
                             )
                         ], width=3)
@@ -936,14 +972,57 @@ def update_question2(filtered_data_json):
     return fig, summary_component
 
 
+# Cascading dropdown callbacks for Cloud Scaling section
+@app.callback(
+    [Output('q3-instance-type', 'options'),
+     Output('q3-instance-type', 'value')],
+    [Input('q3-cloud-provider', 'value')],
+    [State('instance-types-by-cloud', 'data')]
+)
+def update_instance_type_options(cloud_provider, instance_types_mapping):
+    """Update instance type dropdown options based on selected cloud provider."""
+    if not cloud_provider or not instance_types_mapping:
+        return [], None
+    
+    instance_types = instance_types_mapping.get(cloud_provider, [])
+    options = [{'label': it, 'value': it} for it in instance_types]
+    
+    # Default to first instance type if available
+    default_value = instance_types[0] if instance_types else None
+    
+    return options, default_value
+
+
+@app.callback(
+    [Output('q3-os-version', 'options'),
+     Output('q3-os-version', 'value')],
+    [Input('q3-os-distribution', 'value')],
+    [State('os-versions-by-distribution', 'data')]
+)
+def update_os_version_options(os_distribution, os_versions_mapping):
+    """Update OS version dropdown options based on selected OS distribution."""
+    if not os_distribution or not os_versions_mapping:
+        return [], None
+    
+    versions = os_versions_mapping.get(os_distribution, [])
+    options = [{'label': v, 'value': v} for v in versions]
+    
+    # Default to latest version (last in sorted list) if available
+    default_value = versions[-1] if versions else None
+    
+    return options, default_value
+
+
 @app.callback(
     [Output('q3-scaling', 'figure'),
      Output('q3-summary', 'children')],
     [Input('q3-cloud-provider', 'value'),
+     Input('q3-instance-type', 'value'),
+     Input('q3-os-distribution', 'value'),
      Input('q3-os-version', 'value'),
      Input('filtered-data-store', 'data')]
 )
-def update_question3(cloud_provider, os_version, filtered_data_json):
+def update_question3(cloud_provider, instance_type, os_distribution, os_version, filtered_data_json):
     """Update Cloud Scaling section visualizations."""
     import pandas as pd
     
@@ -952,6 +1031,13 @@ def update_question3(cloud_provider, os_version, filtered_data_json):
         return empty_fig, ""
     
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Apply additional filters for OS distribution and instance type
+    if os_distribution:
+        filtered_df = filtered_df[filtered_df['os_distribution'] == os_distribution]
+    
+    if instance_type:
+        filtered_df = filtered_df[filtered_df['instance_type'] == instance_type]
     
     # Run scaling analysis
     q3_result = processor.analyze_cloud_scaling(
@@ -962,9 +1048,16 @@ def update_question3(cloud_provider, os_version, filtered_data_json):
     
     # Create visualization
     if not q3_result['scaling_data'].empty:
+        # Build descriptive title
+        title_parts = [f"Performance Scaling: {os_distribution.upper()} {os_version}"]
+        title_parts.append(f"on {cloud_provider.upper()}")
+        if instance_type:
+            title_parts.append(f"({instance_type})")
+        chart_title = " ".join(title_parts)
+        
         fig = visualizations.create_cloud_scaling_chart(
             q3_result['scaling_data'],
-            title=f"Performance Scaling: {os_version} on {cloud_provider}"
+            title=chart_title
         )
     else:
         fig = visualizations.create_empty_figure("No scaling data available for selected configuration")

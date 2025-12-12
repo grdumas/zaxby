@@ -45,7 +45,10 @@ class SyntheticDataGenerator:
                 "m6i.24xlarge", "m6i.12xlarge", "m6i.8xlarge",
                 "c5.24xlarge", "c5.12xlarge", "c5.8xlarge",
                 "c6i.24xlarge", "c6i.12xlarge",
-                "r5.24xlarge", "r5.12xlarge"
+                "r5.24xlarge", "r5.12xlarge",
+                # C6i series for cloud scaling analysis
+                "c6i.large", "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
+                "c6i.8xlarge", "c6i.16xlarge", "c6i.32xlarge"
             ],
             "azure": [
                 "Standard_D96s_v3", "Standard_D64s_v3", "Standard_D48s_v3", "Standard_D32s_v3",
@@ -76,7 +79,7 @@ class SyntheticDataGenerator:
             "low": ["8xlarge", "4xlarge", "32", "30", "24", "16", "8", "4", "2"]
         }
         
-        # C4 series instance specifications for cloud scaling analysis
+        # C4 series instance specifications for cloud scaling analysis (GCP)
         # Maps instance type to (vCPUs, RAM in GiB)
         self.c4_series_specs = {
             "c4-standard-2": (2, 7),
@@ -90,6 +93,20 @@ class SyntheticDataGenerator:
             "c4-standard-144": (144, 540),
             "c4-standard-192": (192, 720),
             "c4-standard-288": (288, 1080),
+        }
+        
+        # C6i series instance specifications for cloud scaling analysis (AWS)
+        # Maps instance type to (vCPUs, RAM in GiB)
+        self.c6i_series_specs = {
+            "c6i.large": (2, 4),
+            "c6i.xlarge": (4, 8),
+            "c6i.2xlarge": (8, 16),
+            "c6i.4xlarge": (16, 32),
+            "c6i.8xlarge": (32, 64),
+            "c6i.12xlarge": (48, 96),
+            "c6i.16xlarge": (64, 128),
+            "c6i.24xlarge": (96, 192),
+            "c6i.32xlarge": (128, 256),
         }
         
         # Baseline metric values (will be varied based on hardware tier)
@@ -366,6 +383,26 @@ class SyntheticDataGenerator:
         print(f"  Phase 3: Added RHEL 10 + GCP C4 cloud scaling scenarios")
         print(f"           {len(rhel_10_versions)} RHEL 10 versions × {len(c4_instances)} C4 instances × {len(self.test_types)} tests")
         
+        # Phase 4: Cloud Scaling Scenarios - Amazon 2023 on AWS C6i series
+        # This enables investigating how Amazon Linux 2023 performance scales across the C6i instance family
+        c6i_instances = [
+            "c6i.large", "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
+            "c6i.8xlarge", "c6i.12xlarge", "c6i.16xlarge", "c6i.24xlarge", "c6i.32xlarge"
+        ]
+        
+        for c6i_instance in c6i_instances:
+            for test_type in self.test_types:
+                scenarios.append({
+                    "os_distribution": "amazon",
+                    "os_version": "2023",
+                    "cloud_provider": "aws",
+                    "instance_type": c6i_instance,
+                    "test_type": test_type
+                })
+        
+        print(f"  Phase 4: Added Amazon 2023 + AWS C6i cloud scaling scenarios")
+        print(f"           1 Amazon 2023 version × {len(c6i_instances)} C6i instances × {len(self.test_types)} tests")
+        
         # Note: We're ignoring num_scenarios parameter and using ALL generated scenarios
         # to ensure complete coverage. This is better than randomly sampling which could
         # break the hardware consistency guarantees.
@@ -569,9 +606,19 @@ class SyntheticDataGenerator:
     
     def _get_memory_specs(self, instance_type: str, cores: int) -> Dict[str, int]:
         """Get memory specifications based on instance type."""
-        # Handle C4 series with exact RAM specs
+        # Handle C4 series with exact RAM specs (GCP)
         if instance_type in self.c4_series_specs:
             ram_gib = self.c4_series_specs[instance_type][1]
+            total_kb = ram_gib * 1024 * 1024  # GiB to KiB
+            return {
+                "total_gb": ram_gib,
+                "total_kb": total_kb,
+                "available_kb": int(total_kb * 0.98)  # ~98% available
+            }
+        
+        # Handle C6i series with exact RAM specs (AWS)
+        if instance_type in self.c6i_series_specs:
+            ram_gib = self.c6i_series_specs[instance_type][1]
             total_kb = ram_gib * 1024 * 1024  # GiB to KiB
             return {
                 "total_gb": ram_gib,
@@ -755,9 +802,13 @@ class SyntheticDataGenerator:
     
     def _get_cpu_cores(self, instance_type: str) -> int:
         """Extract CPU core count from instance type."""
-        # Handle C4 series instances with exact vCPU counts
+        # Handle C4 series instances with exact vCPU counts (GCP)
         if instance_type in self.c4_series_specs:
             return self.c4_series_specs[instance_type][0]
+        
+        # Handle C6i series instances with exact vCPU counts (AWS)
+        if instance_type in self.c6i_series_specs:
+            return self.c6i_series_specs[instance_type][0]
         
         if "288" in instance_type:
             return 288
@@ -792,12 +843,21 @@ class SyntheticDataGenerator:
     
     def _get_hardware_multiplier(self, instance_type: str) -> float:
         """Calculate performance multiplier based on hardware tier."""
-        # Special handling for C4 series - scale based on vCPU count
+        # Special handling for C4 series - scale based on vCPU count (GCP)
         # This provides realistic scaling behavior for cloud scaling analysis
         if instance_type in self.c4_series_specs:
             vcpus = self.c4_series_specs[instance_type][0]
             # Base scaling: roughly linear with diminishing returns at high core counts
             # Normalized so c4-standard-96 returns ~1.0 (baseline)
+            base_multiplier = (vcpus / 96) ** 0.85  # Sub-linear scaling
+            # Add small variance for realism
+            return base_multiplier * random.uniform(0.97, 1.03)
+        
+        # Special handling for C6i series - scale based on vCPU count (AWS)
+        if instance_type in self.c6i_series_specs:
+            vcpus = self.c6i_series_specs[instance_type][0]
+            # Base scaling: roughly linear with diminishing returns at high core counts
+            # Normalized so c6i.24xlarge (96 vCPUs) returns ~1.0 (baseline)
             base_multiplier = (vcpus / 96) ** 0.85  # Sub-linear scaling
             # Add small variance for realism
             return base_multiplier * random.uniform(0.97, 1.03)

@@ -1124,18 +1124,26 @@ class BenchmarkDataProcessor:
                 test_df = category_df[category_df['test_name'] == test]
                 
                 for instance in instance_types:
-                    instance_data = test_df[test_df['instance_type'] == instance]['primary_metric_value']
+                    instance_rows = test_df[test_df['instance_type'] == instance]
+                    instance_data = instance_rows['primary_metric_value']
                     
                     if len(instance_data) > 0:
                         # Extract CPU cores if available
-                        cores_data = test_df[test_df['instance_type'] == instance]['cpu_cores']
+                        cores_data = instance_rows['cpu_cores']
                         cores = cores_data.iloc[0] if len(cores_data) > 0 and not pd.isna(cores_data.iloc[0]) else None
+                        
+                        # Extract memory_gb if available
+                        memory_gb = None
+                        if 'memory_gb' in instance_rows.columns:
+                            mem_data = instance_rows['memory_gb']
+                            memory_gb = mem_data.iloc[0] if len(mem_data) > 0 and not pd.isna(mem_data.iloc[0]) else None
                         
                         scaling_results.append({
                             'benchmark_category': category,
                             'test_name': test,
                             'instance_type': instance,
                             'cpu_cores': cores,
+                            'memory_gb': memory_gb,
                             'mean_performance': instance_data.mean(),
                             'std_performance': instance_data.std()
                         })

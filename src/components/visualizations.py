@@ -877,6 +877,15 @@ def create_cloud_scaling_chart(
     """
     Create a line chart showing how performance scales with instance size.
     
+    Shows scaling efficiency as a percentage of ideal linear scaling, making it
+    easy to compare different benchmarks regardless of their native units.
+    
+    - 100% = Perfect linear scaling (performance doubles when cores double)
+    - >100% = Super-linear scaling (better than expected)
+    - <100% = Sub-linear scaling (diminishing returns)
+    
+    Uses evenly-spaced categorical X-axis for readability (not linear by CPU cores).
+    
     Args:
         scaling_df: DataFrame with scaling analysis data
         title: Chart title
@@ -896,25 +905,117 @@ def create_cloud_scaling_chart(
         group_col = 'test_name'
     
     categories = sorted(scaling_df[group_col].unique())
+    x_title = "Instance Type"
+    
+    # Check if we have CPU cores data
+    has_cpu_cores = 'cpu_cores' in scaling_df.columns and scaling_df['cpu_cores'].notna().any()
+    
+    # Build ordered list of unique instances sorted by CPU cores for even spacing
+    # This creates categorical X-axis labels instead of numeric
+    if has_cpu_cores and 'instance_type' in scaling_df.columns:
+        # Get unique instances sorted by CPU cores
+        instance_order_df = scaling_df[['instance_type', 'cpu_cores', 'memory_gb']].drop_duplicates()
+        instance_order_df = instance_order_df.sort_values('cpu_cores')
+        
+        # Create tick labels with instance name, cores, and RAM
+        tick_labels = []
+        for _, row in instance_order_df.iterrows():
+            inst_name = row['instance_type']
+            cores = int(row['cpu_cores'])
+            memory = row.get('memory_gb', None)
+            if memory and not pd.isna(memory):
+                label = f"{inst_name}<br>{cores} vCPU, {int(memory)} GB"
+            else:
+                label = f"{inst_name}<br>{cores} vCPU"
+            tick_labels.append(label)
+        
+        # Map instance types to their index position (0, 1, 2, ...) for even spacing
+        instance_to_index = {row['instance_type']: i for i, (_, row) in enumerate(instance_order_df.iterrows())}
+        cores_list = instance_order_df['cpu_cores'].tolist()
+    else:
+        instance_to_index = {}
+        tick_labels = []
+        cores_list = []
     
     for category in categories:
-        cat_data = scaling_df[scaling_df[group_col] == category]
+        cat_data = scaling_df[scaling_df[group_col] == category].copy()
         
         # Sort by CPU cores or instance type
-        if 'cpu_cores' in cat_data.columns and cat_data['cpu_cores'].notna().any():
+        if has_cpu_cores:
             cat_data = cat_data.sort_values('cpu_cores')
-            x_values = cat_data['cpu_cores']
-            x_title = "CPU Cores"
+            # Use index positions for X values (evenly spaced)
+            x_values = [instance_to_index.get(inst, 0) for inst in cat_data['instance_type']]
+            cores_values = cat_data['cpu_cores'].tolist()
+            instance_types = cat_data['instance_type'].tolist() if 'instance_type' in cat_data.columns else []
+            memory_values = cat_data['memory_gb'].tolist() if 'memory_gb' in cat_data.columns else []
         else:
             cat_data = cat_data.sort_values('instance_type')
-            x_values = cat_data['instance_type']
-            x_title = "Instance Type"
+            x_values = list(range(len(cat_data)))
+            cores_values = [None] * len(cat_data)
+            instance_types = cat_data['instance_type'].tolist()
+            memory_values = cat_data['memory_gb'].tolist() if 'memory_gb' in cat_data.columns else []
         
-        # Average performance if multiple tests per category
+        # Get performance values
         if 'mean_performance' in cat_data.columns:
-            y_values = cat_data['mean_performance']
+            perf_values = cat_data['mean_performance'].tolist()
         else:
-            y_values = cat_data.groupby(x_title)['mean_performance'].mean()
+            continue
+        
+        # Calculate scaling efficiency as percentage of ideal linear scaling
+        if has_cpu_cores and len(cores_values) > 0 and len(perf_values) > 0:
+            baseline_perf = perf_values[0]
+            baseline_cores = cores_values[0]
+            
+            if baseline_cores and baseline_cores > 0 and baseline_perf and baseline_perf > 0:
+                # Calculate efficiency: (actual / expected) * 100
+                # Expected = baseline_perf * (current_cores / baseline_cores)
+                efficiency_values = []
+                hover_texts = []
+                
+                for i, (perf, cores) in enumerate(zip(perf_values, cores_values)):
+                    if cores and cores > 0:
+                        expected_perf = baseline_perf * (cores / baseline_cores)
+                        efficiency = (perf / expected_perf) * 100
+                        efficiency_values.append(efficiency)
+                        
+                        # Get instance info for hover
+                        inst_name = instance_types[i] if i < len(instance_types) else "Unknown"
+                        mem_gb = memory_values[i] if i < len(memory_values) and memory_values[i] else None
+                        mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb else ""
+                        
+                        # Create detailed hover text
+                        hover_texts.append(
+                            f"<b>{category}</b><br>"
+                            f"Instance: {inst_name}<br>"
+                            f"CPU Cores: {int(cores)}{mem_str}<br>"
+                            f"Scaling Efficiency: {efficiency:.1f}%<br>"
+                            f"Raw Performance: {perf:,.0f}<br>"
+                            f"Expected (linear): {expected_perf:,.0f}"
+                        )
+                    else:
+                        efficiency_values.append(None)
+                        hover_texts.append("")
+                
+                y_values = efficiency_values
+            else:
+                # Fallback to raw values if baseline is invalid
+                y_values = perf_values
+                hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
+        else:
+            # For non-CPU-cores case, normalize to first value = 100%
+            if len(perf_values) > 0 and perf_values[0] > 0:
+                baseline = perf_values[0]
+                y_values = [(v / baseline) * 100 for v in perf_values]
+                hover_texts = [
+                    f"<b>{category}</b><br>"
+                    f"Instance: {inst}<br>"
+                    f"Relative Performance: {(v/baseline)*100:.1f}%<br>"
+                    f"Raw Value: {v:,.0f}"
+                    for inst, v in zip(instance_types, perf_values)
+                ]
+            else:
+                y_values = perf_values
+                hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
         
         fig.add_trace(go.Scatter(
             x=x_values,
@@ -922,54 +1023,86 @@ def create_cloud_scaling_chart(
             mode='lines+markers',
             name=category,
             line=dict(width=3),
-            marker=dict(size=10)
+            marker=dict(size=10),
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_texts
         ))
     
-    # Add ideal linear scaling line if we have CPU cores
-    if 'cpu_cores' in scaling_df.columns and scaling_df['cpu_cores'].notna().any():
-        min_cores = scaling_df['cpu_cores'].min()
-        max_cores = scaling_df['cpu_cores'].max()
+    # Add ideal linear scaling reference line at 100%
+    if has_cpu_cores and len(instance_to_index) > 0:
+        # Span the full width of the categorical axis
+        fig.add_trace(go.Scatter(
+            x=[0, len(instance_to_index) - 1],
+            y=[100, 100],
+            mode='lines',
+            name='Ideal Linear (100%)',
+            line=dict(dash='dash', color='rgba(100, 100, 100, 0.7)', width=2),
+            showlegend=True,
+            hoverinfo='skip'
+        ))
         
-        # Use first category's first point as baseline
-        if not scaling_df.empty:
-            first_cat = categories[0]
-            first_data = scaling_df[scaling_df[group_col] == first_cat].sort_values('cpu_cores')
-            if not first_data.empty:
-                baseline_perf = first_data.iloc[0]['mean_performance']
-                baseline_cores = first_data.iloc[0]['cpu_cores']
-                
-                if baseline_cores and baseline_cores > 0:
-                    ideal_x = [min_cores, max_cores]
-                    ideal_y = [
-                        baseline_perf * (min_cores / baseline_cores),
-                        baseline_perf * (max_cores / baseline_cores)
-                    ]
-                    
-                    fig.add_trace(go.Scatter(
-                        x=ideal_x,
-                        y=ideal_y,
-                        mode='lines',
-                        name='Ideal Linear Scaling',
-                        line=dict(dash='dash', color='gray', width=2),
-                        showlegend=True
-                    ))
+        # Add shaded regions for context
+        fig.add_hrect(
+            y0=85, y1=115,
+            fillcolor="rgba(76, 175, 80, 0.1)",
+            line_width=0,
+            annotation_text="Good scaling (85-115%)",
+            annotation_position="top right",
+            annotation=dict(font_size=10, font_color="rgba(76, 175, 80, 0.8)")
+        )
+    
+    # Add annotation explaining the metric
+    fig.add_annotation(
+        text=(
+            "<b>How to read this chart:</b><br>"
+            "100% = ideal linear scaling<br>"
+            ">100% = super-linear (great!)<br>"
+            "<100% = diminishing returns"
+        ),
+        xref="paper", yref="paper",
+        x=0.02, y=0.98,
+        showarrow=False,
+        font=dict(size=10, color="gray"),
+        align="left",
+        bgcolor="rgba(255, 255, 255, 0.8)",
+        bordercolor="rgba(200, 200, 200, 0.5)",
+        borderwidth=1,
+        borderpad=4
+    )
+    
+    # Configure evenly-spaced categorical X-axis with instance labels
+    if tick_labels:
+        fig.update_layout(
+            xaxis=dict(
+                tickmode='array',
+                tickvals=list(range(len(tick_labels))),
+                ticktext=tick_labels,
+                tickangle=45,
+                tickfont=dict(size=9)
+            )
+        )
     
     fig.update_layout(
         title=title,
-        xaxis_title=x_title if 'cpu_cores' in scaling_df.columns else "Instance Type",
-        yaxis_title="Performance (mean metric value)",
+        xaxis_title=x_title,
+        yaxis_title="Scaling Efficiency (% of ideal linear)",
         template='plotly_white',
-        height=500,
+        height=600,  # Increased height for rotated labels
         hovermode='x unified',
         legend=dict(
-            title="Benchmark",
+            title="Benchmark Category",
             orientation="v",
             yanchor="top",
             y=0.99,
             xanchor="right",
             x=0.99,
-            bgcolor="rgba(255,255,255,0.8)"
-        )
+            bgcolor="rgba(255,255,255,0.9)"
+        ),
+        yaxis=dict(
+            ticksuffix="%",
+            range=[0, max(150, 120)]  # Ensure we show at least 0-150%
+        ),
+        margin=dict(b=120)  # Extra bottom margin for rotated labels
     )
     
     return fig

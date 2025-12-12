@@ -366,12 +366,12 @@ def create_overview_layout():
                             )
                         ], width=3),
                         dbc.Col([
-                            html.Label("Instance Type:", className="fw-bold small"),
+                            html.Label("Instance Series:", className="fw-bold small"),
                             dcc.Dropdown(
-                                id='q3-instance-type',
+                                id='q3-instance-series',
                                 options=[],  # Populated by callback based on cloud provider and available data
                                 value=None,
-                                placeholder="Select instance type...",
+                                placeholder="Select instance series...",
                                 clearable=True
                             )
                         ], width=3),
@@ -958,16 +958,55 @@ def update_question2(filtered_data_json):
     return fig, summary_component
 
 
+def extract_instance_series(instance_type: str, cloud_provider: str) -> str:
+    """
+    Extract the instance series/family from a full instance type name.
+    
+    Examples:
+        - AWS: "m5.24xlarge" -> "m5"
+        - Azure: "Standard_D96s_v3" -> "Standard_Ds_v3"
+        - GCP: "c4-standard-96" -> "c4-standard"
+    """
+    import re
+    
+    if not instance_type:
+        return instance_type
+    
+    if cloud_provider == 'aws':
+        # AWS format: m5.24xlarge -> m5
+        # Split on dot and take the first part (family)
+        return instance_type.split('.')[0]
+    
+    elif cloud_provider == 'azure':
+        # Azure format: Standard_D96s_v3 -> Standard_Ds_v3
+        # Remove the numeric size portion but keep the series letter and version
+        match = re.match(r'(Standard_[A-Z])(\d+)(s?)(_v\d+)?', instance_type)
+        if match:
+            prefix, _, s_suffix, version = match.groups()
+            return f"{prefix}{s_suffix or ''}{version or ''}"
+        return instance_type
+    
+    elif cloud_provider == 'gcp':
+        # GCP format: c4-standard-96 -> c4-standard
+        # Remove the trailing number (vCPU count)
+        parts = instance_type.rsplit('-', 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0]
+        return instance_type
+    
+    return instance_type
+
+
 # Cascading dropdown callbacks for Cloud Scaling section
 @app.callback(
-    [Output('q3-instance-type', 'options'),
-     Output('q3-instance-type', 'value')],
+    [Output('q3-instance-series', 'options'),
+     Output('q3-instance-series', 'value')],
     [Input('q3-cloud-provider', 'value'),
      Input('filtered-data-store', 'data')],
-    [State('q3-instance-type', 'value')]
+    [State('q3-instance-series', 'value')]
 )
-def update_instance_type_options(cloud_provider, filtered_data_json, current_value):
-    """Update instance type dropdown options based on selected cloud provider and available data."""
+def update_instance_series_options(cloud_provider, filtered_data_json, current_value):
+    """Update instance series dropdown options based on selected cloud provider and available data."""
     import pandas as pd
     
     if not cloud_provider or not filtered_data_json:
@@ -977,18 +1016,30 @@ def update_instance_type_options(cloud_provider, filtered_data_json, current_val
     
     # Filter to selected cloud provider and get available instance types
     cloud_df = filtered_df[filtered_df['cloud_provider'] == cloud_provider]
-    instance_types = sorted(cloud_df['instance_type'].dropna().unique().tolist())
+    instance_types = cloud_df['instance_type'].dropna().unique().tolist()
     
     if not instance_types:
         return [], None
     
-    options = [{'label': it, 'value': it} for it in instance_types]
+    # Extract unique instance series from instance types
+    instance_series = set()
+    for it in instance_types:
+        series = extract_instance_series(it, cloud_provider)
+        if series:
+            instance_series.add(series)
+    
+    instance_series = sorted(instance_series)
+    
+    if not instance_series:
+        return [], None
+    
+    options = [{'label': series, 'value': series} for series in instance_series]
     
     # Keep current value if still valid, otherwise default to first
-    if current_value in instance_types:
+    if current_value in instance_series:
         default_value = current_value
     else:
-        default_value = instance_types[0]
+        default_value = instance_series[0]
     
     return options, default_value
 
@@ -998,11 +1049,11 @@ def update_instance_type_options(cloud_provider, filtered_data_json, current_val
      Output('q3-os-version', 'value')],
     [Input('q3-os-distribution', 'value'),
      Input('q3-cloud-provider', 'value'),
-     Input('q3-instance-type', 'value'),
+     Input('q3-instance-series', 'value'),
      Input('filtered-data-store', 'data')],
     [State('q3-os-version', 'value')]
 )
-def update_os_version_options(os_distribution, cloud_provider, instance_type, filtered_data_json, current_value):
+def update_os_version_options(os_distribution, cloud_provider, instance_series, filtered_data_json, current_value):
     """Update OS version dropdown options based on selected OS and available data."""
     import pandas as pd
     
@@ -1017,8 +1068,11 @@ def update_os_version_options(os_distribution, cloud_provider, instance_type, fi
     if cloud_provider:
         os_df = os_df[os_df['cloud_provider'] == cloud_provider]
     
-    if instance_type:
-        os_df = os_df[os_df['instance_type'] == instance_type]
+    if instance_series:
+        # Filter by instance series (match instances that start with the series prefix)
+        os_df = os_df[os_df['instance_type'].apply(
+            lambda x: extract_instance_series(x, cloud_provider) == instance_series if pd.notna(x) else False
+        )]
     
     versions = sorted(os_df['os_version'].dropna().unique().tolist())
     
@@ -1040,11 +1094,11 @@ def update_os_version_options(os_distribution, cloud_provider, instance_type, fi
     [Output('q3-os-distribution', 'options'),
      Output('q3-os-distribution', 'value')],
     [Input('q3-cloud-provider', 'value'),
-     Input('q3-instance-type', 'value'),
+     Input('q3-instance-series', 'value'),
      Input('filtered-data-store', 'data')],
     [State('q3-os-distribution', 'value')]
 )
-def update_os_distribution_options(cloud_provider, instance_type, filtered_data_json, current_value):
+def update_os_distribution_options(cloud_provider, instance_series, filtered_data_json, current_value):
     """Update OS distribution dropdown options based on available data."""
     import pandas as pd
     
@@ -1057,8 +1111,11 @@ def update_os_distribution_options(cloud_provider, instance_type, filtered_data_
     if cloud_provider:
         filtered_df = filtered_df[filtered_df['cloud_provider'] == cloud_provider]
     
-    if instance_type:
-        filtered_df = filtered_df[filtered_df['instance_type'] == instance_type]
+    if instance_series:
+        # Filter by instance series (match instances that belong to this series)
+        filtered_df = filtered_df[filtered_df['instance_type'].apply(
+            lambda x: extract_instance_series(x, cloud_provider) == instance_series if pd.notna(x) else False
+        )]
     
     distributions = sorted(filtered_df['os_distribution'].dropna().unique().tolist())
     
@@ -1080,12 +1137,12 @@ def update_os_distribution_options(cloud_provider, instance_type, filtered_data_
     [Output('q3-scaling', 'figure'),
      Output('q3-summary', 'children')],
     [Input('q3-cloud-provider', 'value'),
-     Input('q3-instance-type', 'value'),
+     Input('q3-instance-series', 'value'),
      Input('q3-os-distribution', 'value'),
      Input('q3-os-version', 'value'),
      Input('filtered-data-store', 'data')]
 )
-def update_question3(cloud_provider, instance_type, os_distribution, os_version, filtered_data_json):
+def update_question3(cloud_provider, instance_series, os_distribution, os_version, filtered_data_json):
     """Update Cloud Scaling section visualizations."""
     import pandas as pd
     
@@ -1095,12 +1152,15 @@ def update_question3(cloud_provider, instance_type, os_distribution, os_version,
     
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
     
-    # Apply additional filters for OS distribution and instance type
+    # Apply additional filters for OS distribution and instance series
     if os_distribution:
         filtered_df = filtered_df[filtered_df['os_distribution'] == os_distribution]
     
-    if instance_type:
-        filtered_df = filtered_df[filtered_df['instance_type'] == instance_type]
+    if instance_series:
+        # Filter by instance series (match instances that belong to this series)
+        filtered_df = filtered_df[filtered_df['instance_type'].apply(
+            lambda x: extract_instance_series(x, cloud_provider) == instance_series if pd.notna(x) else False
+        )]
     
     # Run scaling analysis
     q3_result = processor.analyze_cloud_scaling(
@@ -1114,8 +1174,8 @@ def update_question3(cloud_provider, instance_type, os_distribution, os_version,
         # Build descriptive title
         title_parts = [f"Performance Scaling: {os_distribution.upper()} {os_version}"]
         title_parts.append(f"on {cloud_provider.upper()}")
-        if instance_type:
-            title_parts.append(f"({instance_type})")
+        if instance_series:
+            title_parts.append(f"({instance_series})")
         chart_title = " ".join(title_parts)
         
         fig = visualizations.create_cloud_scaling_chart(

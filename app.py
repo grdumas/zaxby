@@ -428,6 +428,21 @@ def create_overview_layout():
                             )
                         ], width=3)
                     ], className="mb-3"),
+                    dbc.Alert([
+                        html.Strong("How Scaling Efficiency is Measured: "),
+                        html.Span(
+                            "Scaling efficiency compares actual performance against ideal linear scaling. "
+                            "The smallest instance serves as the baseline (100%). For larger instances, "
+                            "we calculate expected performance assuming linear scaling (e.g., 2× cores = 2× performance), "
+                            "then measure actual vs. expected. "
+                        ),
+                        html.Strong("100%"),
+                        html.Span(" = perfect linear scaling, "),
+                        html.Strong(">100%"),
+                        html.Span(" = super-linear (better than expected), "),
+                        html.Strong("<100%"),
+                        html.Span(" = sub-linear (diminishing returns).")
+                    ], color="light", className="mb-3 small", style={"borderLeft": "3px solid #10b981"}),
                     dbc.Row([
                         dbc.Col([
                             dcc.Loading(

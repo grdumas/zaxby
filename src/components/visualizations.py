@@ -690,7 +690,7 @@ def _get_regression_color_and_pattern(
 
     # Stable zone: within threshold
     if abs(percent_change) <= stable_threshold:
-        return '#e0e0e0', ''  # Gray, no pattern
+        return '#9ca3af', ''  # Gray, no pattern (darker for readability)
     
     if percent_change < 0:
         # Net regression
@@ -860,7 +860,7 @@ def create_version_comparison_bar_chart(
         "<b>Legend:</b><br>"
         "■ <span style='color:#d73027'>Dark Red</span>: All configs regressed<br>"
         "▤ <span style='color:#f46d43'>Orange striped</span>: Mixed, net regression<br>"
-        "■ <span style='color:#e0e0e0'>Gray</span>: Stable (±5%)<br>"
+        "■ <span style='color:#6b7280'>Gray</span>: Stable (±5%)<br>"
         "▤ <span style='color:#fdae61'>Amber striped</span>: Mixed, net improvement<br>"
         "■ <span style='color:#1a9850'>Green</span>: All configs improved"
     )
@@ -947,11 +947,11 @@ def create_peer_os_comparison_chart(
                 y_values.append(avg_rel_perf)
                 x_labels.append(category)
                 
-                # Color: green if within 10%, yellow if within 20%, red otherwise
+                # Color: green if within 10%, amber if within 20%, red otherwise
                 if avg_rel_perf >= 90 and avg_rel_perf <= 110:
                     colors.append('#1a9850')  # Green - competitive
                 elif avg_rel_perf >= 80 and avg_rel_perf <= 120:
-                    colors.append('#fee090')  # Yellow - moderate difference
+                    colors.append('#d97706')  # Amber - moderate difference (darker for readability)
                 else:
                     colors.append('#d73027')  # Red - significant difference
                 
@@ -1003,7 +1003,7 @@ def create_peer_os_comparison_chart(
     legend_text = (
         "<b>Color Legend:</b><br>"
         "■ <span style='color:#1a9850'>Green</span>: Competitive (90-110%)<br>"
-        "■ <span style='color:#fee090'>Yellow</span>: Moderate diff (80-120%)<br>"
+        "■ <span style='color:#d97706'>Amber</span>: Moderate diff (80-120%)<br>"
         "■ <span style='color:#d73027'>Red</span>: Significant diff (<80% or >120%)"
     )
     

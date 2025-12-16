@@ -341,8 +341,11 @@ def create_performance_delta_chart(
     """
     Create a bar chart showing percentage changes with color coding.
     
+    Uses the same 5-color + pattern scheme as version comparison charts
+    when is_regression data is available.
+    
     Args:
-        df: DataFrame with percent_change column
+        df: DataFrame with percent_change column (and optionally is_regression)
         x_col: Column for x-axis labels
         title: Chart title
         
@@ -352,15 +355,37 @@ def create_performance_delta_chart(
     if df.empty or 'percent_change' not in df.columns:
         return create_empty_figure("No comparison data available")
     
-    # Color bars based on change direction
-    colors = ['red' if x < -10 else 'green' if x > 10 else 'gray' 
-              for x in df['percent_change']]
+    # Determine colors and patterns
+    # If we have is_regression info, use the 5-color scheme
+    if 'is_regression' in df.columns:
+        colors = []
+        patterns = []
+        for _, row in df.iterrows():
+            pct = row['percent_change']
+            is_reg = row['is_regression']
+            # For simple delta chart, assume single config (any == all)
+            color, pattern = _get_regression_color_and_pattern(pct, is_reg, is_reg)
+            colors.append(color)
+            patterns.append(pattern)
+        
+        marker_config = dict(
+            color=colors,
+            pattern_shape=patterns,
+            pattern_fillmode='overlay',
+            pattern_size=8,
+            pattern_solidity=0.3
+        )
+    else:
+        # Fallback to simple color coding
+        colors = ['#d73027' if x < -5 else '#1a9850' if x > 5 else '#e0e0e0' 
+                  for x in df['percent_change']]
+        marker_config = dict(color=colors)
     
     fig = go.Figure(data=[
         go.Bar(
             x=df[x_col],
             y=df['percent_change'],
-            marker_color=colors,
+            marker=marker_config,
             text=df['percent_change'].round(1).astype(str) + '%',
             textposition='outside'
         )
@@ -377,8 +402,9 @@ def create_performance_delta_chart(
     # Add reference line at 0
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
     
-    # Add zones
-    fig.add_hrect(y0=-10, y1=10, fillcolor="gray", opacity=0.1, line_width=0)
+    # Add stable zone
+    fig.add_hrect(y0=-5, y1=5, fillcolor="gray", opacity=0.1, line_width=0,
+                  annotation_text="Stable zone (±5%)", annotation_position="top right")
     
     return fig
 
@@ -634,6 +660,49 @@ def create_regression_heatmap(
     return fig
 
 
+def _get_regression_color_and_pattern(
+    percent_change: float,
+    is_any_regression: bool,
+    is_all_regression: bool,
+    stable_threshold: float = 5.0
+) -> tuple:
+    """
+    Determine bar color and pattern based on change and consistency across runs.
+    
+    Returns a 5-color + pattern scheme:
+    - Solid Dark Red: All runs regressed, average is negative
+    - Striped Orange: Mixed results, net regression  
+    - Gray: Stable (within threshold)
+    - Striped Amber: Mixed results, net improvement
+    - Solid Green: All runs improved, average is positive
+    
+    Args:
+        percent_change: Average percent change across runs
+        is_any_regression: True if ANY run showed regression
+        is_all_regression: True if ALL runs showed regression
+        stable_threshold: Threshold for stable zone (default ±5%)
+        
+    Returns:
+        Tuple of (color hex, pattern shape or empty string)
+    """
+    # Stable zone: within threshold
+    if abs(percent_change) <= stable_threshold:
+        return '#e0e0e0', ''  # Gray, no pattern
+    
+    if percent_change < 0:
+        # Net regression
+        if is_all_regression:
+            return '#d73027', ''  # Dark red, solid - unanimous regression
+        else:
+            return '#f46d43', '/'  # Orange, striped - mixed, net regression
+    else:
+        # Net improvement
+        if not is_any_regression:
+            return '#1a9850', ''  # Green, solid - unanimous improvement
+        else:
+            return '#fdae61', '/'  # Amber, striped - mixed, net improvement
+
+
 def create_version_comparison_bar_chart(
     comparison_df: pd.DataFrame,
     baseline_version: str,
@@ -642,6 +711,14 @@ def create_version_comparison_bar_chart(
 ) -> go.Figure:
     """
     Create a bar chart comparing performance between two OS versions.
+    
+    Uses a 5-color + pattern scheme to communicate both the net result AND
+    consistency across hardware configurations:
+    - Solid Dark Red: All configs regressed
+    - Striped Orange: Mixed results, net regression
+    - Gray: Stable (within ±5%)
+    - Striped Amber: Mixed results, net improvement
+    - Solid Green: All configs improved
     
     Args:
         comparison_df: DataFrame with comparison data (must have columns:
@@ -666,10 +743,17 @@ def create_version_comparison_bar_chart(
         # Group by test name and show average, but include hardware in hover
         grouped = comparison_df.groupby('test_name').agg({
             'percent_change': 'mean',
-            'is_regression': 'any',  # If any hardware config shows regression
+            'is_regression': ['any', 'all'],  # Track both any and all regression
             'baseline_mean': 'mean',
             'comparison_mean': 'mean'
         }).reset_index()
+        
+        # Flatten multi-level column names
+        grouped.columns = ['test_name', 'percent_change', 'is_any_regression', 
+                          'is_all_regression', 'baseline_mean', 'comparison_mean']
+        
+        # Count configs for labels
+        config_counts = comparison_df.groupby('test_name')['hardware_config'].nunique()
         
         # Create labels that include hardware info
         test_labels = []
@@ -684,31 +768,54 @@ def create_version_comparison_bar_chart(
         comparison_df_sorted = grouped.sort_values('percent_change')
     else:
         # No hardware config info, use as-is
-        comparison_df_sorted = comparison_df.sort_values('percent_change')
+        comparison_df_sorted = comparison_df.sort_values('percent_change').copy()
         comparison_df_sorted['test_label'] = comparison_df_sorted['test_name']
+        # For single-config case, any == all
+        comparison_df_sorted['is_any_regression'] = comparison_df_sorted['is_regression']
+        comparison_df_sorted['is_all_regression'] = comparison_df_sorted['is_regression']
     
-    # Color bars based on regression status
-    colors = ['#d73027' if is_reg else '#1a9850' if pct > 5 else '#e0e0e0' 
-              for is_reg, pct in zip(comparison_df_sorted['is_regression'], 
-                                     comparison_df_sorted['percent_change'])]
+    # Determine colors and patterns based on the 5-color scheme
+    colors = []
+    patterns = []
+    for _, row in comparison_df_sorted.iterrows():
+        color, pattern = _get_regression_color_and_pattern(
+            row['percent_change'],
+            row['is_any_regression'],
+            row['is_all_regression']
+        )
+        colors.append(color)
+        patterns.append(pattern)
     
-    # Build hover template
+    # Build hover template with consistency info
     hover_texts = []
     for idx, row in comparison_df_sorted.iterrows():
         test_name = row['test_name']
+        
+        # Determine consistency status for hover
+        if row['is_all_regression']:
+            consistency = "All configs regressed"
+        elif row['is_any_regression']:
+            consistency = "Mixed results (some configs regressed)"
+        elif row['percent_change'] > 5:
+            consistency = "All configs improved"
+        else:
+            consistency = "Stable across configs"
+        
         if has_hardware:
             # Show all hardware configs for this test
             test_hw_data = comparison_df[comparison_df['test_name'] == test_name]
             hw_lines = []
             for _, hw_row in test_hw_data.iterrows():
+                status_icon = "🔴" if hw_row['is_regression'] else "🟢" if hw_row['percent_change'] > 5 else "⚪"
                 hw_lines.append(
-                    f"  {hw_row['hardware_config']}: {hw_row['percent_change']:+.1f}% "
+                    f"  {status_icon} {hw_row['hardware_config']}: {hw_row['percent_change']:+.1f}% "
                     f"({hw_row['baseline_mean']:.2f} → {hw_row['comparison_mean']:.2f})"
                 )
             hw_detail = "<br>".join(hw_lines)
             hover_text = (
                 f"<b>{test_name}</b><br>"
                 f"Average change: {row['percent_change']:+.1f}%<br>"
+                f"<i>{consistency}</i><br>"
                 f"<br><b>By Hardware:</b><br>{hw_detail}"
             )
         else:
@@ -725,13 +832,45 @@ def create_version_comparison_bar_chart(
             y=comparison_df_sorted['test_label'],
             x=comparison_df_sorted['percent_change'],
             orientation='h',
-            marker=dict(color=colors),
+            marker=dict(
+                color=colors,
+                pattern_shape=patterns,
+                pattern_fillmode='overlay',
+                pattern_size=8,
+                pattern_solidity=0.3,
+                line=dict(width=1, color='rgba(0,0,0,0.3)')
+            ),
             hovertemplate='%{customdata}<extra></extra>',
             customdata=hover_texts,
             text=comparison_df_sorted['percent_change'].apply(lambda x: f'{x:+.1f}%'),
             textposition='outside'
         )
     ])
+    
+    # Add legend annotation explaining the color/pattern scheme
+    legend_text = (
+        "<b>Legend:</b><br>"
+        "■ <span style='color:#d73027'>Dark Red</span>: All configs regressed<br>"
+        "▤ <span style='color:#f46d43'>Orange striped</span>: Mixed, net regression<br>"
+        "■ <span style='color:#e0e0e0'>Gray</span>: Stable (±5%)<br>"
+        "▤ <span style='color:#fdae61'>Amber striped</span>: Mixed, net improvement<br>"
+        "■ <span style='color:#1a9850'>Green</span>: All configs improved"
+    )
+    
+    fig.add_annotation(
+        text=legend_text,
+        xref="paper", yref="paper",
+        x=1.02, y=1.0,
+        showarrow=False,
+        font=dict(size=10),
+        align="left",
+        bgcolor="rgba(255, 255, 255, 0.9)",
+        bordercolor="rgba(200, 200, 200, 0.5)",
+        borderwidth=1,
+        borderpad=6,
+        xanchor="left",
+        yanchor="top"
+    )
     
     fig.update_layout(
         title=title,
@@ -740,7 +879,8 @@ def create_version_comparison_bar_chart(
         template='plotly_white',
         height=max(400, len(comparison_df_sorted) * 30),
         showlegend=False,
-        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='black')
+        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='black'),
+        margin=dict(r=220)  # Extra right margin for legend
     )
     
     return fig

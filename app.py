@@ -342,14 +342,14 @@ def create_overview_layout():
                     html.Div([
                         html.P([
                             "Comparing RHEL performance against peer operating systems on the same hardware. ",
-                            html.Strong("Showing latest available comparison.", style={"color": "#0e7490"})
+                            html.Strong("Click any category bar to see individual benchmarks.", style={"color": "#0e7490"})
                         ], className="text-muted mb-3"),
                         html.Div(id='q2-comparison-selector', className="mb-4"),
                     ]),
                     dbc.Row([
                         dbc.Col([
                             dcc.Loading(
-                                dcc.Graph(id='q2-comparison'),
+                                dcc.Graph(id='q2-comparison', style={"cursor": "pointer"}),
                                 type="default"
                             )
                         ], width=12)
@@ -358,13 +358,91 @@ def create_overview_layout():
                         dbc.Col([
                             html.Div(id='q2-summary', className="mt-3")
                         ])
-                    ])
+                    ]),
+                    # Inline Category Detail Panel (hidden by default)
+                    html.Div(
+                        id='q2-category-detail-container',
+                        children=[
+                            dbc.Card([
+                                dbc.CardHeader([
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.Div([
+                                                html.I(className="bi bi-chevron-down me-2"),
+                                                html.Strong(id='q2-detail-category-title', children="Category Details")
+                                            ], className="d-flex align-items-center")
+                                        ], width=8),
+                                        dbc.Col([
+                                            dbc.ButtonGroup([
+                                                dbc.Button(
+                                                    [html.I(className="bi bi-arrows-fullscreen me-1"), "Full Details"],
+                                                    id="btn-q2-open-modal",
+                                                    color="primary",
+                                                    size="sm",
+                                                    outline=True
+                                                ),
+                                                dbc.Button(
+                                                    [html.I(className="bi bi-x-lg")],
+                                                    id="btn-q2-close-detail",
+                                                    color="secondary",
+                                                    size="sm",
+                                                    outline=True
+                                                )
+                                            ], className="float-end")
+                                        ], width=4, className="text-end")
+                                    ])
+                                ], style={"background": "#f8fafc", "borderBottom": "2px solid #06b6d4"}),
+                                dbc.CardBody([
+                                    dcc.Loading([
+                                        # Summary stats row
+                                        html.Div(id='q2-detail-summary', className="mb-3"),
+                                        # Benchmark detail chart
+                                        dcc.Graph(id='q2-detail-benchmark-chart'),
+                                    ], type="default")
+                                ])
+                            ], className="mt-3", style={"border": "1px solid #06b6d4", "borderRadius": "0.5rem"})
+                        ],
+                        style={"display": "none"}  # Hidden by default
+                    )
                 ])
             ], id="collapse-section-competitive", is_open=True)
         ], className="mb-4", style={
             "borderLeft": "5px solid #06b6d4",
             "borderRadius": "0.75rem"
         }),
+        
+        # Category Detail Modal (for full deep-dive analysis)
+        dbc.Modal([
+            dbc.ModalHeader([
+                dbc.ModalTitle(id="q2-modal-title", children="Category Deep Dive")
+            ], close_button=True),
+            dbc.ModalBody([
+                dcc.Loading([
+                    # Modal summary section
+                    html.Div(id='q2-modal-summary', className="mb-4"),
+                    
+                    # Tabs for different views
+                    dbc.Tabs([
+                        dbc.Tab(label="Benchmark Breakdown", tab_id="tab-benchmarks"),
+                        dbc.Tab(label="Hardware Matrix", tab_id="tab-hardware"),
+                        dbc.Tab(label="Raw Data", tab_id="tab-data"),
+                    ], id="q2-modal-tabs", active_tab="tab-benchmarks", className="mb-3"),
+                    
+                    # Tab content
+                    html.Div(id='q2-modal-tab-content')
+                ], type="default")
+            ]),
+            dbc.ModalFooter([
+                html.Div([
+                    html.Small("💡 Tip: Use the Hardware Matrix tab to identify specific instance types with performance gaps.", 
+                              className="text-muted me-auto")
+                ], className="flex-grow-1"),
+                dbc.Button("Close", id="btn-q2-modal-close", color="secondary")
+            ])
+        ], id="q2-category-modal", size="xl", is_open=False, scrollable=True),
+        
+        # Store for selected category data
+        dcc.Store(id='q2-selected-category-store'),
         
         # Section 3: Cloud Scaling (Collapsible)
         dbc.Card([
@@ -1086,6 +1164,309 @@ def update_question2(filtered_data_json):
     ], color=alert_color)
     
     return fig, summary_component
+
+
+# ============================================================================
+# Competitive Performance Category Drill-Down Callbacks
+# ============================================================================
+
+@app.callback(
+    [Output('q2-category-detail-container', 'style'),
+     Output('q2-detail-category-title', 'children'),
+     Output('q2-detail-summary', 'children'),
+     Output('q2-detail-benchmark-chart', 'figure'),
+     Output('q2-selected-category-store', 'data')],
+    [Input('q2-comparison', 'clickData'),
+     Input('btn-q2-close-detail', 'n_clicks')],
+    [State('filtered-data-store', 'data')],
+    prevent_initial_call=True
+)
+def handle_category_click(click_data, close_clicks, filtered_data_json):
+    """Handle click on category bar to show inline detail panel."""
+    import pandas as pd
+    from dash import ctx
+    
+    # Check what triggered the callback
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    # If close button clicked, hide the panel
+    if trigger_id == 'btn-q2-close-detail':
+        empty_fig = visualizations.create_empty_figure("")
+        return {"display": "none"}, "", "", empty_fig, None
+    
+    # If no click data or no filtered data, hide panel
+    if not click_data or not filtered_data_json:
+        empty_fig = visualizations.create_empty_figure("")
+        return {"display": "none"}, "", "", empty_fig, None
+    
+    # Extract clicked category
+    try:
+        category = click_data['points'][0]['x']
+    except (KeyError, IndexError):
+        empty_fig = visualizations.create_empty_figure("")
+        return {"display": "none"}, "", "", empty_fig, None
+    
+    # Load filtered data and run comparison analysis
+    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+    
+    # Get available comparisons and use the latest one
+    available_comparisons = processor._get_available_comparisons(filtered_df, 'rhel')
+    
+    if not available_comparisons:
+        empty_fig = visualizations.create_empty_figure("No comparison data")
+        return {"display": "none"}, "", "", empty_fig, None
+    
+    comp_config = available_comparisons[0]
+    
+    # Run competitive analysis
+    q2_result = processor.analyze_peer_os_comparison(
+        filtered_df,
+        baseline_os='rhel',
+        peer_os_list=[comp_config['peer_os']],
+        baseline_version=comp_config['baseline_version'],
+        peer_version=comp_config['peer_version'],
+        cloud_provider=comp_config['cloud_provider'],
+        instance_type=None
+    )
+    
+    if q2_result['comparison_data'].empty:
+        empty_fig = visualizations.create_empty_figure("No data for this category")
+        return {"display": "none"}, "", "", empty_fig, None
+    
+    comparison_df = q2_result['comparison_data']
+    
+    # Filter to selected category
+    category_df = comparison_df[comparison_df['benchmark_category'] == category]
+    
+    if category_df.empty:
+        empty_fig = visualizations.create_empty_figure(f"No benchmarks found in {category}")
+        return {"display": "none"}, "", "", empty_fig, None
+    
+    # Create summary stats
+    num_benchmarks = category_df['test_name'].nunique()
+    num_hardware = category_df['instance_type'].nunique()
+    avg_perf = category_df['relative_performance'].mean()
+    competitive_pct = (category_df['is_competitive'].sum() / len(category_df)) * 100
+    
+    # Determine status color
+    if competitive_pct >= 80:
+        status_color = "success"
+        status_icon = "✅"
+    elif competitive_pct >= 50:
+        status_color = "warning"
+        status_icon = "⚠️"
+    else:
+        status_color = "danger"
+        status_icon = "❌"
+    
+    summary_content = dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H4(num_benchmarks, className="mb-0 text-primary"),
+                    html.Small("Benchmarks", className="text-muted")
+                ], className="text-center py-2")
+            ], className="h-100")
+        ], width=3),
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H4(num_hardware, className="mb-0 text-info"),
+                    html.Small("Hardware Configs", className="text-muted")
+                ], className="text-center py-2")
+            ], className="h-100")
+        ], width=3),
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H4(f"{avg_perf:.1f}%", className="mb-0", 
+                           style={"color": "#1a9850" if 90 <= avg_perf <= 110 else "#d97706"}),
+                    html.Small("Avg. Relative Perf", className="text-muted")
+                ], className="text-center py-2")
+            ], className="h-100")
+        ], width=3),
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H4([status_icon, f" {competitive_pct:.0f}%"], className="mb-0"),
+                    html.Small("Competitive Rate", className="text-muted")
+                ], className="text-center py-2")
+            ], className="h-100", color=status_color, outline=True)
+        ], width=3),
+    ], className="g-2")
+    
+    # Create benchmark detail chart
+    detail_fig = visualizations.create_category_benchmark_detail_chart(
+        category_df, category, baseline_os="RHEL"
+    )
+    
+    # Store category data for modal
+    store_data = {
+        'category': category,
+        'comp_config': comp_config,
+        'category_data': category_df.to_json(orient='split')
+    }
+    
+    title = f"📊 {category} Benchmarks"
+    
+    return {"display": "block"}, title, summary_content, detail_fig, store_data
+
+
+@app.callback(
+    [Output('q2-category-modal', 'is_open'),
+     Output('q2-modal-title', 'children'),
+     Output('q2-modal-summary', 'children')],
+    [Input('btn-q2-open-modal', 'n_clicks'),
+     Input('btn-q2-modal-close', 'n_clicks')],
+    [State('q2-category-modal', 'is_open'),
+     State('q2-selected-category-store', 'data')],
+    prevent_initial_call=True
+)
+def toggle_category_modal(open_clicks, close_clicks, is_open, store_data):
+    """Open/close the category detail modal."""
+    import pandas as pd
+    from dash import ctx
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    if trigger_id == 'btn-q2-modal-close':
+        return False, "", ""
+    
+    if trigger_id == 'btn-q2-open-modal' and store_data:
+        category = store_data.get('category', 'Unknown')
+        comp_config = store_data.get('comp_config', {})
+        category_data_json = store_data.get('category_data')
+        
+        if category_data_json:
+            category_df = pd.read_json(StringIO(category_data_json), orient='split')
+            
+            # Build modal summary
+            num_benchmarks = category_df['test_name'].nunique()
+            num_hardware = category_df['instance_type'].nunique()
+            total_comparisons = len(category_df)
+            competitive_count = category_df['is_competitive'].sum()
+            
+            # Find best and worst performers
+            benchmark_perf = category_df.groupby('test_name')['relative_performance'].mean().sort_values()
+            
+            worst_benchmark = benchmark_perf.index[0] if len(benchmark_perf) > 0 else "N/A"
+            worst_perf = benchmark_perf.iloc[0] if len(benchmark_perf) > 0 else 0
+            best_benchmark = benchmark_perf.index[-1] if len(benchmark_perf) > 0 else "N/A"
+            best_perf = benchmark_perf.iloc[-1] if len(benchmark_perf) > 0 else 0
+            
+            summary_content = html.Div([
+                dbc.Alert([
+                    html.H5(f"📈 {category} - Detailed Analysis", className="mb-3"),
+                    html.P([
+                        f"Comparing ",
+                        html.Strong(f"RHEL {comp_config.get('baseline_version', '?')}"),
+                        " vs ",
+                        html.Strong(f"{comp_config.get('peer_os', '?').upper()} {comp_config.get('peer_version', '?')}"),
+                        f" on {comp_config.get('cloud_provider', '?').upper()}"
+                    ], className="mb-2"),
+                    html.Hr(),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Strong(f"{num_benchmarks}"),
+                            html.Span(" benchmarks tested", className="text-muted")
+                        ], width=4),
+                        dbc.Col([
+                            html.Strong(f"{num_hardware}"),
+                            html.Span(" hardware configurations", className="text-muted")
+                        ], width=4),
+                        dbc.Col([
+                            html.Strong(f"{competitive_count}/{total_comparisons}"),
+                            html.Span(" competitive results", className="text-muted")
+                        ], width=4),
+                    ]),
+                    html.Hr(),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                html.Strong("🏆 Best Performer: ", className="text-success"),
+                                html.Span(f"{best_benchmark} ({best_perf:.1f}%)")
+                            ])
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                html.Strong("⚠️ Needs Attention: ", className="text-warning"),
+                                html.Span(f"{worst_benchmark} ({worst_perf:.1f}%)")
+                            ])
+                        ], width=6),
+                    ])
+                ], color="info")
+            ])
+            
+            title = f"{category} - Deep Dive Analysis"
+            return True, title, summary_content
+    
+    return is_open, "", ""
+
+
+@app.callback(
+    Output('q2-modal-tab-content', 'children'),
+    [Input('q2-modal-tabs', 'active_tab'),
+     Input('q2-category-modal', 'is_open')],
+    [State('q2-selected-category-store', 'data')],
+    prevent_initial_call=True
+)
+def update_modal_tab_content(active_tab, is_open, store_data):
+    """Update modal content based on selected tab."""
+    import pandas as pd
+    
+    if not is_open or not store_data:
+        return html.Div()
+    
+    category = store_data.get('category', 'Unknown')
+    category_data_json = store_data.get('category_data')
+    
+    if not category_data_json:
+        return dbc.Alert("No data available", color="warning")
+    
+    category_df = pd.read_json(StringIO(category_data_json), orient='split')
+    
+    if active_tab == "tab-benchmarks":
+        # Benchmark breakdown chart
+        fig = visualizations.create_category_benchmark_detail_chart(
+            category_df, category, baseline_os="RHEL"
+        )
+        return dcc.Graph(figure=fig)
+    
+    elif active_tab == "tab-hardware":
+        # Hardware matrix heatmap
+        fig = visualizations.create_category_hardware_heatmap(
+            category_df, category, baseline_os="RHEL"
+        )
+        return dcc.Graph(figure=fig)
+    
+    elif active_tab == "tab-data":
+        # Raw data table
+        display_df = category_df[[
+            'test_name', 'instance_type', 'baseline_value', 'peer_value', 
+            'relative_performance', 'is_competitive'
+        ]].copy()
+        
+        display_df['relative_performance'] = display_df['relative_performance'].round(1)
+        display_df['baseline_value'] = display_df['baseline_value'].round(2)
+        display_df['peer_value'] = display_df['peer_value'].round(2)
+        display_df['is_competitive'] = display_df['is_competitive'].map({True: '✅', False: '❌'})
+        
+        display_df.columns = ['Benchmark', 'Hardware', 'RHEL Value', 'Peer Value', 
+                             'Relative %', 'Competitive']
+        
+        # Sort by relative performance
+        display_df = display_df.sort_values('Relative %', ascending=True)
+        
+        return dbc.Table.from_dataframe(
+            display_df,
+            striped=True,
+            bordered=True,
+            hover=True,
+            responsive=True,
+            className="small"
+        )
+    
+    return html.Div()
 
 
 def extract_instance_series(instance_type: str, cloud_provider: str) -> str:

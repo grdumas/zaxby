@@ -1365,3 +1365,182 @@ def create_investigation_detail_chart(
     
     return fig
 
+
+def create_category_benchmark_detail_chart(
+    comparison_df: pd.DataFrame,
+    category: str,
+    baseline_os: str = "RHEL"
+) -> go.Figure:
+    """
+    Create a horizontal bar chart showing individual benchmark performance within a category.
+    
+    Args:
+        comparison_df: DataFrame with comparison data (filtered to single category)
+        category: The benchmark category name
+        baseline_os: Name of baseline OS
+        
+    Returns:
+        Plotly Figure with horizontal bars for each benchmark
+    """
+    if comparison_df.empty:
+        return create_empty_figure(f"No benchmark data available for {category}")
+    
+    # Group by test_name and calculate average relative performance across hardware
+    benchmark_summary = comparison_df.groupby('test_name').agg({
+        'relative_performance': 'mean',
+        'instance_type': 'nunique',
+        'is_competitive': 'mean'  # Percentage of hardware where competitive
+    }).reset_index()
+    
+    benchmark_summary = benchmark_summary.sort_values('relative_performance', ascending=True)
+    
+    # Determine colors based on performance
+    colors = []
+    for perf in benchmark_summary['relative_performance']:
+        if perf >= 90 and perf <= 110:
+            colors.append('#1a9850')  # Green - competitive
+        elif perf >= 80 and perf <= 120:
+            colors.append('#d97706')  # Amber - moderate
+        else:
+            colors.append('#d73027')  # Red - significant difference
+    
+    # Create hover text
+    hover_texts = []
+    for _, row in benchmark_summary.iterrows():
+        competitive_pct = row['is_competitive'] * 100
+        hover_texts.append(
+            f"<b>{row['test_name']}</b><br>"
+            f"Relative Performance: {row['relative_performance']:.1f}%<br>"
+            f"Hardware Configs Tested: {int(row['instance_type'])}<br>"
+            f"Competitive on {competitive_pct:.0f}% of hardware"
+        )
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        y=benchmark_summary['test_name'],
+        x=benchmark_summary['relative_performance'],
+        orientation='h',
+        marker_color=colors,
+        text=[f"{v:.1f}%" for v in benchmark_summary['relative_performance']],
+        textposition='outside',
+        hovertemplate='%{customdata}<extra></extra>',
+        customdata=hover_texts
+    ))
+    
+    # Add baseline reference line at 100%
+    fig.add_vline(
+        x=100,
+        line_dash="dash",
+        line_color="gray",
+        annotation_text=f"{baseline_os} baseline",
+        annotation_position="top"
+    )
+    
+    # Add competitive zone (90-110%)
+    fig.add_vrect(
+        x0=90, x1=110,
+        fillcolor="green",
+        opacity=0.1,
+        line_width=0
+    )
+    
+    fig.update_layout(
+        title=f"{category} Benchmarks - Detailed Performance",
+        xaxis_title=f"Performance Relative to {baseline_os} (%)",
+        yaxis_title="Benchmark",
+        template='plotly_white',
+        height=max(250, len(benchmark_summary) * 50 + 100),  # Dynamic height
+        margin=dict(l=150, r=50, t=50, b=50),
+        xaxis=dict(range=[min(50, benchmark_summary['relative_performance'].min() - 10), 
+                          max(150, benchmark_summary['relative_performance'].max() + 10)])
+    )
+    
+    return fig
+
+
+def create_category_hardware_heatmap(
+    comparison_df: pd.DataFrame,
+    category: str,
+    baseline_os: str = "RHEL"
+) -> go.Figure:
+    """
+    Create a heatmap showing benchmark × hardware performance matrix.
+    
+    Args:
+        comparison_df: DataFrame with comparison data (filtered to single category)
+        category: The benchmark category name
+        baseline_os: Name of baseline OS
+        
+    Returns:
+        Plotly Figure with heatmap
+    """
+    if comparison_df.empty:
+        return create_empty_figure(f"No hardware data available for {category}")
+    
+    # Pivot to create benchmark × hardware matrix
+    pivot_df = comparison_df.pivot_table(
+        index='test_name',
+        columns='instance_type',
+        values='relative_performance',
+        aggfunc='mean'
+    )
+    
+    if pivot_df.empty:
+        return create_empty_figure(f"Insufficient data for hardware breakdown")
+    
+    # Create custom hover text
+    hover_text = []
+    for test in pivot_df.index:
+        row_text = []
+        for hw in pivot_df.columns:
+            val = pivot_df.loc[test, hw]
+            if pd.notna(val):
+                status = "✓ Competitive" if 90 <= val <= 110 else ("⚠ Moderate" if 80 <= val <= 120 else "✗ Significant diff")
+                row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>Relative Perf: {val:.1f}%<br>{status}")
+            else:
+                row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>No data")
+        hover_text.append(row_text)
+    
+    # Custom colorscale: red (bad) -> yellow (moderate) -> green (good)
+    colorscale = [
+        [0, '#d73027'],      # Red - peer much faster
+        [0.3, '#fc8d59'],    # Orange
+        [0.45, '#fee08b'],   # Yellow - moderate
+        [0.5, '#ffffbf'],    # Light yellow - baseline
+        [0.55, '#d9ef8b'],   # Light green
+        [0.7, '#91cf60'],    # Green
+        [1, '#1a9850']       # Dark green - baseline much faster
+    ]
+    
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot_df.values,
+        x=pivot_df.columns,
+        y=pivot_df.index,
+        colorscale=colorscale,
+        zmid=100,  # Center on 100%
+        zmin=70,
+        zmax=130,
+        text=[[f"{v:.0f}%" if pd.notna(v) else "-" for v in row] for row in pivot_df.values],
+        texttemplate="%{text}",
+        textfont={"size": 10},
+        hovertemplate='%{customdata}<extra></extra>',
+        customdata=hover_text,
+        colorbar=dict(
+            title="Relative<br>Performance",
+            ticksuffix="%"
+        )
+    ))
+    
+    fig.update_layout(
+        title=f"{category} - Performance by Hardware",
+        xaxis_title="Instance Type",
+        yaxis_title="Benchmark",
+        template='plotly_white',
+        height=max(300, len(pivot_df) * 40 + 150),
+        margin=dict(l=150, r=100, t=50, b=100),
+        xaxis=dict(tickangle=45)
+    )
+    
+    return fig
+

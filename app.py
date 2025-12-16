@@ -82,6 +82,13 @@ os_distributions = processor.get_unique_values(df, 'os_distribution')
 min_date = df['timestamp'].min().strftime('%Y-%m-%d') if len(df) > 0 else '2025-01-01'
 max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-12-31'
 
+# Create OS version map grouped by distribution (e.g., {'rhel': ['9.4', '9.5'], 'ubuntu': ['22.04']})
+os_version_map = {}
+if len(df) > 0:
+    for dist in df['os_distribution'].dropna().unique():
+        versions = df[df['os_distribution'] == dist]['os_version'].dropna().unique().tolist()
+        os_version_map[dist] = sorted(versions, key=lambda v: [float(x) for x in str(v).split('.')] if v else [0])
+
 # App Layout
 app.layout = dbc.Container([
     # Store for filtered data and analysis results
@@ -172,7 +179,8 @@ app.layout = dbc.Container([
                     test_names=test_names,
                     cloud_providers=cloud_providers,
                     min_date=min_date,
-                    max_date=max_date
+                    max_date=max_date,
+                    os_version_map=os_version_map
                 )
             ])
         ], className="mb-3")
@@ -799,6 +807,31 @@ def toggle_rhel10_seq(n_clicks, is_open):
     return not is_open
 
 
+def parse_os_version_filters(os_vers):
+    """
+    Parse combined OS version filters in format 'distribution:version'.
+    
+    Args:
+        os_vers: List of combined values like ['rhel:9.5', 'ubuntu:22.04']
+        
+    Returns:
+        Set of (distribution, version) tuples for filtering
+    """
+    if not os_vers:
+        return None
+    
+    parsed = set()
+    for val in os_vers:
+        if ':' in str(val):
+            dist, version = val.split(':', 1)
+            parsed.add((dist, version))
+        else:
+            # Legacy format - just version, match any distribution
+            parsed.add((None, val))
+    
+    return parsed if parsed else None
+
+
 @app.callback(
     Output('filtered-data-store', 'data'),
     [
@@ -823,15 +856,35 @@ def update_filtered_data(os_vers, inst_types, tests, clouds, start_date, end_dat
         end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
         date_range_param = (start_dt, end_dt)
     
+    # Parse combined OS version filters (format: 'distribution:version')
+    os_filter_pairs = parse_os_version_filters(os_vers)
+    
+    # Start with base filtering (everything except OS version)
     filtered_df = processor.filter_data(
         df,
-        os_versions=os_vers if os_vers else None,
+        os_versions=None,  # We'll handle this separately
         instance_types=inst_types if inst_types else None,
         test_names=tests if tests else None,
         cloud_providers=clouds if clouds else None,
         date_range=date_range_param,
         status_filter=statuses if statuses else None
     )
+    
+    # Apply OS version filtering with distribution context
+    if os_filter_pairs:
+        import pandas as pd
+        mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
+        for dist, version in os_filter_pairs:
+            if dist is None:
+                # Legacy format - match any distribution with this version
+                mask |= (filtered_df['os_version'] == version)
+            else:
+                # Combined format - match both distribution and version
+                mask |= (
+                    (filtered_df['os_distribution'] == dist) & 
+                    (filtered_df['os_version'] == version)
+                )
+        filtered_df = filtered_df[mask]
     
     # Convert to JSON-serializable format
     return filtered_df.to_json(date_format='iso', orient='split')
@@ -1972,7 +2025,13 @@ def update_investigation_view(nav_state, filtered_data_json):
 )
 def reset_filters(n_clicks):
     """Reset all filters to default values."""
-    return os_versions, instance_types, test_names, cloud_providers, ['PASS', 'FAIL', 'UNKNOWN']
+    # Generate combined OS version values (distribution:version format)
+    combined_os_versions = []
+    for dist, versions in os_version_map.items():
+        for version in versions:
+            combined_os_versions.append(f"{dist}:{version}")
+    
+    return combined_os_versions, instance_types, test_names, cloud_providers, ['PASS', 'FAIL', 'UNKNOWN']
 
 
 # Run the app

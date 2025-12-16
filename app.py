@@ -428,6 +428,25 @@ def create_overview_layout():
                             )
                         ], width=3)
                     ], className="mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("Benchmark Category:", className="fw-bold small"),
+                            dcc.Dropdown(
+                                id='q3-benchmark-category',
+                                options=[
+                                    {'label': 'All Categories', 'value': 'all'},
+                                    {'label': 'Networking', 'value': 'Networking'},
+                                    {'label': 'Storage/IO', 'value': 'Storage/IO'},
+                                    {'label': 'HPC/Compute', 'value': 'HPC/Compute'},
+                                    {'label': 'System', 'value': 'System'},
+                                    {'label': 'Other', 'value': 'Other'}
+                                ],
+                                value='all',
+                                clearable=False
+                            )
+                        ], width=3),
+                        dbc.Col([], width=9)  # Empty column for spacing
+                    ], className="mb-3"),
                     dbc.Alert([
                         html.Strong("How Scaling Efficiency is Measured: "),
                         html.Span(
@@ -1251,9 +1270,10 @@ def update_os_distribution_options(cloud_provider, instance_series, filtered_dat
      Input('q3-instance-series', 'value'),
      Input('q3-os-distribution', 'value'),
      Input('q3-os-version', 'value'),
+     Input('q3-benchmark-category', 'value'),
      Input('filtered-data-store', 'data')]
 )
-def update_question3(cloud_provider, instance_series, os_distribution, os_version, filtered_data_json):
+def update_question3(cloud_provider, instance_series, os_distribution, os_version, benchmark_category, filtered_data_json):
     """Update Cloud Scaling section visualizations."""
     import pandas as pd
     
@@ -1280,17 +1300,24 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
         os_version=os_version
     )
     
+    # Filter scaling data by benchmark category if specified
+    scaling_data = q3_result['scaling_data']
+    if not scaling_data.empty and benchmark_category and benchmark_category != 'all':
+        scaling_data = scaling_data[scaling_data['benchmark_category'] == benchmark_category]
+    
     # Create visualization
-    if not q3_result['scaling_data'].empty:
+    if not scaling_data.empty:
         # Build descriptive title
         title_parts = [f"Performance Scaling: {os_distribution.upper()} {os_version}"]
         title_parts.append(f"on {cloud_provider.upper()}")
         if instance_series:
             title_parts.append(f"({instance_series})")
+        if benchmark_category and benchmark_category != 'all':
+            title_parts.append(f"- {benchmark_category}")
         chart_title = " ".join(title_parts)
         
         fig = visualizations.create_cloud_scaling_chart(
-            q3_result['scaling_data'],
+            scaling_data,
             title=chart_title
         )
     else:

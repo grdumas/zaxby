@@ -926,7 +926,9 @@ def create_peer_os_comparison_chart(
     fig = go.Figure()
     
     peer_os_list = sorted(comparison_df['peer_os'].unique())
-    categories = sorted(comparison_df['benchmark_category'].unique())
+    # Sort categories alphabetically but put "Other" last
+    all_categories = sorted(comparison_df['benchmark_category'].unique())
+    categories = [c for c in all_categories if c != 'Other'] + [c for c in all_categories if c == 'Other']
     
     # Create grouped bars by benchmark category
     for peer_os in peer_os_list:

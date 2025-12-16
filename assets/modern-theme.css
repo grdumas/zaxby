@@ -358,6 +358,23 @@ a:focus {
   box-shadow: var(--shadow-sm);
 }
 
+/* Ensure Plotly chart legends are not clipped */
+.card-body .js-plotly-plot,
+.card-body .dash-graph {
+  overflow: visible !important;
+}
+
+/* Allow chart containers to show full legend */
+.card:has(.js-plotly-plot),
+.card:has(.dash-graph) {
+  overflow: visible !important;
+}
+
+/* Fallback for browsers without :has() support */
+.card-body {
+  overflow: visible !important;
+}
+
 /* Better Spacing for Main Container */
 .container-fluid {
   padding-top: var(--space-lg);

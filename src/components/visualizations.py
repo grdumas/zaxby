@@ -888,7 +888,7 @@ def create_version_comparison_bar_chart(
         height=max(400, len(comparison_df_sorted) * 30),
         showlegend=False,
         xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor='black'),
-        margin=dict(r=220)  # Extra right margin for legend
+        margin=dict(r=250)  # Extra right margin for legend
     )
     
     return fig
@@ -1038,7 +1038,7 @@ def create_peer_os_comparison_chart(
             xanchor="right",
             x=1
         ),
-        margin=dict(r=200)  # Extra right margin for color legend
+        margin=dict(r=250)  # Extra right margin for color legend
     )
     
     return fig

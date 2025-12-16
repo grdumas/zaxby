@@ -111,6 +111,17 @@ h5 {
     border-radius: 0.25rem;
 }
 
+/* Ensure Plotly chart legends are not clipped */
+.card-body .js-plotly-plot,
+.card-body .dash-graph {
+    overflow: visible !important;
+}
+
+/* Allow chart containers to show full legend */
+.card-body {
+    overflow: visible !important;
+}
+
 /* Alert/Summary Styles */
 .alert {
     border-radius: 0.25rem;

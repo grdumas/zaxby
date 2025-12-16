@@ -989,6 +989,29 @@ def create_peer_os_comparison_chart(
         annotation_position="top right"
     )
     
+    # Add legend annotation explaining the color scheme
+    legend_text = (
+        "<b>Color Legend:</b><br>"
+        "■ <span style='color:#1a9850'>Green</span>: Competitive (90-110%)<br>"
+        "■ <span style='color:#fee090'>Yellow</span>: Moderate diff (80-120%)<br>"
+        "■ <span style='color:#d73027'>Red</span>: Significant diff (<80% or >120%)"
+    )
+    
+    fig.add_annotation(
+        text=legend_text,
+        xref="paper", yref="paper",
+        x=1.02, y=0.5,
+        showarrow=False,
+        font=dict(size=10),
+        align="left",
+        bgcolor="rgba(255, 255, 255, 0.9)",
+        bordercolor="rgba(200, 200, 200, 0.5)",
+        borderwidth=1,
+        borderpad=6,
+        xanchor="left",
+        yanchor="middle"
+    )
+    
     fig.update_layout(
         title=title,
         xaxis_title="Benchmark Category",
@@ -1004,7 +1027,8 @@ def create_peer_os_comparison_chart(
             y=1.02,
             xanchor="right",
             x=1
-        )
+        ),
+        margin=dict(r=200)  # Extra right margin for color legend
     )
     
     return fig

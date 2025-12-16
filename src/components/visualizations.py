@@ -1111,28 +1111,46 @@ def create_cloud_scaling_chart(
         tick_labels = []
         cores_list = []
     
+    # Track all efficiency values for dynamic y-axis range
+    all_efficiency_values = []
+    
     for category in categories:
         cat_data = scaling_df[scaling_df[group_col] == category].copy()
         
-        # Sort by CPU cores or instance type
-        if has_cpu_cores:
-            cat_data = cat_data.sort_values('cpu_cores')
-            # Use index positions for X values (evenly spaced)
-            x_values = [instance_to_index.get(inst, 0) for inst in cat_data['instance_type']]
-            cores_values = cat_data['cpu_cores'].tolist()
-            instance_types = cat_data['instance_type'].tolist() if 'instance_type' in cat_data.columns else []
-            memory_values = cat_data['memory_gb'].tolist() if 'memory_gb' in cat_data.columns else []
+        # Aggregate multiple test results per instance within each category
+        # This prevents multiple data points per instance causing confusing zigzag lines
+        if has_cpu_cores and 'instance_type' in cat_data.columns:
+            # Group by instance_type and aggregate performance values
+            agg_data = cat_data.groupby('instance_type').agg({
+                'mean_performance': 'mean',  # Average across tests in this category
+                'cpu_cores': 'first',
+                'memory_gb': 'first'
+            }).reset_index()
+            agg_data = agg_data.sort_values('cpu_cores')
+            
+            x_values = [instance_to_index.get(inst, 0) for inst in agg_data['instance_type']]
+            cores_values = agg_data['cpu_cores'].tolist()
+            instance_types = agg_data['instance_type'].tolist()
+            memory_values = agg_data['memory_gb'].tolist()
+            perf_values = agg_data['mean_performance'].tolist()
         else:
-            cat_data = cat_data.sort_values('instance_type')
-            x_values = list(range(len(cat_data)))
-            cores_values = [None] * len(cat_data)
-            instance_types = cat_data['instance_type'].tolist()
-            memory_values = cat_data['memory_gb'].tolist() if 'memory_gb' in cat_data.columns else []
+            # Fallback for non-CPU-cores case
+            if 'instance_type' in cat_data.columns:
+                agg_data = cat_data.groupby('instance_type').agg({
+                    'mean_performance': 'mean'
+                }).reset_index()
+                agg_data = agg_data.sort_values('instance_type')
+            else:
+                agg_data = cat_data
+            
+            x_values = list(range(len(agg_data)))
+            cores_values = [None] * len(agg_data)
+            instance_types = agg_data['instance_type'].tolist() if 'instance_type' in agg_data.columns else []
+            memory_values = agg_data['memory_gb'].tolist() if 'memory_gb' in agg_data.columns else []
+            perf_values = agg_data['mean_performance'].tolist() if 'mean_performance' in agg_data.columns else []
         
-        # Get performance values
-        if 'mean_performance' in cat_data.columns:
-            perf_values = cat_data['mean_performance'].tolist()
-        else:
+        # Skip if no performance data
+        if not perf_values:
             continue
         
         # Calculate scaling efficiency as percentage of ideal linear scaling
@@ -1171,6 +1189,8 @@ def create_cloud_scaling_chart(
                         hover_texts.append("")
                 
                 y_values = efficiency_values
+                # Track for dynamic y-axis range
+                all_efficiency_values.extend([v for v in efficiency_values if v is not None])
             else:
                 # Fallback to raw values if baseline is invalid
                 y_values = perf_values
@@ -1187,6 +1207,8 @@ def create_cloud_scaling_chart(
                     f"Raw Value: {v:,.0f}"
                     for inst, v in zip(instance_types, perf_values)
                 ]
+                # Track for dynamic y-axis range
+                all_efficiency_values.extend(y_values)
             else:
                 y_values = perf_values
                 hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
@@ -1256,6 +1278,17 @@ def create_cloud_scaling_chart(
             )
         )
     
+    # Calculate dynamic y-axis range based on actual data
+    if all_efficiency_values:
+        max_efficiency = max(all_efficiency_values)
+        min_efficiency = min(all_efficiency_values)
+        # Add 10% padding and ensure we show at least 0-120%
+        y_max = max(120, max_efficiency * 1.1)
+        y_min = min(0, min_efficiency * 0.9)
+    else:
+        y_max = 150
+        y_min = 0
+    
     fig.update_layout(
         title=title,
         xaxis_title=x_title,
@@ -1274,7 +1307,7 @@ def create_cloud_scaling_chart(
         ),
         yaxis=dict(
             ticksuffix="%",
-            range=[0, max(150, 120)]  # Ensure we show at least 0-150%
+            range=[y_min, y_max]  # Dynamic range based on actual data
         ),
         margin=dict(b=120)  # Extra bottom margin for rotated labels
     )

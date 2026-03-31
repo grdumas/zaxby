@@ -685,6 +685,9 @@ def _get_regression_color_and_pattern(
     Returns:
         Tuple of (color hex, pattern shape or empty string)
     """
+    if percent_change is None or (isinstance(percent_change, float) and pd.isna(percent_change)):
+        return '#bdbdbd', ''  # Neutral gray if undefined
+
     # Stable zone: within threshold
     if abs(percent_change) <= stable_threshold:
         return '#e0e0e0', ''  # Gray, no pattern
@@ -825,8 +828,13 @@ def create_version_comparison_bar_chart(
                 f"{baseline_version}: {row['baseline_mean']:.2f}<br>"
                 f"{comparison_version}: {row['comparison_mean']:.2f}"
             )
-        hover_texts.append(hover_text)
+            hover_texts.append(hover_text)
     
+    def _fmt_bar_pct(val) -> str:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return "N/A"
+        return f"{val:+.1f}%"
+
     fig = go.Figure(data=[
         go.Bar(
             y=comparison_df_sorted['test_label'],
@@ -842,7 +850,7 @@ def create_version_comparison_bar_chart(
             ),
             hovertemplate='%{customdata}<extra></extra>',
             customdata=hover_texts,
-            text=comparison_df_sorted['percent_change'].apply(lambda x: f'{x:+.1f}%'),
+            text=comparison_df_sorted['percent_change'].apply(_fmt_bar_pct),
             textposition='outside'
         )
     ])

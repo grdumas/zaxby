@@ -197,4 +197,38 @@ def test_extract_record_missing_fields(processor):
     assert 'status' in record
 
 
+def test_extract_record_primary_metric_fallback_from_runs(processor):
+    """When primary_metric is absent, use known run metric keys (live Zathras data)."""
+    doc = {
+        "metadata": {
+            "document_id": "z1",
+            "test_timestamp": "2025-11-01T10:00:00Z",
+            "os_vendor": "rhel",
+            "cloud_provider": "aws",
+            "instance_type": "m5.4xlarge",
+        },
+        "test": {"name": "coremark", "version": "v1"},
+        "system_under_test": {
+            "hardware": {"cpu": {"cores": 16}, "memory": {"total_gb": 64}},
+            "operating_system": {
+                "distribution": "rhel",
+                "version": "9.8",
+            },
+        },
+        "results": {
+            "status": "PASS",
+            "runs": {
+                "run_0": {
+                    "metrics": {
+                        "iterations_per_second": 123456.0,
+                    }
+                }
+            },
+        },
+    }
+    record = processor._extract_record(doc)
+    assert record["primary_metric_value"] == 123456.0
+    assert record["primary_metric_name"] == "iterations_per_second"
+
+
 

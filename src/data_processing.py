@@ -9,9 +9,26 @@ import pandas as pd
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import logging
+import math
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# When results.primary_metric.value is missing, try these keys in results.runs.*.metrics
+# (Zathras often omits primary_metric but still ships run metrics.)
+_PRIMARY_METRIC_FALLBACK_KEYS: Dict[str, List[str]] = {
+    "coremark": ["iterations_per_second", "score"],
+    "coremark_pro": ["multicore_score", "SUMM_CPU"],
+    "streams": ["triad__mb_per_sec", "triad_mb_per_sec", "add__mb_per_sec"],
+    "auto_hpl": ["gflops"],
+    "specjbb": ["MULTICORE_THROUGHPUT"],
+    "sysbench": ["events_per_second", "total_events"],
+    "fio": ["read_iops", "write_iops", "read_bw", "write_bw"],
+    "uperf": ["throughput_gbps", "throughput_mb_per_sec"],
+    "passmark": ["cpu_mark", "mark"],
+    "phoronix": ["result", "value"],
+    "pyperf": ["mean"],
+}
 
 
 class BenchmarkDataProcessor:
@@ -28,7 +45,51 @@ class BenchmarkDataProcessor:
     def __init__(self):
         """Initialize the data processor."""
         pass
-    
+
+    def _resolve_primary_metric(
+        self,
+        primary_metric: Any,
+        run_0_metrics: Dict[str, Any],
+        test_name: Optional[str],
+    ) -> Tuple[Optional[float], Optional[str], Optional[str]]:
+        """
+        Resolve primary metric value, name, and unit from document fields.
+
+        Prefer ``results.primary_metric``; if value is absent, look up
+        ``primary_metric.name`` in run metrics, then test-specific fallbacks.
+        """
+        pm: Dict[str, Any] = primary_metric if isinstance(primary_metric, dict) else {}
+
+        raw_value = pm.get("value")
+        if raw_value is not None:
+            try:
+                fv = float(raw_value)
+                if not math.isnan(fv):
+                    return fv, pm.get("name"), pm.get("unit")
+            except (TypeError, ValueError):
+                pass
+
+        name_hint = pm.get("name")
+        if name_hint and run_0_metrics and name_hint in run_0_metrics:
+            v = run_0_metrics[name_hint]
+            if isinstance(v, (int, float)) and not (isinstance(v, float) and math.isnan(v)):
+                return float(v), str(name_hint), pm.get("unit")
+
+        tn = (test_name or "").lower().strip()
+        keys_to_try: List[str] = []
+        if tn in _PRIMARY_METRIC_FALLBACK_KEYS:
+            keys_to_try.extend(_PRIMARY_METRIC_FALLBACK_KEYS[tn])
+        for key in keys_to_try:
+            if key in run_0_metrics:
+                v = run_0_metrics[key]
+                if isinstance(v, (int, float)) and not (isinstance(v, float) and math.isnan(v)):
+                    unit = pm.get("unit")
+                    if unit is None:
+                        unit = "MB/s" if "mb_per_sec" in key or "mbps" in key.lower() else None
+                    return float(v), key, unit
+
+        return None, pm.get("name"), pm.get("unit")
+
     def get_benchmark_category(self, test_name: str) -> str:
         """
         Get the category for a benchmark test.
@@ -126,6 +187,10 @@ class BenchmarkDataProcessor:
             first_run_key = list(runs.keys())[0]
             run_0_metrics = runs[first_run_key].get('metrics', {})
         
+        pm_value, pm_name, pm_unit = self._resolve_primary_metric(
+            primary_metric, run_0_metrics, test.get('name')
+        )
+
         record = {
             # Identifiers
             'document_id': metadata.get('document_id'),
@@ -155,9 +220,13 @@ class BenchmarkDataProcessor:
             
             # Results
             'status': results.get('status'),
-            'primary_metric_name': primary_metric.get('name'),
-            'primary_metric_value': primary_metric.get('value'),
-            'primary_metric_unit': primary_metric.get('unit'),
+            'primary_metric_name': pm_name if pm_name is not None else (
+                primary_metric.get('name') if isinstance(primary_metric, dict) else None
+            ),
+            'primary_metric_value': pm_value,
+            'primary_metric_unit': pm_unit if pm_unit is not None else (
+                primary_metric.get('unit') if isinstance(primary_metric, dict) else None
+            ),
         }
         
         # Add additional metrics from run_0 (flatten key ones)
@@ -630,6 +699,10 @@ class BenchmarkDataProcessor:
                 if len(baseline_hw_data) > 0 and len(comparison_hw_data) > 0:
                     baseline_mean = baseline_hw_data.mean()
                     comparison_mean = comparison_hw_data.mean()
+                    if pd.isna(baseline_mean) or pd.isna(comparison_mean):
+                        continue
+                    if baseline_mean == 0:
+                        continue
                     pct_change = ((comparison_mean - baseline_mean) / baseline_mean) * 100
                     
                     comparison_results.append({

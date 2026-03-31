@@ -828,8 +828,8 @@ def create_version_comparison_bar_chart(
                 f"{baseline_version}: {row['baseline_mean']:.2f}<br>"
                 f"{comparison_version}: {row['comparison_mean']:.2f}"
             )
-            hover_texts.append(hover_text)
-    
+        hover_texts.append(hover_text)
+
     def _fmt_bar_pct(val) -> str:
         if val is None or (isinstance(val, float) and pd.isna(val)):
             return "N/A"

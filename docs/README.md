@@ -21,6 +21,9 @@ Essential technical documentation for working with the dashboard:
 - **[SCHEMA.md](guides/SCHEMA.md)**  
   Complete data schema documentation including field types, benchmark types, and data patterns
 
+- **[DASHBOARD_REDESIGN_AND_DATA_PLAN.md](guides/DASHBOARD_REDESIGN_AND_DATA_PLAN.md)**  
+  Draft product/data strategy for the RHEL Multi-Architecture Performance Dashboard: OpenSearch two-index model, proposed IA (Pulse / Investigate / Track), phasing, and a non-final catalog of comparison rules — for human and AI review (2026)
+
 - **[UI_SUMMARY.md](guides/UI_SUMMARY.md)** ⭐ NEW  
   Executive summary of UI modernization proposal - start here! (Dec 2025)
 

@@ -266,6 +266,8 @@ Two independent AI reviews (Gemini 2.5 Pro via Gemini CLI; Claude Sonnet 4.5 via
 
 Create these when Phase 0 kicks off; keep this plan as the **umbrella**.
 
+**Execution roadmap:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (work packages P0–P3, exit criteria, testing).
+
 ### 10.4 Approval stance (reviewers)
 
 - **Strategic direction:** approved with recommendations.

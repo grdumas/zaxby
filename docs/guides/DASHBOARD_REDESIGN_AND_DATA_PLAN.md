@@ -221,3 +221,142 @@ The plan strictly adheres to the **Discovery-First** mandate by basing the IA on
 2. **Formalize Equivalence:** Prioritize a "rules workshop" to define the minimal hardware equivalence allowlist for Phase 1 comparisons.
 3. **Drill-down UI:** Implement a breadcrumb or nested navigation pattern to support the "Category -> Leaf" hierarchy without overwhelming the user with filters.
 
+---
+
+**Reviewer:** Claude Code (Model: Claude Sonnet 4.5)
+**Date:** 2026-04-01
+**Status:** Approved with Significant Implementation Concerns
+
+### 10.6 Technical Architecture Review
+
+This plan correctly identifies the core tensions (exec safety vs engineer flexibility, results vs timeseries scale) but underspecifies several implementation-critical areas that will block progress if deferred too long.
+
+**Strengths:**
+- **Data model discovery:** The two-index split is well-understood and drives sensible architectural choices (aggregations for Pulse, narrow queries for Investigate)
+- **Stakeholder-driven modes:** The Pulse/Investigate/Track separation directly addresses the "apples-to-oranges" risk mentioned by leadership
+- **Traceability requirement:** OpenSearch deep linking is non-negotiable and correctly preserved throughout
+- **Partner policy awareness:** Proactively treats cross-cloud comparisons as forbidden by default
+
+### 10.7 Critical Gaps
+
+**1. Current Implementation Mismatch (High Priority)**
+
+The existing codebase reveals architectural debt that directly conflicts with this plan:
+
+- **Client-side processing:** Current `app.py` loads all data into `dcc.Store` (browser memory). This pattern:
+  - Already struggles with 4.3k result documents in testing
+  - Cannot scale to 242k timeseries documents under any scenario
+  - Requires immediate refactor to server-side aggregation before multi-mode work begins
+
+- **Single-index assumption:** `src/opensearch_client.py` hardcodes `OPENSEARCH_INDEX` env var. Index routing will require:
+  ```python
+  # Current: self.index_name = os.getenv('OPENSEARCH_INDEX')
+  # Needed: route_index(query_type) -> 'zathras-results' | 'zathras-timeseries'
+  ```
+
+- **Metric resolution complexity:** The plan doesn't address that `_resolve_primary_metric()` already implements fallback logic for missing `results.primary_metric.value` (uses `runs[0].metrics` with test-specific keys). This complexity must be preserved in any aggregation layer.
+
+**2. Comparison Policy Cannot Be Deferred (Blocks Phase 1)**
+
+Section 7 explicitly "kicks the can" on comparison rules, but Phase 1 ("Trust and scope") requires a minimal allowlist to implement **any** investigation scoping:
+
+- **Blocking questions:**
+  - Which dimensions can users combine in filters? (Current UI allows arbitrary combinations)
+  - What constitutes a "valid" baseline vs candidate pair?
+  - How to prevent accidental cross-cloud comparisons in the UI before policy is written?
+
+- **Recommendation:** Define **10-15 canonical comparison templates** immediately (e.g., "Same cloud, same instance type, RHEL X vs Y on test Z"). UI can then be template-driven rather than filter-combinatorial.
+
+**3. Regression Detection Algorithm Unspecified**
+
+The plan guarantees "navigate to raw data for regressions" but doesn't define what triggers a regression flag:
+
+- Statistical threshold? (e.g., >5% delta, p-value < 0.05)
+- Directionality per metric? (higher-is-better vs lower-is-better)
+- Handling of variance? (current code has `baseline_std` in DataFrames but no documented policy)
+- Non-PASS statuses? (Section 7.1 notes UNKNOWN/FAIL exist but not whether they block comparisons)
+
+**Missing:** Explicit acceptance criteria like "A regression is surfaced when metric X degrades by Y% with Z confidence within the same hardware+test scope"
+
+**4. Performance Budget Missing**
+
+The plan acknowledges timeseries scale but provides no query cost guardrails:
+
+- What is the P95 latency target for Pulse mode page load?
+- What is the max document count for an Investigate query before pagination is required?
+- Should OpenSearch aggregations be cached? (TTL policy for "last night's CPT run" vs "historical trend")
+
+**5. Authentication/Multi-tenancy Not Addressed**
+
+No discussion of:
+- Who can see what data? (single-tenant assumed?)
+- Partner-sensitive data access control (some clouds may require filtering beyond UI-level blocks)
+- Audit logging for exec-level report generation
+
+### 10.8 Framework Suitability Question
+
+The plan states "No commitment: Framework, plugins, and language may change" but doesn't evaluate whether **Dash is suitable** for the proposed architecture:
+
+**Dash strengths for this use case:**
+- Plotly integration (already used)
+- Python ecosystem (matches OpenSearch client)
+- Callback model works for filter-driven investigations
+
+**Dash weaknesses for multi-mode architecture:**
+- No native concept of "modes" (would require custom routing/state management)
+- Client-side callback limitations for aggregation-heavy workloads
+- Less mature compared to Next.js/React for bookmark-driven deep linking
+
+**Recommendation:** Prototype the "Pulse mode with server-side aggregations" pattern in Dash before committing. If callbacks become too complex, a thin Python API + modern frontend may be more maintainable.
+
+### 10.9 Migration and Testing Gaps
+
+**Migration:**
+- Current `.env.example` documents single-index mode; how do existing users migrate to two-index setup?
+- Synthetic data generator (`src/synthetic_data.py`) currently produces single-index structure—needs timeseries variant
+
+**Testing:**
+- How to **validate partner-safe rules**? (e.g., pytest fixture that asserts no cross-cloud queries in Pulse mode)
+- How to test equivalence tables? (need golden dataset of "known-good" comparisons)
+- Load testing plan for 242k timeseries documents?
+
+### 10.10 Concrete Next Steps (Prioritized)
+
+**Must-do before Phase 1 implementation:**
+
+1. **Comparison Policy Workshop (Week 1):** Define 10-15 allowed comparison templates with explicit dimension constraints. Document in `docs/guides/COMPARISON_POLICY.md`.
+
+2. **Backend Refactor (Weeks 1-2):**
+   - Extend `BenchmarkDataSource` to support `query_results_index()` and `query_timeseries_index()`
+   - Implement server-side aggregation helpers in `data_processing.py` (e.g., `aggregate_for_pulse_kpis()`)
+   - Remove client-side `dcc.Store` pattern in favor of server callbacks
+
+3. **Regression Detection Spec (Week 2):** Document algorithm, thresholds, and directionality in `docs/guides/REGRESSION_DETECTION.md`. Implement in `BenchmarkDataProcessor.detect_regressions()`.
+
+4. **Deep Link Prototype (Week 2):** Implement `generate_opensearch_link(document_id, index_type)` utility and integrate into one visualization as proof-of-concept.
+
+**Can defer to Phase 2:**
+- Track/CPT mode (depends on Phase 1 aggregation patterns)
+- Hardware equivalence tables beyond minimal Phase 1 allowlist
+- Advanced caching/rollup indices (optimize after baseline performance measured)
+
+### 10.11 Risk Assessment
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| **Comparison policy delayed → Phase 1 blocked** | High | Force decision in Week 1; MVP with 10 templates better than perfect taxonomy later |
+| **Client-side processing retained → performance failure** | High | Refactor to server-side aggregations before adding modes |
+| **Dash framework limitations → rewrite needed** | Medium | Prototype aggregation pattern early; evaluate escape hatches (embedded FastAPI, etc.) |
+| **Missing regression algorithm → inconsistent bug filing** | Medium | Spec and implement before surfacing any "regression" labels in UI |
+| **Partner policy violation in production** | High | Implement allowlist validation in backend with pytest coverage before launch |
+
+### 10.12 Approval Conditions
+
+Approve plan **contingent on**:
+1. Comparison policy workshop scheduled and completed before implementation starts
+2. Backend refactor (index routing + aggregations) prioritized as Phase 0 dependency
+3. Regression detection algorithm documented with acceptance criteria
+4. Partner-safe validation tests added to test suite
+
+The strategic direction is sound, but the implementation dependencies are underspecified. Deferring comparison rules and aggregation patterns to "later" will create a critical path bottleneck.
+

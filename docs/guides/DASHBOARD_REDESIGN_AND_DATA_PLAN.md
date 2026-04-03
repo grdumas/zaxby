@@ -6,6 +6,8 @@
 
 This document captures **product context**, **live OpenSearch findings**, a **proposed direction** for the dashboard (without committing to stack or implementation), and a **non-final** catalog of **comparison rules** to refine later. It exists so reviewers (including other models) can suggest improvements, risks, and missing requirements.
 
+**Review feedback (2026-04-01)** from two AI reviews has been **processed into the body** of this document (see §10 for synthesis). The full exploratory catalog in §7 remains for long-term trimming; **§6 and §7.4** now record the reviewers’ point that a **small allowlist / template set** is required before meaningful Phase 1 implementation—not a contradiction, but a **bridge** between “everything plausible” and “what we ship first.”
+
 ---
 
 ## 1. Purpose of this document
@@ -13,7 +15,7 @@ This document captures **product context**, **live OpenSearch findings**, a **pr
 - Align stakeholders on **why** the product exists and **what constraints** are non-negotiable.
 - Record **what data** is actually available in OpenSearch today (two indices, rough volumes, key dimensions).
 - Propose a **high-level information architecture** (modes, deep linking, policy) independent of whether the app stays on Dash or moves to another stack.
-- Defer **definitive comparison policy** to a later decision; **Section 7** only lists **plausible** comparison types and open policy questions.
+- **§7** retains a **wide** catalog of plausible comparison types for future policy work; **§7.4** defines the **minimum** comparison policy artifact needed to unblock implementation (templates + allowlist), without pretending the full catalog is decided.
 
 **For AI reviewers:** Please flag gaps, internal contradictions, security/partner-policy risks, and technical feasibility. Suggest concrete acceptance criteria or phased milestones. If you invent org-specific details, label them explicitly as assumptions.
 
@@ -37,7 +39,7 @@ This document captures **product context**, **live OpenSearch findings**, a **pr
 
 ### 2.3 Sacred cow: categories vs leaf benchmarks
 
-Benchmarks may be rolled up to **high-level categories** (e.g. networking, HPC, memory, Python, Java, storage). Users must **always** be able to drill from category → **individual benchmarks** (leaf metrics), not only a rolled-up score.
+Benchmarks may be rolled up to **high-level categories** (e.g. networking, HPC, memory, Python, Java, storage). Users must **always** be able to drill from category → **individual benchmarks** (leaf metrics), not only a rolled-up score. Moving from today’s **OS-first** layouts to **category → leaf** implies a **structural navigation change** (breadcrumbs or nested IA), not only new charts.
 
 ---
 
@@ -45,7 +47,10 @@ Benchmarks may be rolled up to **high-level categories** (e.g. networking, HPC, 
 
 - Today the repo ships a **Python Dash** application with OpenSearch and synthetic modes.
 - Documentation and env templates historically emphasized a **single** results index; production reality includes **two** indices (see below).
-- The current UI is **filter-heavy** and loads a bounded batch of documents for client-side processing — **not** assumed to be the long-term architecture for large-scale or timeseries-heavy workloads.
+- **Architectural debt (review consensus):**
+  - **`app.py`** loads filtered data into **`dcc.Store`** and drives many callbacks from browser-held payloads. That pattern **does not scale** to **`zathras-timeseries`** volume (~hundreds of thousands of documents) and is already heavy for large **`zathras-results`** pulls.
+  - **`src/opensearch_client.py`** uses a single **`OPENSEARCH_INDEX`** (or equivalent) — **no index routing** for Pulse vs point-level drill-down.
+  - **`BenchmarkDataProcessor._resolve_primary_metric()`** in **`src/data_processing.py`** already implements **fallback** when `results.primary_metric` is incomplete (e.g. pulling from nested `runs` / test-specific keys). Any **server-side aggregation** or KPI layer **must preserve** this semantics (or replace it with an explicit per-`test.name` metric registry).
 
 **No commitment:** Framework, plugins, and language may change; the goal is a **functional product** meeting stakeholder needs.
 
@@ -78,6 +83,11 @@ Observations below come from querying the **`zathras-results`** and **`zathras-t
 | **Traceability** | Two link patterns: **run** (results index) vs **point** (timeseries index). |
 | **CPT / nightly growth** | Timeseries likely grows faster; “what changed last night?” should avoid pulling full timeseries client-side. |
 
+### 4.4 Query-layer expectations (not yet implemented)
+
+- **Index routing:** e.g. `route_index(query_kind) -> zathras-results | zathras-timeseries` for Pulse/KPI vs Investigate/point queries.
+- **Equivalence tables** (instance generation / size / cross-vendor “tier” matching) are a **significant** modeling effort; Phase 1 should start from a **minimal** documented allowlist, not full automation.
+
 ---
 
 ## 5. Proposed information architecture (non-binding)
@@ -101,19 +111,41 @@ Observations below come from querying the **`zathras-results`** and **`zathras-t
 
 A thin **API or query layer** that chooses index, aggregation, and **link shape** is compatible with staying on Python or moving to another frontend; the **split between results and timeseries** is the main structural driver.
 
+### 5.4 Framework note (Dash vs alternatives)
+
+- **Dash / Plotly** fit the current team stack and investigation-style charts; **modes** (Pulse vs Investigate) require **custom routing/state** (already partially present via navigation stores).
+- **Risks:** heavy **server-side aggregation** and bookmarkable deep links are less turnkey than in many SPA frameworks; **prototype Pulse with server-side aggregations** in Dash before committing to a full rewrite.
+- **Escape hatch:** a thin **FastAPI** (or similar) layer serving aggregated JSON + a future alternate frontend remains compatible with the same OpenSearch contracts.
+
 ---
 
-## 6. Phasing (suggested)
+## 6. Phasing (suggested, updated after review)
 
-1. **Trust and scope:** Investigation scoping, category → leaf drill-down, OpenSearch deep links for regressions, **comparison guardrails** (minimal allowlist first).
-2. **Pulse:** KPI surfaces and executive-safe summaries on top of the same backend contracts.
-3. **Track / CPT:** Exception feeds and performance optimizations (aggregations, caching, optional rollups).
+**Phase 0 — Platform prerequisites (reviewers: blocks safe Phase 1 if skipped)**
+
+1. **Index-aware data access:** extend the OpenSearch integration so callers can target **`zathras-results`** vs **`zathras-timeseries`** by query type (Pulse/KPI vs narrow Investigate / point).
+2. **Server-side aggregation path:** introduce endpoints or server callbacks that **do not** depend on shipping full result sets to `dcc.Store` for Pulse-style views; cap Investigate payloads with **pagination** or strict filters.
+3. **Environment / docs:** document both index names (e.g. in `.env.example`) and migration notes for operators moving from single-index configs.
+4. **Deep link utility:** `generate_opensearch_link(document_id | timeseries_id, index)` — prove on **one** visualization before broad rollout.
+5. **Minimal comparison policy artifact:** **10–15 canonical comparison templates** (dimensions fixed per template) documented as the first **`COMPARISON_POLICY`** companion (see §10.3); full §7 catalog remains for later trimming.
+
+**Phase 1 — Trust and scope**
+
+- Investigation scoping aligned to templates, category → leaf drill-down, OpenSearch deep links for any **regression**-class signal, **partner-safe** guardrails in **backend** (not only copy).
+
+**Phase 2 — Pulse**
+
+- KPI surfaces on top of aggregation contracts; exec-safe summaries.
+
+**Phase 3 — Track / CPT**
+
+- Exception feeds; caching, optional rollup indices; load testing against timeseries scale.
 
 ---
 
 ## 7. Comparison rules — catalog only (not finalized)
 
-**Explicitly kicking the can:** this section lists **plausible** comparison dimensions and patterns observed from **`zathras-results`** data. The team will **trim** to an allowlist/blocklist later. Nothing here is approval to implement a rule without product sign-off.
+**Wide catalog:** this section lists **plausible** comparison dimensions and patterns observed from **`zathras-results`** data. The team will **trim** to an allowlist/blocklist over time.
 
 ### 7.1 Dimensions observed in data (examples)
 
@@ -138,8 +170,8 @@ A thin **API or query layer** that chooses index, aggregation, and **link shape*
 **Benchmark / workload**
 
 - Same `test.name` + same metric definition.
-- Same `test.name`, different `metadata.scenario_name`:** valid for pyperf-style per-scenario micro-workloads; needs aggregation rules if rolled up.
-- Different `test.name`:** only via **category rollups** with defined aggregation — not raw point-to-point.
+- Same `test.name`, different `metadata.scenario_name`: valid for pyperf-style per-scenario micro-workloads; needs aggregation rules if rolled up.
+- Different `test.name`: only via **category rollups** with defined aggregation — not raw point-to-point.
 
 **Hardware / capacity**
 
@@ -161,23 +193,94 @@ A thin **API or query layer** that chooses index, aggregation, and **link shape*
 
 ### 7.3 Open decisions (for a future rules workshop)
 
-- Canonical **metric field** per `test.name` (primary vs nested).
+- Canonical **metric field** per `test.name` (primary vs nested) — may converge to a **registry** used by aggregations.
 - **Equivalence tables** for instance types across generations or sizes.
 - Whether **cross-arch** comparisons are ever **auto-suggested** or only **manual** with warnings.
 - Final **partner** wording and what is allowed in **Pulse** vs **Investigate**.
 
+### 7.4 Minimum policy for implementation (review input)
+
+Implementing **Investigate** with arbitrary combinatorial filters **without** policy risks accidental forbidden comparisons. **Before** UI work that encodes comparisons:
+
+- Define **10–15 canonical templates** (e.g. “same cloud + same `instance_type` + same `test.name` + same `scenario_name`: RHEL X vs Y”).
+- Encode **baseline vs candidate** explicitly per template.
+- Validate **Pulse** queries in **tests** (e.g. no cross–public-cloud aggregations in Pulse mode unless explicitly out-of-scope for v1).
+
+The full catalog in §7.2 remains the long-term menu; **templates** are the **narrow** first slice.
+
 ---
 
-## 8. Success criteria (draft)
+## 8. Success criteria (draft, expanded)
 
 - An exec can grasp **directional** health vs an agreed baseline using **KPIs** without wading through global filters.
 - An engineer can answer a **scoped** question with only relevant runs and open **OpenSearch** to the **correct** document (run or timeseries point) from any surfaced regression.
 - Category rollups always expose a path to **leaf benchmarks**.
 - The product does **not** default to **forbidden** comparison types (e.g. cross–public-cloud where policy says no).
+- **Regression signal (when labeled):** documented definition — threshold, **directionality** per test/unit, handling of **UNKNOWN/FAIL**, variance — see **non-functional / spec** gaps in §9.
+- **Partner safety:** automated checks or tests that **Pulse** cannot emit blocked comparison classes (exact mechanism TBD).
 
 ---
 
-## 9. Feedback requested from reviewers
+## 9. Non-functional and operational gaps (review input)
+
+These were underspecified in the first draft; **targets remain TBD** unless product sets numbers.
+
+| Area | Open questions |
+|------|----------------|
+| **Performance** | P95 budget for Pulse load; max rows per Investigate query before pagination; cache TTL for repeated aggregations (e.g. “last CPT window”). |
+| **Regression math** | What constitutes “regression” (delta %, statistical test, min sample size); alignment with existing `baseline_std` / DataFrame fields if used. |
+| **Auth / tenancy** | Single-tenant assumption? Row-level restrictions beyond UI (e.g. partner data)? Audit logging for exec exports? |
+| **Testing** | Golden “known-good” comparison fixtures; load test plan for timeseries index; **pytest** (or similar) for policy violations on query builders. |
+| **Synthetic data** | Extend or mirror **`zathras-timeseries`** shape if Investigate point drill-down is tested offline. |
+
+---
+
+## 10. Processed review synthesis (2026-04-01)
+
+Two independent AI reviews (Gemini 2.5 Pro via Gemini CLI; Claude Sonnet 4.5 via Claude Code) were merged into this document. Below: **consensus**, **actions taken in this revision**, and **remaining owner actions**.
+
+### 10.1 Consensus (both reviewers)
+
+- **Two-index model** is sound; **bulk client-side** processing of timeseries is **not** viable.
+- **Index routing** and **server-side aggregation** are prerequisites for Pulse and safe scale-up.
+- **Partner / cross-cloud** risk requires **enforcement in logic**, not only documentation.
+- **Equivalence / hardware matching** is hard; start **small** and explicit.
+- **Category → leaf** navigation implies **real IA work** (breadcrumbs / nested patterns), not a cosmetic tweak.
+- **Dash** can remain viable if **Pulse aggregations** are prototyped early; **rewrite** is optional contingency.
+
+### 10.2 Incorporated into this document (this edit)
+
+- §3: **implementation debt** (`dcc.Store`, single index env, `_resolve_primary_metric`).
+- §4.4: **query-layer** and equivalence expectations.
+- §5.4: **framework** tradeoffs and prototype recommendation.
+- §6: **Phase 0** with concrete prerequisites (index routing, server-side path, env/docs, deep links, **minimal templates**).
+- §7.4: **bridge** between wide catalog and **minimum** policy for build.
+- §8–§9: **regression definition** placeholder, **NFR** table, **testing/synthetic** gaps.
+
+### 10.3 Planned companion documents (not created in this pass)
+
+| Document | Purpose |
+|----------|---------|
+| `docs/guides/COMPARISON_POLICY.md` | Canonical **templates** + allowlist/blocklist; owner: product + perf lead. |
+| `docs/guides/REGRESSION_DETECTION.md` | Thresholds, directionality, status handling, acceptance criteria for “regression” labels. |
+
+Create these when Phase 0 kicks off; keep this plan as the **umbrella**.
+
+### 10.4 Approval stance (reviewers)
+
+- **Strategic direction:** approved with recommendations.
+- **Implementation:** approved **contingent** on Phase 0 (policy artifact + backend/query refactor + regression spec before shipping **regression** labels broadly). Exact “approval conditions” wording from the Claude review is **reflected** in §6 Phase 0 and §10.3 rather than duplicated verbatim.
+
+### 10.5 Review provenance
+
+| Reviewer | Tooling note | Original stance |
+|----------|----------------|-----------------|
+| Gemini 2.5 Pro | Gemini CLI | Approved with recommendations — index routing, equivalence workshop, drill-down UI |
+| Claude Sonnet 4.5 | Claude Code | Approved with significant implementation concerns — Phase 0 dependencies, regression spec, partner tests, performance/auth gaps |
+
+---
+
+## 11. Feedback requested from reviewers
 
 - Missing **stakeholder** or **compliance** constraints.
 - **Risks** in the two-index model (query cost, consistency, drift).
@@ -191,172 +294,4 @@ A thin **API or query layer** that chooses index, aggregation, and **link shape*
 | Date | Change |
 |------|--------|
 | 2026-04-01 | Initial draft on branch `plan/dashboard-redesign-and-data-strategy` |
-
----
-
-## 10. Feedback / Review (AI Reviewer)
-
-**Reviewer:** Gemini CLI (Model: Gemini 2.5 Pro)  
-**Date:** 2026-04-01  
-**Status:** Approved with Recommendations
-
-### 10.1 Technical Evaluation Summary
-The plan is highly effective in bridging high-level stakeholder needs with the technical realities of the OpenSearch data model. The persona-driven approach (Pulse vs. Investigate) correctly addresses the primary risk of "apples-to-oranges" comparisons for non-technical users while preserving deep-dive capabilities for engineers.
-
-### 10.2 Strengths
-- **Data Model Realism:** Correctly identifies the non-viability of bulk client-side processing for the `zathras-timeseries` index and proposes an aggregation-first strategy.
-- **Policy-First Design:** Proactively addresses organizational risks regarding partner-sensitive data (cross-cloud comparisons) in the UI logic.
-- **Traceability:** Upholds the "sacred cow" requirement for run-level deep links back to OpenSearch, ensuring the dashboard is actionable for bug-filing.
-
-### 10.3 Gaps and Technical Risks
-- **Index Routing:** Current implementation (`src/opensearch_client.py`) assumes a single index. Refactoring is required to handle the proposed two-index strategy (`results` vs. `timeseries`).
-- **Comparison Complexity:** Implementing "equivalence tables" for hardware (e.g., matching AWS `m5` to Azure `Dsv3`) remains a significant manual data-modeling effort not yet reflected in the processing layer.
-- **Information Architecture Shift:** The transition from "OS-first" views to "Category -> Leaf Benchmark" drill-downs will require a structural shift in the current Dash component hierarchy.
-
-### 10.4 Alignment with Project Brief
-The plan strictly adheres to the **Discovery-First** mandate by basing the IA on live cluster findings rather than assumptions. It fulfills the primary mission of regression detection while ensuring scalability for future CPT workloads.
-
-### 10.5 Recommendations
-1. **Refactor Data Source:** Update the OpenSearch client to support dynamic index routing based on the query type (Pulse/KPI vs. Investigate/Point).
-2. **Formalize Equivalence:** Prioritize a "rules workshop" to define the minimal hardware equivalence allowlist for Phase 1 comparisons.
-3. **Drill-down UI:** Implement a breadcrumb or nested navigation pattern to support the "Category -> Leaf" hierarchy without overwhelming the user with filters.
-
----
-
-**Reviewer:** Claude Code (Model: Claude Sonnet 4.5)
-**Date:** 2026-04-01
-**Status:** Approved with Significant Implementation Concerns
-
-### 10.6 Technical Architecture Review
-
-This plan correctly identifies the core tensions (exec safety vs engineer flexibility, results vs timeseries scale) but underspecifies several implementation-critical areas that will block progress if deferred too long.
-
-**Strengths:**
-- **Data model discovery:** The two-index split is well-understood and drives sensible architectural choices (aggregations for Pulse, narrow queries for Investigate)
-- **Stakeholder-driven modes:** The Pulse/Investigate/Track separation directly addresses the "apples-to-oranges" risk mentioned by leadership
-- **Traceability requirement:** OpenSearch deep linking is non-negotiable and correctly preserved throughout
-- **Partner policy awareness:** Proactively treats cross-cloud comparisons as forbidden by default
-
-### 10.7 Critical Gaps
-
-**1. Current Implementation Mismatch (High Priority)**
-
-The existing codebase reveals architectural debt that directly conflicts with this plan:
-
-- **Client-side processing:** Current `app.py` loads all data into `dcc.Store` (browser memory). This pattern:
-  - Already struggles with 4.3k result documents in testing
-  - Cannot scale to 242k timeseries documents under any scenario
-  - Requires immediate refactor to server-side aggregation before multi-mode work begins
-
-- **Single-index assumption:** `src/opensearch_client.py` hardcodes `OPENSEARCH_INDEX` env var. Index routing will require:
-  ```python
-  # Current: self.index_name = os.getenv('OPENSEARCH_INDEX')
-  # Needed: route_index(query_type) -> 'zathras-results' | 'zathras-timeseries'
-  ```
-
-- **Metric resolution complexity:** The plan doesn't address that `_resolve_primary_metric()` already implements fallback logic for missing `results.primary_metric.value` (uses `runs[0].metrics` with test-specific keys). This complexity must be preserved in any aggregation layer.
-
-**2. Comparison Policy Cannot Be Deferred (Blocks Phase 1)**
-
-Section 7 explicitly "kicks the can" on comparison rules, but Phase 1 ("Trust and scope") requires a minimal allowlist to implement **any** investigation scoping:
-
-- **Blocking questions:**
-  - Which dimensions can users combine in filters? (Current UI allows arbitrary combinations)
-  - What constitutes a "valid" baseline vs candidate pair?
-  - How to prevent accidental cross-cloud comparisons in the UI before policy is written?
-
-- **Recommendation:** Define **10-15 canonical comparison templates** immediately (e.g., "Same cloud, same instance type, RHEL X vs Y on test Z"). UI can then be template-driven rather than filter-combinatorial.
-
-**3. Regression Detection Algorithm Unspecified**
-
-The plan guarantees "navigate to raw data for regressions" but doesn't define what triggers a regression flag:
-
-- Statistical threshold? (e.g., >5% delta, p-value < 0.05)
-- Directionality per metric? (higher-is-better vs lower-is-better)
-- Handling of variance? (current code has `baseline_std` in DataFrames but no documented policy)
-- Non-PASS statuses? (Section 7.1 notes UNKNOWN/FAIL exist but not whether they block comparisons)
-
-**Missing:** Explicit acceptance criteria like "A regression is surfaced when metric X degrades by Y% with Z confidence within the same hardware+test scope"
-
-**4. Performance Budget Missing**
-
-The plan acknowledges timeseries scale but provides no query cost guardrails:
-
-- What is the P95 latency target for Pulse mode page load?
-- What is the max document count for an Investigate query before pagination is required?
-- Should OpenSearch aggregations be cached? (TTL policy for "last night's CPT run" vs "historical trend")
-
-**5. Authentication/Multi-tenancy Not Addressed**
-
-No discussion of:
-- Who can see what data? (single-tenant assumed?)
-- Partner-sensitive data access control (some clouds may require filtering beyond UI-level blocks)
-- Audit logging for exec-level report generation
-
-### 10.8 Framework Suitability Question
-
-The plan states "No commitment: Framework, plugins, and language may change" but doesn't evaluate whether **Dash is suitable** for the proposed architecture:
-
-**Dash strengths for this use case:**
-- Plotly integration (already used)
-- Python ecosystem (matches OpenSearch client)
-- Callback model works for filter-driven investigations
-
-**Dash weaknesses for multi-mode architecture:**
-- No native concept of "modes" (would require custom routing/state management)
-- Client-side callback limitations for aggregation-heavy workloads
-- Less mature compared to Next.js/React for bookmark-driven deep linking
-
-**Recommendation:** Prototype the "Pulse mode with server-side aggregations" pattern in Dash before committing. If callbacks become too complex, a thin Python API + modern frontend may be more maintainable.
-
-### 10.9 Migration and Testing Gaps
-
-**Migration:**
-- Current `.env.example` documents single-index mode; how do existing users migrate to two-index setup?
-- Synthetic data generator (`src/synthetic_data.py`) currently produces single-index structure—needs timeseries variant
-
-**Testing:**
-- How to **validate partner-safe rules**? (e.g., pytest fixture that asserts no cross-cloud queries in Pulse mode)
-- How to test equivalence tables? (need golden dataset of "known-good" comparisons)
-- Load testing plan for 242k timeseries documents?
-
-### 10.10 Concrete Next Steps (Prioritized)
-
-**Must-do before Phase 1 implementation:**
-
-1. **Comparison Policy Workshop (Week 1):** Define 10-15 allowed comparison templates with explicit dimension constraints. Document in `docs/guides/COMPARISON_POLICY.md`.
-
-2. **Backend Refactor (Weeks 1-2):**
-   - Extend `BenchmarkDataSource` to support `query_results_index()` and `query_timeseries_index()`
-   - Implement server-side aggregation helpers in `data_processing.py` (e.g., `aggregate_for_pulse_kpis()`)
-   - Remove client-side `dcc.Store` pattern in favor of server callbacks
-
-3. **Regression Detection Spec (Week 2):** Document algorithm, thresholds, and directionality in `docs/guides/REGRESSION_DETECTION.md`. Implement in `BenchmarkDataProcessor.detect_regressions()`.
-
-4. **Deep Link Prototype (Week 2):** Implement `generate_opensearch_link(document_id, index_type)` utility and integrate into one visualization as proof-of-concept.
-
-**Can defer to Phase 2:**
-- Track/CPT mode (depends on Phase 1 aggregation patterns)
-- Hardware equivalence tables beyond minimal Phase 1 allowlist
-- Advanced caching/rollup indices (optimize after baseline performance measured)
-
-### 10.11 Risk Assessment
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| **Comparison policy delayed → Phase 1 blocked** | High | Force decision in Week 1; MVP with 10 templates better than perfect taxonomy later |
-| **Client-side processing retained → performance failure** | High | Refactor to server-side aggregations before adding modes |
-| **Dash framework limitations → rewrite needed** | Medium | Prototype aggregation pattern early; evaluate escape hatches (embedded FastAPI, etc.) |
-| **Missing regression algorithm → inconsistent bug filing** | Medium | Spec and implement before surfacing any "regression" labels in UI |
-| **Partner policy violation in production** | High | Implement allowlist validation in backend with pytest coverage before launch |
-
-### 10.12 Approval Conditions
-
-Approve plan **contingent on**:
-1. Comparison policy workshop scheduled and completed before implementation starts
-2. Backend refactor (index routing + aggregations) prioritized as Phase 0 dependency
-3. Regression detection algorithm documented with acceptance criteria
-4. Partner-safe validation tests added to test suite
-
-The strategic direction is sound, but the implementation dependencies are underspecified. Deferring comparison rules and aggregation patterns to "later" will create a critical path bottleneck.
-
+| 2026-04-01 | Processed AI review feedback: Phase 0, §7.4 templates, implementation debt, NFR table, companion doc plan, §10 synthesis |

@@ -49,6 +49,9 @@ OPENSEARCH_PORT=9200
 OPENSEARCH_USERNAME=your-username
 OPENSEARCH_PASSWORD=your-password
 OPENSEARCH_INDEX=zathras-results
+# Optional today; set both so your config matches production (used when dual-index routing lands)
+OPENSEARCH_INDEX_RESULTS=zathras-results
+OPENSEARCH_INDEX_TIMESERIES=zathras-timeseries
 OPENSEARCH_USE_SSL=true
 DATA_MODE=opensearch
 
@@ -130,6 +133,7 @@ Connect to live OpenSearch instance for real data.
 DATA_MODE=opensearch
 OPENSEARCH_HOST=your-host
 OPENSEARCH_INDEX=zathras-results
+# OPENSEARCH_INDEX_RESULTS / OPENSEARCH_INDEX_TIMESERIES — see .env.example and OPENSEARCH_CONNECTION_GUIDE.md
 # ... other OpenSearch settings
 ```
 

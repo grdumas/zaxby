@@ -18,6 +18,11 @@ from dotenv import load_dotenv
 # Import local modules
 from src.opensearch_client import BenchmarkDataSource
 from src.data_processing import BenchmarkDataProcessor, load_synthetic_data
+from src.query_service import (
+    ResultsOverviewSnapshot,
+    aggregate_results_overview_from_dataframe,
+    fetch_results_overview_aggregates,
+)
 from src.components import filters, visualizations
 from src.components.summaries import (
     format_regression_summary,
@@ -236,6 +241,32 @@ def create_overview_layout():
     3. Cloud Scaling - performance across instance sizes
     """
     return html.Div([
+        # Server-side snapshot (P0-C): aggregation on OpenSearch or in-memory sample; bounded UI payload.
+        dbc.Card([
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.H5("Results index snapshot", className="mb-2"),
+                        html.P(
+                            "Run counts from a server-side aggregation (OpenSearch size=0) or, in synthetic mode, from the loaded sample. Does not use the full scroll payload.",
+                            className="text-muted small mb-2",
+                        ),
+                        html.Div(id="server-snapshot-content", children=dbc.Spinner(size="sm")),
+                    ], width=10),
+                    dbc.Col([
+                        dbc.Button(
+                            "Refresh",
+                            id="btn-refresh-server-snapshot",
+                            color="secondary",
+                            outline=True,
+                            size="sm",
+                            className="mt-4",
+                        ),
+                    ], width=2),
+                ]),
+            ]),
+        ], className="mb-4"),
+        dcc.Interval(id="server-snapshot-init", interval=400, max_intervals=1, n_intervals=0),
         # Section 1: RHEL Regression Analysis (Collapsible)
         dbc.Card([
             dbc.CardHeader([
@@ -502,6 +533,70 @@ def create_investigation_layout(test_name, baseline_version, comparison_version,
 
 
 # Callbacks
+
+
+@app.callback(
+    Output("server-snapshot-content", "children"),
+    [Input("server-snapshot-init", "n_intervals"), Input("btn-refresh-server-snapshot", "n_clicks")],
+    prevent_initial_call=True,
+)
+def update_server_snapshot(_n_intervals, _n_clicks):
+    """Load bounded snapshot via OpenSearch aggregation or synthetic groupby (not from dcc.Store).
+
+    prevent_initial_call avoids doubling work with server-snapshot-init (initial n_intervals=0 plus first tick).
+    First load runs once when the one-shot Interval increments n_intervals; Refresh triggers further loads.
+    """
+    try:
+        if DATA_MODE == "opensearch":
+            client = BenchmarkDataSource()
+            snap = fetch_results_overview_aggregates(client)
+        else:
+            snap = aggregate_results_overview_from_dataframe(df)
+    except Exception as exc:  # noqa: BLE001 — connection/bootstrap; P1-F will refine UX
+        snap = ResultsOverviewSnapshot(
+            total=None,
+            by_cloud=[],
+            source="opensearch" if DATA_MODE == "opensearch" else "synthetic",
+            error=str(exc),
+        )
+    if snap.error:
+        return dbc.Alert(
+            ["Snapshot failed: ", html.Code(snap.error)],
+            color="warning",
+            className="mb-0",
+        )
+    parts = []
+    if snap.total is not None:
+        parts.append(html.P([html.Strong("Total documents (index): "), f"{snap.total:,}"], className="mb-2"))
+    parts.append(
+        html.P(
+            [
+                dbc.Badge(
+                    f"Source: {snap.source}",
+                    color="info" if snap.source == "opensearch" else "secondary",
+                    className="me-2",
+                ),
+            ],
+            className="mb-2",
+        )
+    )
+    if snap.by_cloud:
+        parts.append(
+            html.P(
+                [
+                    html.Strong("By cloud provider: "),
+                    *[
+                        dbc.Badge(f"{name}: {count:,}", color="light", text_color="dark", className="me-1 mb-1")
+                        for name, count in snap.by_cloud[:20]
+                    ],
+                ],
+                className="mb-0",
+            )
+        )
+    else:
+        parts.append(html.P("No cloud provider buckets in snapshot.", className="text-muted small mb-0"))
+    return html.Div(parts)
+
 
 @app.callback(
     Output('collapse-filters', 'is_open'),

@@ -23,6 +23,7 @@ from src.query_service import (
     aggregate_results_overview_from_dataframe,
     fetch_results_overview_aggregates,
 )
+from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
 from src.components import filters, visualizations
 from src.components.summaries import (
     format_regression_summary,
@@ -1478,9 +1479,62 @@ def update_investigation_view(nav_state, filtered_data_json):
         table_df,
         title=f"Recent Test Runs (showing {len(table_df)} of {len(test_df)} total)"
     )
-    
-    table_component = dcc.Graph(figure=table_fig)
-    
+
+    dashboards_base = (os.getenv("OPENSEARCH_DASHBOARDS_BASE_URL") or "").strip()
+    idx_name = results_index_name() or "zathras-results"
+    recent = test_df.sort_values("timestamp", ascending=False).iloc[0]
+    doc_id = recent.get("document_id")
+    discover_row = None
+    if dashboards_base and doc_id is not None and not pd.isna(doc_id):
+        try:
+            discover_url = opensearch_discover_url_for_document(
+                dashboards_base,
+                idx_name,
+                str(doc_id),
+            )
+            discover_row = html.Div(
+                [
+                    html.A(
+                        "View in OpenSearch Discover (most recent run)",
+                        href=discover_url,
+                        target="_blank",
+                        rel="noopener noreferrer",
+                        className="fw-semibold",
+                    ),
+                    html.Span(f" — document_id: {doc_id}", className="text-muted small ms-1"),
+                ],
+                className="mt-2 mb-0",
+            )
+        except ValueError:
+            discover_row = html.P(
+                "Could not build Discover link for this run.",
+                className="text-muted small mt-2 mb-0",
+            )
+    elif not dashboards_base:
+        discover_row = html.P(
+            [
+                html.Span("Discover link: ", className="text-muted small"),
+                html.Small(
+                    "Set OPENSEARCH_DASHBOARDS_BASE_URL in .env to open runs in OpenSearch Dashboards.",
+                    className="text-muted",
+                ),
+            ],
+            className="mt-2 mb-0",
+        )
+    else:
+        discover_row = html.P(
+            "No document_id on the most recent row; Discover link unavailable.",
+            className="text-muted small mt-2 mb-0",
+        )
+
+    table_component = html.Div(
+        [
+            dcc.Graph(figure=table_fig),
+            discover_row,
+        ],
+        className="investigation-table-block",
+    )
+
     return summary_component, comparison_fig, timeline_fig, table_component
 
 

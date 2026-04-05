@@ -42,7 +42,8 @@ Required environment variables:
 - `OPENSEARCH_PORT`: Port number (default: 9200)
 - `OPENSEARCH_USERNAME`: Authentication username
 - `OPENSEARCH_PASSWORD`: Authentication password
-- `OPENSEARCH_INDEX`: Index name containing benchmark results
+- `OPENSEARCH_INDEX`: Run/results index the app queries (required; e.g. `zathras-results`)
+- `OPENSEARCH_INDEX_RESULTS`, `OPENSEARCH_INDEX_TIMESERIES`: (Optional) Set both to match production two-index setup — see [connection guide](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md)
 - `DATA_MODE`: Set to 'opensearch' or 'synthetic'
 
 ### 3. Run the Dashboard

@@ -4,11 +4,24 @@ OpenSearch Dashboards deep links (Discover) for operator drill-down from the Das
 URL shape follows the hash-routed Discover app (`/app/discover#/?_g=...&_a=...`).
 Index pattern names in Dashboards must align with the linked index name; adjust
 `.env` or Dashboards if your pattern id differs from the raw index string.
+
+Rison (used in ``_g`` / ``_a`` URL state) escapes ``!`` as ``!!`` and ``'`` as ``!'`` inside
+single-quoted strings — not backslashes.
 """
 
 from __future__ import annotations
 
 import os
+
+
+def _rison_escape_for_single_quoted_string(s: str) -> str:
+    """
+    Escape text placed inside Rison single-quoted strings.
+
+    Rison uses ``!`` as the escape character: literal ``!`` → ``!!``, literal ``'`` → ``!'``.
+    Order: escape ``!`` first, then ``'``, so sequences like ``!'`` in input encode correctly.
+    """
+    return s.replace("!", "!!").replace("'", "!'")
 
 
 def results_index_name() -> str:
@@ -41,15 +54,15 @@ def opensearch_discover_url_for_document(
 
     base = str(dashboards_base_url).strip().rstrip("/")
     doc = str(document_id).strip()
-    # Kuery string escaping for quotes and backslashes inside the value
+    # Kuery: escape backslashes and double-quotes inside the quoted document id value
     esc = doc.replace("\\", "\\\\").replace('"', '\\"')
     kuery = f'metadata.document_id: "{esc}"'
-    idx = str(index_name).strip().replace("'", "\\'")
-    kuery_esc = kuery.replace("'", "\\'")
+    idx = _rison_escape_for_single_quoted_string(str(index_name).strip())
+    kuery_rison = _rison_escape_for_single_quoted_string(kuery)
 
     _a = (
         f"(columns:!(_source),filters:!(),index:'{idx}',interval:auto,"
-        f"query:(language:kuery,query:'{kuery_esc}'))"
+        f"query:(language:kuery,query:'{kuery_rison}'))"
     )
     _g = "(time:(from:now-15y,to:now))"
     return f"{base}/app/discover#/?_g={_g}&_a={_a}"

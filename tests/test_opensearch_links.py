@@ -2,7 +2,11 @@
 
 import pytest
 
-from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
+from src.opensearch_links import (
+    _rison_escape_for_single_quoted_string,
+    opensearch_discover_url_for_document,
+    results_index_name,
+)
 
 
 def test_results_index_name_prefers_opensearch_index_results(monkeypatch):
@@ -29,6 +33,12 @@ def test_opensearch_discover_url_for_document_contains_index_and_query():
     assert "coremark_abc123" in url
 
 
+def test_rison_escape_for_single_quoted_string():
+    assert _rison_escape_for_single_quoted_string("a'b") == "a!'b"
+    assert _rison_escape_for_single_quoted_string("a!b") == "a!!b"
+    assert _rison_escape_for_single_quoted_string("a!'b") == "a!!!'b"
+
+
 def test_opensearch_discover_url_for_document_escapes_quotes_in_id():
     url = opensearch_discover_url_for_document(
         "https://x.com",
@@ -36,6 +46,24 @@ def test_opensearch_discover_url_for_document_escapes_quotes_in_id():
         'weird"id',
     )
     assert '\\"' in url or "%22" in url or "weird" in url
+
+
+def test_opensearch_discover_url_rison_escapes_index_single_quote():
+    url = opensearch_discover_url_for_document(
+        "https://x.com",
+        "zathras'results",
+        "doc1",
+    )
+    assert "index:'zathras!'results'" in url
+
+
+def test_opensearch_discover_url_rison_escapes_exclamation_in_document_id():
+    url = opensearch_discover_url_for_document(
+        "https://x.com",
+        "idx",
+        "run!id",
+    )
+    assert "metadata.document_id: \"run!!id\"" in url or "run!!id" in url
 
 
 def test_opensearch_discover_url_requires_base():

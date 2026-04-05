@@ -25,6 +25,9 @@ if str(ROOT) not in sys.path:
 
 from src.opensearch_client import BenchmarkDataSource
 
+# Fixed label width for aligned CLI output (value column lines up).
+_LABEL_WIDTH = 26
+
 
 def main() -> int:
     try:
@@ -35,13 +38,15 @@ def main() -> int:
             f"OpenSearch OK — cluster {info['cluster_name']} "
             f"(OpenSearch {info['version']['number']})"
         )
-        idx = ds.index_name or "(OPENSEARCH_INDEX not set)"
-        print(f"  Index: {idx}")
+        idx = ds.index_name or "(no results index — set OPENSEARCH_INDEX or OPENSEARCH_INDEX_RESULTS)"
+        print(f"  {'Results index:':<{_LABEL_WIDTH}}{idx}")
         if ds.index_name and ds.client.indices.exists(index=ds.index_name):
             n = ds.client.count(index=ds.index_name)["count"]
-            print(f"  Docs:    {n}")
+            print(f"  {'Docs:':<{_LABEL_WIDTH}}{n}")
         elif ds.index_name:
-            print("  Warning: index does not exist on this cluster.")
+            print("  Warning: results index does not exist on this cluster.")
+        if ds.timeseries_index:
+            print(f"  {'Timeseries index:':<{_LABEL_WIDTH}}{ds.timeseries_index}")
         return 0
     except Exception as e:
         print(f"OpenSearch connection failed: {e}", file=sys.stderr)

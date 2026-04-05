@@ -36,7 +36,106 @@ def test_client_initialization(mock_opensearch_client):
         client = BenchmarkDataSource()
         
         assert client.index_name == 'test-index'
+        assert client.results_index == 'test-index'
+        assert client.timeseries_index == ''
         assert client.client is not None
+
+
+def test_results_index_prefers_opensearch_index_results(mock_opensearch_client):
+    """OPENSEARCH_INDEX_RESULTS wins when both legacy and new vars are set."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_HOST': 'localhost',
+        'OPENSEARCH_PORT': '9200',
+        'OPENSEARCH_INDEX': 'legacy-index',
+        'OPENSEARCH_INDEX_RESULTS': 'canonical-results',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            assert client.results_index == 'canonical-results'
+            assert client.index_name == 'canonical-results'
+
+
+def test_search_results_uses_results_index(mock_opensearch_client):
+    """search_results passes the results index name to the OpenSearch client."""
+    with patch.dict('os.environ', {'OPENSEARCH_INDEX': 'test-index'}):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            client.client.search = Mock(return_value={'hits': {'hits': []}})
+            client.search_results({"query": {"match_all": {}}, "size": 2})
+            client.client.search.assert_called_once()
+            _, kwargs = client.client.search.call_args
+            assert kwargs['index'] == 'test-index'
+
+
+def test_search_timeseries_requires_configured_index(mock_opensearch_client):
+    """search_timeseries raises when OPENSEARCH_INDEX_TIMESERIES is unset."""
+    with patch.dict('os.environ', {'OPENSEARCH_INDEX': 'test-index'}):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            with pytest.raises(ValueError, match="Timeseries index not configured"):
+                client.search_timeseries({"query": {"match_all": {}}})
+
+
+def test_fetch_timeseries_for_document(mock_opensearch_client):
+    """Bounded timeseries query targets the timeseries index and returns sources."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            client.client.search = Mock(
+                return_value={'hits': {'hits': [{'_source': {'k': 1}}]}}
+            )
+            rows = client.fetch_timeseries_for_document('parent-doc-id', size=5)
+            assert rows == [{'k': 1}]
+            _, kwargs = client.client.search.call_args
+            assert kwargs['index'] == 'tsi'
+            assert kwargs['body']['size'] == 5
+            assert kwargs['body']['query']['bool']['must'][0]['term'][
+                'metadata.document_id'
+            ] == 'parent-doc-id'
+
+
+def test_get_all_documents_deprecation(mock_opensearch_client):
+    """get_all_documents is deprecated in favor of scroll_results."""
+    with patch.dict('os.environ', {'OPENSEARCH_INDEX': 'test-index'}):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            client.scroll_results = Mock(return_value=[])
+            with pytest.warns(DeprecationWarning, match="scroll_results"):
+                client.get_all_documents(max_docs=42)
+            client.scroll_results.assert_called_once_with(max_docs=42)
+
+
+def test_legacy_methods_use_results_index(mock_opensearch_client):
+    """get_sample_documents, query_with_filters, get_field_aggregations target results_index."""
+    mock_search_response = {
+        "hits": {"hits": [{"_source": {"x": 1}}]},
+        "aggregations": {"field_values": {"buckets": [{"key": "k", "doc_count": 1}]}},
+    }
+    with patch.dict(
+        "os.environ",
+        {
+            "OPENSEARCH_HOST": "localhost",
+            "OPENSEARCH_PORT": "9200",
+            "OPENSEARCH_INDEX_RESULTS": "canonical-idx",
+        },
+    ):
+        with patch.object(BenchmarkDataSource, "_verify_connection"):
+            client = BenchmarkDataSource()
+            client.client.search = Mock(return_value=mock_search_response)
+
+            client.get_sample_documents(limit=5)
+            assert client.client.search.call_args[1]["index"] == "canonical-idx"
+
+            client.client.search.reset_mock()
+            client.query_with_filters(filters={"os_version": "9.5"}, limit=10)
+            assert client.client.search.call_args[1]["index"] == "canonical-idx"
+
+            client.client.search.reset_mock()
+            client.get_field_aggregations("metadata.cloud_provider.keyword", size=5)
+            assert client.client.search.call_args[1]["index"] == "canonical-idx"
 
 
 def test_get_sample_documents(mock_opensearch_client):

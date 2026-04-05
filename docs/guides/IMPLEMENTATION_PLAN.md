@@ -2,7 +2,7 @@
 
 **Status:** Draft — execution roadmap  
 **Umbrella:** [DASHBOARD_REDESIGN_AND_DATA_PLAN.md](DASHBOARD_REDESIGN_AND_DATA_PLAN.md)  
-**Last updated:** 2026-04-01  
+**Last updated:** 2026-04-05  
 
 This document turns the umbrella strategy into **ordered work packages**, **exit criteria**, and **file-level touchpoints**. It does not replace product sign-off on comparison templates or regression thresholds; those live (or will live) in `COMPARISON_POLICY.md` and `REGRESSION_DETECTION.md` once authored.
 
@@ -115,8 +115,9 @@ COMPARISON_POLICY (templates + allowlist)     REGRESSION_DETECTION (spec)
 | P1-C | **Category → leaf** | Data: test-name → category mapping (config or small JSON); UI: breadcrumb or nested nav; charts drill to leaf benchmarks. |
 | P1-D | **Regression surfacing** | Implement `REGRESSION_DETECTION.md` in `BenchmarkDataProcessor` (or dedicated module); wire labels only when criteria met; each label links via P0-D. |
 | P1-E | **Metric registry** | Formalize what `_resolve_primary_metric` does per `test.name`; document in `REGRESSION_DETECTION` or `SCHEMA.md` appendices. |
+| P1-F | **OpenSearch load failure UX** | Replace silent fallback to synthetic data when `DATA_MODE=opensearch` but connection or scroll fails: show a clear error state, let the user **exit** or **opt in to synthetic mode** for local testing/debug (explicit choice, not automatic). Touchpoints: `app.py` bootstrap / layout, callbacks or a minimal recovery screen; document behavior in `README.md` / `QUICKSTART.md`. **Independent** of P0-B (client refactor); schedule after P0-B merge or in parallel on a separate branch. |
 
-**Exit:** Investigate flows use templates; forbidden comparisons are impossible via Pulse API; regressions are defined and testable.
+**Exit:** Investigate flows use templates; forbidden comparisons are impossible via Pulse API; regressions are defined and testable. **P1-F exit:** Users cannot mistake synthetic data for live OpenSearch data after a failed load; recovery path is documented.
 
 ---
 
@@ -177,6 +178,7 @@ COMPARISON_POLICY (templates + allowlist)     REGRESSION_DETECTION (spec)
 | **S2** | P0-C, P0-D, finish P0-E | Vertical slice + policy drafts complete Phase 0. |
 | **S3** | P1-A, P1-B, P1-E | Templates + enforcement. |
 | **S4** | P1-C, P1-D | IA + regression labels. |
+| **S4b** | P1-F (optional) | OpenSearch failure UX — can slot after P0-B regardless of sprint table |
 | **S5+** | P2*, P3* | Pulse then Track per product priority. |
 
 Adjust lengths to team size; **P0 must complete** before treating Phase 1 as committed.
@@ -188,3 +190,4 @@ Adjust lengths to team size; **P0 must complete** before treating Phase 1 as com
 | Date | Change |
 |------|--------|
 | 2026-04-01 | Initial implementation plan aligned with `DASHBOARD_REDESIGN_AND_DATA_PLAN.md` |
+| 2026-04-05 | Added P1-F (OpenSearch load failure UX); optional sprint row S4b |

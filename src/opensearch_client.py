@@ -7,6 +7,7 @@ performance test data from OpenSearch.
 
 import os
 import logging
+import warnings
 from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
 from opensearchpy import OpenSearch, exceptions
@@ -15,14 +16,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _resolve_results_index() -> str:
+    """Resolve run/results index: prefer OPENSEARCH_INDEX_RESULTS, else legacy OPENSEARCH_INDEX."""
+    return (os.getenv("OPENSEARCH_INDEX_RESULTS") or os.getenv("OPENSEARCH_INDEX") or "").strip()
+
+
+def _resolve_timeseries_index() -> str:
+    """Point-level timeseries index (optional until callers need drill-down)."""
+    return (os.getenv("OPENSEARCH_INDEX_TIMESERIES") or "").strip()
+
+
 class BenchmarkDataSource:
     """Data source connector for OpenSearch benchmark results."""
     
     def __init__(self):
         """Initialize OpenSearch connection using environment variables."""
         load_dotenv()
-        
-        self.index_name = os.getenv('OPENSEARCH_INDEX', '')
+
+        self.results_index = _resolve_results_index()
+        self.timeseries_index = _resolve_timeseries_index()
+        # Backward-compatible alias: same as results index (run documents).
+        self.index_name = self.results_index
         
         # Build OpenSearch client configuration
         host = os.getenv('OPENSEARCH_HOST', 'localhost')
@@ -52,15 +66,22 @@ class BenchmarkDataSource:
             logger.info(f"✓ Connected to OpenSearch cluster: {info['cluster_name']}")
             logger.info(f"  Version: {info['version']['number']}")
             
-            # Check if index exists
-            if self.index_name:
-                if self.client.indices.exists(index=self.index_name):
-                    count = self.client.count(index=self.index_name)
-                    logger.info(f"  Index '{self.index_name}' contains {count['count']} documents")
+            # Results (run) index
+            if self.results_index:
+                if self.client.indices.exists(index=self.results_index):
+                    count = self.client.count(index=self.results_index)
+                    logger.info(f"  Results index '{self.results_index}' contains {count['count']} documents")
                 else:
-                    logger.warning(f"  Index '{self.index_name}' does not exist!")
+                    logger.warning(f"  Results index '{self.results_index}' does not exist!")
             else:
-                logger.warning("  OPENSEARCH_INDEX not configured in .env")
+                logger.warning("  No results index configured (set OPENSEARCH_INDEX or OPENSEARCH_INDEX_RESULTS)")
+
+            if self.timeseries_index:
+                if self.client.indices.exists(index=self.timeseries_index):
+                    tcount = self.client.count(index=self.timeseries_index)
+                    logger.info(f"  Timeseries index '{self.timeseries_index}' contains {tcount['count']} documents")
+                else:
+                    logger.warning(f"  Timeseries index '{self.timeseries_index}' does not exist!")
                 
         except exceptions.ConnectionError as e:
             logger.error(f"✗ Failed to connect to OpenSearch: {e}")
@@ -100,7 +121,7 @@ class BenchmarkDataSource:
         """
         try:
             response = self.client.search(
-                index=self.index_name,
+                index=self.results_index,
                 body={
                     "query": {"match_all": {}},
                     "size": limit
@@ -112,63 +133,137 @@ class BenchmarkDataSource:
             return documents
             
         except exceptions.NotFoundError:
-            logger.error(f"Index '{self.index_name}' not found")
+            logger.error(f"Index '{self.results_index}' not found")
             return []
         except Exception as e:
             logger.error(f"Error fetching sample documents: {e}")
             return []
     
-    def get_all_documents(self, max_docs: int = 10000) -> List[Dict[str, Any]]:
+    def search_results(self, body: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         """
-        Retrieve all documents from the index using scroll API for large datasets.
-        
-        Args:
-            max_docs: Maximum number of documents to retrieve
-            
-        Returns:
-            List of all document sources
+        Run a search against the run/results index only.
+
+        Returns the raw OpenSearch response (including aggregations when requested).
         """
-        try:
-            all_documents = []
-            batch_size = 1000
-            
-            # Initial search with scroll
-            response = self.client.search(
-                index=self.index_name,
-                scroll='2m',
-                size=batch_size,
-                body={"query": {"match_all": {}}}
+        if not self.results_index:
+            raise ValueError(
+                "Results index not configured. Set OPENSEARCH_INDEX or OPENSEARCH_INDEX_RESULTS."
             )
-            
-            scroll_id = response['_scroll_id']
-            hits = response['hits']['hits']
-            all_documents.extend([hit['_source'] for hit in hits])
-            
-            # Continue scrolling until no more results
+        return self.client.search(index=self.results_index, body=body, **kwargs)
+
+    def search_timeseries(self, body: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        """
+        Run a search against the timeseries (point-level) index only.
+
+        Do not use for unbounded bulk loads at app startup.
+        """
+        if not self.timeseries_index:
+            raise ValueError(
+                "Timeseries index not configured. Set OPENSEARCH_INDEX_TIMESERIES."
+            )
+        return self.client.search(index=self.timeseries_index, body=body, **kwargs)
+
+    def fetch_timeseries_for_document(
+        self,
+        document_id: str,
+        *,
+        size: int = 100,
+        document_id_field: str = "metadata.document_id",
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch a bounded batch of timeseries rows for a parent result document_id.
+
+        Args:
+            document_id: Parent run id (metadata.document_id in zathras-results).
+            size: Max hits to return (capped for safety).
+            document_id_field: Field path in timeseries docs linking to the parent (adjust if mapping uses .keyword).
+        """
+        if not self.timeseries_index:
+            raise ValueError(
+                "Timeseries index not configured. Set OPENSEARCH_INDEX_TIMESERIES."
+            )
+        if size < 1:
+            raise ValueError("size must be at least 1")
+        size = min(size, 10000)
+
+        body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {document_id_field: document_id}},
+                    ]
+                }
+            },
+            "size": size,
+        }
+        try:
+            response = self.search_timeseries(body)
+            hits = response.get("hits", {}).get("hits", [])
+            return [hit["_source"] for hit in hits]
+        except exceptions.NotFoundError:
+            logger.error("Timeseries index %r not found", self.timeseries_index)
+            return []
+        except Exception as e:
+            logger.error("Error fetching timeseries for document_id=%s: %s", document_id, e)
+            return []
+
+    def scroll_results(self, max_docs: int = 10000) -> List[Dict[str, Any]]:
+        """
+        Scroll the run/results index up to max_docs documents.
+
+        Never targets the timeseries index. Prefer this over deprecated get_all_documents().
+        """
+        if not self.results_index:
+            logger.error("No results index configured (OPENSEARCH_INDEX or OPENSEARCH_INDEX_RESULTS)")
+            return []
+        try:
+            all_documents: List[Dict[str, Any]] = []
+            batch_size = 1000
+
+            response = self.client.search(
+                index=self.results_index,
+                scroll="2m",
+                size=batch_size,
+                body={"query": {"match_all": {}}},
+            )
+
+            scroll_id = response["_scroll_id"]
+            hits = response["hits"]["hits"]
+            all_documents.extend([hit["_source"] for hit in hits])
+
             while len(hits) > 0 and len(all_documents) < max_docs:
-                response = self.client.scroll(
-                    scroll_id=scroll_id,
-                    scroll='2m'
-                )
-                scroll_id = response['_scroll_id']
-                hits = response['hits']['hits']
-                all_documents.extend([hit['_source'] for hit in hits])
-            
-            # Clean up scroll context
+                response = self.client.scroll(scroll_id=scroll_id, scroll="2m")
+                scroll_id = response["_scroll_id"]
+                hits = response["hits"]["hits"]
+                all_documents.extend([hit["_source"] for hit in hits])
+
             try:
                 self.client.clear_scroll(scroll_id=scroll_id)
             except Exception:
                 pass
-            
-            logger.info(f"Retrieved {len(all_documents)} total documents")
+
+            logger.info(f"Retrieved {len(all_documents)} total documents from results index")
             return all_documents[:max_docs]
-            
+
         except exceptions.NotFoundError:
-            logger.error(f"Index '{self.index_name}' not found")
+            logger.error(f"Index '{self.results_index}' not found")
             return []
         except Exception as e:
-            logger.error(f"Error fetching all documents: {e}")
+            logger.error(f"Error scrolling results index: {e}")
             return []
+
+    def get_all_documents(self, max_docs: int = 10000) -> List[Dict[str, Any]]:
+        """
+        Retrieve documents from the run/results index using scroll.
+
+        Deprecated: use scroll_results(max_docs=...) instead.
+        """
+        warnings.warn(
+            "get_all_documents is deprecated; use scroll_results(max_docs=...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.scroll_results(max_docs=max_docs)
     
     def query_with_filters(
         self,
@@ -212,7 +307,7 @@ class BenchmarkDataSource:
         
         try:
             response = self.client.search(
-                index=self.index_name,
+                index=self.results_index,
                 body=query,
                 size=limit
             )
@@ -242,7 +337,7 @@ class BenchmarkDataSource:
         """
         try:
             response = self.client.search(
-                index=self.index_name,
+                index=self.results_index,
                 body={
                     "size": 0,  # We only want aggregations, not documents
                     "aggs": {

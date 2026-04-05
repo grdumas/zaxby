@@ -53,7 +53,9 @@ Use environment variables for configuration (managed via `.env` file with python
 | `OPENSEARCH_INDEX_RESULTS` | Canonical **run** index name (same grain as `OPENSEARCH_INDEX` in production); used when dual-index routing is implemented | (empty) | `zathras-results` |
 | `OPENSEARCH_INDEX_TIMESERIES` | **Timeseries / point-level** index (large volume; not for bulk load in the browser) | (empty) | `zathras-timeseries` |
 
-**Migration from single-index setups:** If you previously set only `OPENSEARCH_INDEX`, keep that variable pointed at your run/results index (typically `zathras-results`). Add `OPENSEARCH_INDEX_RESULTS` and `OPENSEARCH_INDEX_TIMESERIES` with the values above so configuration matches production; the Python client will read the split indices in a future release (`BenchmarkDataSource` currently uses `OPENSEARCH_INDEX` only).
+**Migration from single-index setups:** If you previously set only `OPENSEARCH_INDEX`, keep that variable pointed at your run/results index (typically `zathras-results`). Add `OPENSEARCH_INDEX_RESULTS` and `OPENSEARCH_INDEX_TIMESERIES` with the values above so configuration matches production.
+
+**Client behavior:** `BenchmarkDataSource` in `src/opensearch_client.py` resolves the run index from `OPENSEARCH_INDEX_RESULTS` or, if unset, `OPENSEARCH_INDEX`. It exposes `search_results()` / `scroll_results()` for that index and `search_timeseries()` / `fetch_timeseries_for_document()` for `OPENSEARCH_INDEX_TIMESERIES` (required for timeseries calls).
 
 ### Two-index model (Zathras production)
 
@@ -66,7 +68,7 @@ Zathras clusters expose at least two relevant indices:
 
 **Query intent (target architecture):** Pulse-style KPIs and aggregations should target **results** (and optional future rollups), not full scans of **timeseries**. Narrow, filtered queries against **timeseries** are for engineer drill-down (e.g. by `metadata.document_id`, time bounds, `timeseries_id`). See [DASHBOARD_REDESIGN_AND_DATA_PLAN.md](DASHBOARD_REDESIGN_AND_DATA_PLAN.md) §4.
 
-The dashboard codebase is evolving toward explicit **index routing** in `src/opensearch_client.py`; until that lands, configure both names in `.env` for clarity and forward compatibility.
+Configure both names in `.env` for production parity; avoid loading the full timeseries index into the app (use bounded `fetch_timeseries_for_document` or narrow `search_timeseries` queries only).
 
 ### Loading Configuration
 
@@ -84,7 +86,6 @@ config = {
     'use_ssl': os.getenv('OPENSEARCH_USE_SSL', 'false').lower() == 'true',
     'verify_certs': os.getenv('OPENSEARCH_VERIFY_CERTS', 'false').lower() == 'true',
     'index': os.getenv('OPENSEARCH_INDEX', ''),
-    # Forward-looking (client routing not yet wired everywhere):
     'index_results': os.getenv('OPENSEARCH_INDEX_RESULTS', '') or os.getenv('OPENSEARCH_INDEX', ''),
     'index_timeseries': os.getenv('OPENSEARCH_INDEX_TIMESERIES', ''),
 }

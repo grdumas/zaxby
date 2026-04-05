@@ -51,7 +51,7 @@ def load_data():
     if DATA_MODE == 'opensearch':
         try:
             client = BenchmarkDataSource()
-            documents = client.get_all_documents(max_docs=5000)
+            documents = client.scroll_results(max_docs=5000)
             print(f"Loaded {len(documents)} documents from OpenSearch")
             return documents
         except Exception as e:

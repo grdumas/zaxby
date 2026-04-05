@@ -1,0 +1,43 @@
+# Planned commits — branch feat/p0-server-aggregation-prototype (P0-C only)
+
+Work packages P0-D (deep links) and P0-E (policy drafts) belong on **separate branches**; do not mix into this branch.
+
+---
+
+## Commit 1 — query_service + tests
+
+```
+feat(p0-c): add query_service for server-side aggregation and pagination contract
+
+- Add ResultsOverviewSnapshot, OpenSearch size=0 aggregation on metadata.cloud_provider.keyword
+- Document MAX_PAGE_SIZE / MAX_SEARCH_HITS and search_after-oriented pagination notes
+- Add unit tests for body builder, response parsing, synthetic DataFrame path, and mocked client
+
+Co-authored-by: Cursor <cursor@cursor.com>
+```
+
+Files: `src/query_service.py`, `tests/test_query_service.py`
+
+---
+
+## Commit 2 — Dash wiring
+
+```
+feat(p0-c): wire results index snapshot card and server-side callback
+
+- Overview card loads snapshot via aggregation (OpenSearch) or groupby (synthetic), not dcc.Store
+- One-shot Interval + Refresh button; surfaces search/connection errors in-place
+
+Co-authored-by: Cursor <cursor@cursor.com>
+```
+
+Files: `app.py`
+
+---
+
+## Follow-up branches (not in this PR)
+
+| Branch (suggested) | Package |
+|--------------------|---------|
+| `feat/p0-opensearch-deep-links` | P0-D: `opensearch_links.py`, env, one UI deep link |
+| `feat/p0-policy-drafts` | P0-E: `COMPARISON_POLICY.md`, `REGRESSION_DETECTION.md`, `docs/README.md` index |

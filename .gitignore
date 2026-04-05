@@ -38,6 +38,7 @@ Thumbs.db
 data/downloaded/
 *.tmp
 
-
+# Local commit / branch planning notes (do not commit)
+draft-commit-messages*.txt
 
 docs/guides/JIRA_BREAKDOWN.md

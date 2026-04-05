@@ -538,9 +538,14 @@ def create_investigation_layout(test_name, baseline_version, comparison_version,
 @app.callback(
     Output("server-snapshot-content", "children"),
     [Input("server-snapshot-init", "n_intervals"), Input("btn-refresh-server-snapshot", "n_clicks")],
+    prevent_initial_call=True,
 )
 def update_server_snapshot(_n_intervals, _n_clicks):
-    """Load bounded snapshot via OpenSearch aggregation or synthetic groupby (not from dcc.Store)."""
+    """Load bounded snapshot via OpenSearch aggregation or synthetic groupby (not from dcc.Store).
+
+    prevent_initial_call avoids doubling work with server-snapshot-init (initial n_intervals=0 plus first tick).
+    First load runs once when the one-shot Interval increments n_intervals; Refresh triggers further loads.
+    """
     try:
         if DATA_MODE == "opensearch":
             client = BenchmarkDataSource()

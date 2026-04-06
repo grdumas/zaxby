@@ -52,6 +52,7 @@ Use environment variables for configuration (managed via `.env` file with python
 | `OPENSEARCH_INDEX` | Index the dashboard queries today (run-level benchmark documents) | (empty) | `zathras-results` |
 | `OPENSEARCH_INDEX_RESULTS` | Canonical **run** index name (same grain as `OPENSEARCH_INDEX` in production); used when dual-index routing is implemented | (empty) | `zathras-results` |
 | `OPENSEARCH_INDEX_TIMESERIES` | **Timeseries / point-level** index (large volume; not for bulk load in the browser) | (empty) | `zathras-timeseries` |
+| `OPENSEARCH_DASHBOARDS_BASE_URL` | Base URL for OpenSearch Dashboards (Discover deep links from the app UI) | (empty) | `https://dashboards.example.com:5601` |
 
 **Migration from single-index setups:** If you previously set only `OPENSEARCH_INDEX`, keep that variable pointed at your run/results index (typically `zathras-results`). Add `OPENSEARCH_INDEX_RESULTS` and `OPENSEARCH_INDEX_TIMESERIES` with the values above so configuration matches production.
 
@@ -69,6 +70,16 @@ Zathras clusters expose at least two relevant indices:
 **Query intent (target architecture):** Pulse-style KPIs and aggregations should target **results** (and optional future rollups), not full scans of **timeseries**. Narrow, filtered queries against **timeseries** are for engineer drill-down (e.g. by `metadata.document_id`, time bounds, `timeseries_id`). See [DASHBOARD_REDESIGN_AND_DATA_PLAN.md](DASHBOARD_REDESIGN_AND_DATA_PLAN.md) §4.
 
 Configure both names in `.env` for production parity; avoid loading the full timeseries index into the app (use bounded `fetch_timeseries_for_document` or narrow `search_timeseries` queries only).
+
+### Discover deep links
+
+When `OPENSEARCH_DASHBOARDS_BASE_URL` is set, the investigation drill-down shows **View in OpenSearch Discover (most recent run)** using `src/opensearch_links.py::opensearch_discover_url_for_document`. The link targets **Discover** with a Kuery filter on `metadata.document_id` and uses the configured results index name (`OPENSEARCH_INDEX_RESULTS` or `OPENSEARCH_INDEX`).
+
+**Operator notes:**
+
+- Use the **Dashboards base URL only** (scheme + host + port), not the full `/app/discover` path.
+- Your **index pattern** in OpenSearch Dashboards must match the linked name (often `zathras-results`). If the pattern title differs from the raw index, align `.env` or create a matching index pattern in Dashboards.
+- Dashboards versions differ slightly in URL state; if a link opens Discover but filters look wrong, copy a working Discover URL from your cluster and compare `_a` / `_g` fragments to adjust `opensearch_links.py` if needed.
 
 ### Loading Configuration
 

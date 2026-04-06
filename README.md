@@ -43,7 +43,8 @@ Required environment variables:
 - `OPENSEARCH_USERNAME`: Authentication username
 - `OPENSEARCH_PASSWORD`: Authentication password
 - `OPENSEARCH_INDEX`: Run/results index the app queries (required; e.g. `zathras-results`)
-- `OPENSEARCH_INDEX_RESULTS`, `OPENSEARCH_INDEX_TIMESERIES`: (Optional) Set both to match production two-index setup — see [connection guide](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md)
+- `OPENSEARCH_INDEX_RESULTS` / `OPENSEARCH_INDEX_TIMESERIES`: Optional until client routing lands — set to match production (`zathras-results`, `zathras-timeseries`); see `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`
+- `OPENSEARCH_DASHBOARDS_BASE_URL`: Optional — OpenSearch Dashboards base URL for “View in Discover” links from the investigation view; see [Discover deep links](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md#discover-deep-links) in the connection guide
 - `DATA_MODE`: Set to 'opensearch' or 'synthetic'
 
 ### 3. Run the Dashboard

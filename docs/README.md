@@ -27,6 +27,12 @@ Essential technical documentation for working with the dashboard:
 - **[IMPLEMENTATION_PLAN.md](guides/IMPLEMENTATION_PLAN.md)**  
   Execution roadmap: Phase 0–3 work packages, exit criteria, file touchpoints, testing strategy — companion to the redesign plan (2026)
 
+- **[COMPARISON_POLICY.md](guides/COMPARISON_POLICY.md)**  
+  Draft: canonical comparison templates (baseline/candidate), Pulse forbidden axes (e.g. no cross–public-cloud comparative deltas), and `validate_comparison_request` contract — Phase 0 P0-E (2026)
+
+- **[REGRESSION_DETECTION.md](guides/REGRESSION_DETECTION.md)**  
+  Draft: regression thresholds, directionality per `test.name`/unit, PASS/UNKNOWN/FAIL handling, alignment with `BenchmarkDataProcessor` — Phase 0 P0-E (2026)
+
 - **[UI_SUMMARY.md](guides/UI_SUMMARY.md)** ⭐ NEW  
   Executive summary of UI modernization proposal - start here! (Dec 2025)
 
@@ -104,7 +110,9 @@ docs/
 ├── README.md                    # This file - documentation index
 ├── guides/                      # Technical guides
 │   ├── OPENSEARCH_CONNECTION_GUIDE.md
-│   └── SCHEMA.md
+│   ├── SCHEMA.md
+│   ├── COMPARISON_POLICY.md
+│   └── REGRESSION_DETECTION.md
 ├── fixes/                       # Bug fix documentation
 │   ├── COLLAPSIBLE_SECTIONS_UPDATE.md
 │   ├── STATUS_BOX_MISLEADING_UX_FIX.md
@@ -148,6 +156,8 @@ Core project documentation remains in the project root for easy access:
 - **Understand the project** → [README.md](../README.md) or [PROJECT_BRIEF.md](../PROJECT_BRIEF.md)
 - **Connect to OpenSearch** → [guides/OPENSEARCH_CONNECTION_GUIDE.md](guides/OPENSEARCH_CONNECTION_GUIDE.md)
 - **Understand the data schema** → [guides/SCHEMA.md](guides/SCHEMA.md)
+- **Comparison templates or Pulse guardrails** → [guides/COMPARISON_POLICY.md](guides/COMPARISON_POLICY.md)
+- **Regression labeling rules** → [guides/REGRESSION_DETECTION.md](guides/REGRESSION_DETECTION.md)
 - **Learn about a specific bug fix** → Check [fixes/](fixes/)
 - **Review historical changes** → Check [archive/](archive/)
 - **See implementation status** → [PROJECT_SUMMARY.md](../PROJECT_SUMMARY.md)

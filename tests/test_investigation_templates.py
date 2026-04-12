@@ -44,6 +44,16 @@ def test_resolve_ui_maps_to_rhel_minor_template():
     assert params["comparison_version"] == "9.5"
 
 
+def test_build_body_omits_optional_filters_when_absent():
+    """Optional metadata filters must not appear when not in normalized params (PR #12)."""
+    _, params = resolve_ui_investigation_to_template(_minimal_ui_params())
+    body = build_zathras_results_search_body("TPL_RHEL_MINOR_SAME_HW", params)
+    filters = body["query"]["bool"]["filter"]
+    assert len(filters) == 2
+    fields = {list(f["term"].keys())[0] for f in filters}
+    assert fields == {FIELD_TEST_NAME, FIELD_OS_DISTRIBUTION}
+
+
 def test_build_body_includes_filters_and_should_clauses():
     _, params = resolve_ui_investigation_to_template(
         _minimal_ui_params(cloud_provider="aws", instance_type="m5.large", scenario_name="rhel_95")

@@ -93,6 +93,12 @@ def test_opensearch_discover_url_requires_document_id():
         opensearch_discover_url_for_document("https://x.com", "idx", "")
 
 
+def test_opensearch_discover_url_document_validates_base_before_document_id():
+    """Stable validation order: missing base is reported before empty document_id."""
+    with pytest.raises(ValueError, match="dashboards_base_url"):
+        opensearch_discover_url_for_document("", "idx", "")
+
+
 def test_opensearch_discover_url_for_timeseries_id_contains_query():
     url = opensearch_discover_url_for_timeseries_id(
         "https://osd.example.com:5601",
@@ -108,3 +114,14 @@ def test_opensearch_discover_url_for_timeseries_id_contains_query():
 def test_opensearch_discover_url_for_timeseries_id_requires_id():
     with pytest.raises(ValueError, match="timeseries_id"):
         opensearch_discover_url_for_timeseries_id("https://x.com", "idx", "")
+
+
+def test_opensearch_discover_url_timeseries_id_escapes_exclamation_in_kuery():
+    url = opensearch_discover_url_for_timeseries_id("https://x.com", "idx", "ts!id")
+    assert "metadata.timeseries_id" in url
+    assert "ts!!id" in url
+
+
+def test_opensearch_discover_url_timeseries_validates_base_before_timeseries_id():
+    with pytest.raises(ValueError, match="dashboards_base_url"):
+        opensearch_discover_url_for_timeseries_id("", "idx", "")

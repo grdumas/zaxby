@@ -54,6 +54,7 @@ def _opensearch_discover_url_for_kuery(
         f"(columns:!(_source),filters:!(),index:'{idx}',interval:auto,"
         f"query:(language:kuery,query:'{kuery_rison}'))"
     )
+    # Wide default window so Discover shows older benchmark data; link overrides Dashboards UI default.
     _g = "(time:(from:now-15y,to:now))"
     return f"{base}/app/discover#/?_g={_g}&_a={_a}"
 
@@ -66,6 +67,9 @@ def opensearch_discover_url_for_document(
     """
     Build a Discover URL that pre-fills a Kuery filter on ``metadata.document_id``.
 
+    Validation order (for stable error messages): ``dashboards_base_url``, ``index_name``,
+    then ``document_id``.
+
     Args:
         dashboards_base_url: e.g. ``https://opensearch.example.com:5601`` (no trailing path).
         index_name: Index or index-pattern id as shown in Discover (often matches ``zathras-results``).
@@ -74,6 +78,10 @@ def opensearch_discover_url_for_document(
     Returns:
         Full URL suitable for ``target="_blank"`` from the dashboard.
     """
+    if not dashboards_base_url or not str(dashboards_base_url).strip():
+        raise ValueError("dashboards_base_url is required")
+    if not index_name or not str(index_name).strip():
+        raise ValueError("index_name is required")
     if document_id is None or str(document_id).strip() == "":
         raise ValueError("document_id is required")
 
@@ -94,7 +102,13 @@ def opensearch_discover_url_for_timeseries_id(
     Use when a point-level ``metadata.timeseries_id`` is known (e.g. from results or alerts).
     If your mapping uses ``metadata.timeseries_id.keyword`` for the term, adjust the Kuery
     string to match your Dashboards field names.
+
+    Validation order matches :func:`opensearch_discover_url_for_document` (base URL, index, id).
     """
+    if not dashboards_base_url or not str(dashboards_base_url).strip():
+        raise ValueError("dashboards_base_url is required")
+    if not index_name or not str(index_name).strip():
+        raise ValueError("index_name is required")
     if timeseries_id is None or str(timeseries_id).strip() == "":
         raise ValueError("timeseries_id is required")
 

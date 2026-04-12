@@ -6,6 +6,7 @@ from src import benchmark_categories as bc
 
 
 def test_category_for_test_name_known():
+    # pyperf: listed in metric_registry for primary metric, not in category JSON — expect Other
     assert bc.category_for_test_name("pyperf") == "Other"
     assert bc.category_for_test_name("uperf") == "Networking"
     assert bc.category_for_test_name("streams") == "HPC/Compute"

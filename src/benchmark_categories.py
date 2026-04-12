@@ -3,6 +3,9 @@ Benchmark category map (Phase 1, P1-C).
 
 Maps ``test.name`` values to high-level categories for grouping, filters, and UI.
 Authoritative list: ``data/benchmark_categories.json`` (category → benchmark name tokens).
+
+Benchmarks not listed there (e.g. ``pyperf``) resolve to ``\"Other\"``; that is intentional
+unless product adds a token for them in the JSON.
 """
 
 from __future__ import annotations

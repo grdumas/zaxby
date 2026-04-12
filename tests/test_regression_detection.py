@@ -9,6 +9,7 @@ from src.regression_detection import (
     STABILITY_BAND_PCT,
     change_category_tri_band,
     filter_dataframe_for_regression_math,
+    is_regression_for_test_name,
     is_regression_higher_is_better,
     is_regression_lower_is_better,
     percent_change,
@@ -62,6 +63,21 @@ def test_constants_align_with_regression_detection_doc():
     assert REGRESSION_THRESHOLD_REL == -5.0
     assert STABILITY_BAND_PCT == 10.0
     assert REGRESSION_THRESHOLD_LATENCY == 5.0
+
+
+def test_is_regression_for_test_name_higher_is_better_default():
+    assert is_regression_for_test_name(-6.0, "streams") is True
+    assert is_regression_for_test_name(-4.0, "streams") is False
+
+
+def test_is_regression_for_test_name_lower_is_better(monkeypatch):
+    monkeypatch.setattr(
+        "src.metric_registry.LOWER_IS_BETTER_TEST_NAMES",
+        frozenset({"latency_probe"}),
+    )
+    assert is_regression_for_test_name(6.0, "latency_probe") is True
+    assert is_regression_for_test_name(-6.0, "latency_probe") is False
+    assert is_regression_for_test_name(4.0, "latency_probe") is False
 
 
 def test_percent_change_zero_baseline_raises():

@@ -17,7 +17,7 @@ from src.regression_detection import (
     REGRESSION_THRESHOLD_REL,
     change_category_tri_band,
     filter_dataframe_for_regression_math,
-    is_regression_higher_is_better,
+    is_regression_for_test_name,
     percent_change,
 )
 
@@ -698,8 +698,10 @@ class BenchmarkDataProcessor:
                         'comparison_mean': comparison_mean,
                         'comparison_count': len(comparison_hw_data),
                         'percent_change': pct_change,
-                        'is_regression': is_regression_higher_is_better(
-                            pct_change, regression_threshold
+                        'is_regression': is_regression_for_test_name(
+                            pct_change,
+                            test,
+                            regression_threshold=regression_threshold,
                         ),
                     })
         
@@ -827,8 +829,10 @@ class BenchmarkDataProcessor:
                         'baseline_mean': baseline_mean,
                         'current_mean': current_mean,
                         'percent_change': pct_change,
-                        'is_regression': is_regression_higher_is_better(
-                            pct_change, regression_threshold
+                        'is_regression': is_regression_for_test_name(
+                            pct_change,
+                            test,
+                            regression_threshold=regression_threshold,
                         ),
                     })
         

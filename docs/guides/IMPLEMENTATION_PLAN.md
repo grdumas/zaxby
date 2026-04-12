@@ -2,9 +2,9 @@
 
 **Status:** Draft — execution roadmap  
 **Umbrella:** [DASHBOARD_REDESIGN_AND_DATA_PLAN.md](DASHBOARD_REDESIGN_AND_DATA_PLAN.md)  
-**Last updated:** 2026-04-05  
+**Last updated:** 2026-04-11  
 
-This document turns the umbrella strategy into **ordered work packages**, **exit criteria**, and **file-level touchpoints**. It does not replace product sign-off on comparison templates or regression thresholds; those live (or will live) in `COMPARISON_POLICY.md` and `REGRESSION_DETECTION.md` once authored.
+This document turns the umbrella strategy into **ordered work packages**, **exit criteria**, and **file-level touchpoints**. Product sign-off on comparison templates and regression thresholds continues to evolve in the draft specs `COMPARISON_POLICY.md` and `REGRESSION_DETECTION.md`.
 
 ---
 
@@ -34,6 +34,8 @@ COMPARISON_POLICY (templates + allowlist)     REGRESSION_DETECTION (spec)
 ---
 
 ## 2. Phase 0 — Platform prerequisites
+
+**Status:** **Complete** (exit criteria in §2.6 satisfied as of 2026-04-11).
 
 **Goal:** Two-index awareness, bounded payloads, policy artifacts started, one vertical slice (deep link) proven.
 
@@ -94,11 +96,11 @@ COMPARISON_POLICY (templates + allowlist)     REGRESSION_DETECTION (spec)
 
 ### 2.6 Phase 0 exit criteria (all must pass)
 
-- [ ] Both indices configurable; client routes queries by intent.
-- [ ] No startup load of full `zathras-timeseries`.
-- [ ] At least one server-driven aggregation or bounded query path in the app (prototype).
-- [ ] At least one working OpenSearch deep link from the UI.
-- [ ] `COMPARISON_POLICY.md` and `REGRESSION_DETECTION.md` exist as **drafts** with enough detail to write tests.
+- [x] Both indices configurable; client routes queries by intent. (`OPENSEARCH_INDEX_RESULTS` / `OPENSEARCH_INDEX_TIMESERIES`, `BenchmarkDataSource.search_results` / `search_timeseries`, docs.)
+- [x] No startup load of full `zathras-timeseries`. (App bootstrap uses `scroll_results` on the results index only; timeseries via bounded helpers.)
+- [x] At least one server-driven aggregation or bounded query path in the app (prototype). (`src/query_service.py` + server snapshot callback in `app.py`.)
+- [x] At least one working OpenSearch deep link from the UI. (Investigation drill-down → Discover for `metadata.document_id`; `src/opensearch_links.py`.)
+- [x] `COMPARISON_POLICY.md` and `REGRESSION_DETECTION.md` exist as **drafts** with enough detail to write tests. (Plus `src/comparison_policy.py` for template/Pulse validation.)
 
 ---
 
@@ -191,3 +193,4 @@ Adjust lengths to team size; **P0 must complete** before treating Phase 1 as com
 |------|--------|
 | 2026-04-01 | Initial implementation plan aligned with `DASHBOARD_REDESIGN_AND_DATA_PLAN.md` |
 | 2026-04-05 | Added P1-F (OpenSearch load failure UX); optional sprint row S4b |
+| 2026-04-11 | Phase 0 exit criteria (§2.6) marked complete; pointers to implementing modules |

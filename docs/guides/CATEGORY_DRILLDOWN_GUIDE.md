@@ -37,6 +37,8 @@ Click the **"Full Details"** button to open a comprehensive modal with three tab
 
 ## Technical Implementation
 
+Category names and benchmark tokens are defined in **`data/benchmark_categories.json`** and loaded via **`src/benchmark_categories.py`** (Phase 1, P1-C). Edit the JSON to add benchmarks or adjust groupings; restart the app to pick up changes.
+
 ### New Components Added
 
 #### Layout (`app.py`)

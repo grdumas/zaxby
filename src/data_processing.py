@@ -12,6 +12,7 @@ import logging
 import math
 
 from src.metric_registry import fallback_keys_for_test
+from src.benchmark_categories import category_for_test_name
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,14 +20,6 @@ logger = logging.getLogger(__name__)
 
 class BenchmarkDataProcessor:
     """Process and transform benchmark results for visualization."""
-    
-    # Benchmark categorization for grouping
-    BENCHMARK_GROUPS = {
-        'Networking': ['uperf'],
-        'Storage/IO': ['fio'],
-        'HPC/Compute': ['streams', 'specjbb', 'auto_hpl'],
-        'System': ['sysbench', 'coremark_pro', 'pig', 'coremark', 'phoronix', 'passmark']
-    }
     
     def __init__(self):
         """Initialize the data processor."""
@@ -84,14 +77,7 @@ class BenchmarkDataProcessor:
         Returns:
             Category name or 'Other'
         """
-        if not test_name:
-            return 'Other'
-        
-        test_lower = test_name.lower()
-        for category, tests in self.BENCHMARK_GROUPS.items():
-            if any(test.lower() in test_lower or test_lower in test.lower() for test in tests):
-                return category
-        return 'Other'
+        return category_for_test_name(test_name)
     
     def add_benchmark_categories(self, df: pd.DataFrame) -> pd.DataFrame:
         """

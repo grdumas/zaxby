@@ -1,0 +1,6 @@
+{
+  "Networking": ["uperf"],
+  "Storage/IO": ["fio"],
+  "HPC/Compute": ["streams", "specjbb", "auto_hpl"],
+  "System": ["sysbench", "coremark_pro", "pig", "coremark", "phoronix", "passmark"]
+}

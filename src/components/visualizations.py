@@ -9,6 +9,8 @@ import plotly.express as px
 import pandas as pd
 from typing import Optional, List
 
+from src.benchmark_categories import benchmark_groups
+
 
 def create_comparison_chart(
     df: pd.DataFrame,
@@ -913,15 +915,8 @@ def create_peer_os_comparison_chart(
     if comparison_df.empty:
         return create_empty_figure("No peer comparison data available")
     
-    # Benchmark category to benchmarks mapping (for hover tooltips)
-    # This should match BENCHMARK_GROUPS in data_processing.py
-    BENCHMARK_GROUPS = {
-        'Networking': ['uperf'],
-        'Storage/IO': ['fio'],
-        'HPC/Compute': ['streams', 'specjbb', 'auto_hpl'],
-        'System': ['sysbench', 'coremark_pro', 'pig', 'coremark', 'phoronix', 'passmark']
-    }
-    
+    BENCHMARK_GROUPS = benchmark_groups()
+
     # Group by benchmark category
     fig = go.Figure()
     

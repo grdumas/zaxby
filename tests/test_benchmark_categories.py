@@ -35,3 +35,12 @@ def test_reset_cache_for_tests_reloads_same_data():
     g2 = bc.benchmark_groups()
     assert g1 == g2
     assert "Networking" in g2
+
+
+def test_benchmark_groups_returns_independent_copies():
+    g1 = bc.benchmark_groups()
+    g2 = bc.benchmark_groups()
+    assert g1 is not g2
+    assert g1["Networking"] is not g2["Networking"]
+    g1["Networking"].append("__mutation_probe__")
+    assert "__mutation_probe__" not in bc.benchmark_groups()["Networking"]

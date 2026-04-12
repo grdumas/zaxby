@@ -38,11 +38,16 @@ def _load_groups() -> Dict[str, List[str]]:
 
 
 def benchmark_groups() -> Dict[str, List[str]]:
-    """Return category → list of ``test.name`` tokens (order preserved). Cached after first load."""
+    """
+    Return category → list of ``test.name`` tokens (order preserved).
+
+    Data is loaded once and cached internally; each call returns a **new** dict and
+    copied lists so callers cannot mutate the shared cache.
+    """
     global _benchmark_groups_cache
     if _benchmark_groups_cache is None:
         _benchmark_groups_cache = _load_groups()
-    return _benchmark_groups_cache
+    return {k: list(v) for k, v in _benchmark_groups_cache.items()}
 
 
 def category_for_test_name(test_name: Optional[str]) -> str:

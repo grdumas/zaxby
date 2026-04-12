@@ -66,15 +66,15 @@ raw_documents, OPENSEARCH_LOAD_ERROR, SYNTHETIC_AFTER_OPENSEARCH_FAILURE = (
         max_opensearch_docs=5000,
     )
 )
-if DATA_MODE == "opensearch" and not OPENSEARCH_LOAD_ERROR:
+if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is None:
     print(f"Loaded {len(raw_documents)} documents from OpenSearch")
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
     print(
         "OpenSearch load failed; loaded synthetic data per "
         "ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"
     )
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR:
-    print(f"OpenSearch load failed: {OPENSEARCH_LOAD_ERROR}")
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+    print(f"OpenSearch load failed: {OPENSEARCH_LOAD_ERROR or '(no message)'}")
 df = processor.documents_to_dataframe(raw_documents)
 print(f"Processed {len(df)} records")
 
@@ -90,7 +90,7 @@ max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-
 if SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
     MODE_BADGE_LABEL = "SYNTHETIC (after OpenSearch failure — env opt-in)"
     MODE_BADGE_COLOR = "warning"
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR:
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
     MODE_BADGE_LABEL = "OPENSEARCH (load failed — no data)"
     MODE_BADGE_COLOR = "danger"
 else:
@@ -106,7 +106,7 @@ if len(df) > 0:
 
 # App Layout
 _opensearch_banners: list = []
-if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
     _opensearch_banners.append(
         dbc.Alert(
             [
@@ -120,7 +120,7 @@ if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR and SYNTHETIC_AFTER_OPENS
             className="mb-3",
         )
     )
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR:
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
     _opensearch_banners.append(
         dbc.Alert(
             [
@@ -2120,10 +2120,13 @@ if __name__ == '__main__':
     print("RHEL Multi Arch Performance Engineering Dashboard (Redesigned)")
     print("="*60)
     print(f"Data Mode: {DATA_MODE.upper()}")
-    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR and not SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
-        print(f"OpenSearch load failed (synthetic not loaded): {OPENSEARCH_LOAD_ERROR}")
-    elif SYNTHETIC_AFTER_OPENSEARCH_FAILURE and OPENSEARCH_LOAD_ERROR:
-        print(f"Synthetic loaded after OpenSearch failure (env opt-in). Error was: {OPENSEARCH_LOAD_ERROR}")
+    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and not SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+        print(f"OpenSearch load failed (synthetic not loaded): {OPENSEARCH_LOAD_ERROR or '(no message)'}")
+    elif SYNTHETIC_AFTER_OPENSEARCH_FAILURE and OPENSEARCH_LOAD_ERROR is not None:
+        print(
+            "Synthetic loaded after OpenSearch failure (env opt-in). Error was: "
+            f"{OPENSEARCH_LOAD_ERROR or '(no message)'}"
+        )
     print(f"Records Loaded: {len(df)}")
     print(f"Server: http://127.0.0.1:{port}")
     print(f"Debug Mode: {debug}")

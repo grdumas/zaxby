@@ -38,7 +38,9 @@ def load_initial_benchmark_documents(
         Raw benchmark dicts for :meth:`BenchmarkDataProcessor.documents_to_dataframe`.
     opensearch_error
         ``None`` on success or when not in OpenSearch mode. On OpenSearch failure,
-        the exception message (also returned when synthetic fallback is used).
+        ``str(exc)`` (also when synthetic fallback is used). This may be an empty
+        string for message-less exceptions — detect failure with ``is not None``,
+        not truthiness.
     synthetic_after_failure
         True only when OpenSearch failed but synthetic data was loaded due to
         ``use_synthetic_after_opensearch_failure``.

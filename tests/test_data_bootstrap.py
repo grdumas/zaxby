@@ -37,6 +37,19 @@ def test_opensearch_failure_returns_empty_without_opt_in():
     assert syn_after is False
 
 
+def test_opensearch_failure_empty_exception_message_still_returns_error_sentinel():
+    """str(exc) can be '' — callers must use `err is not None`, not truthiness."""
+    with patch("src.opensearch_client.BenchmarkDataSource", side_effect=ConnectionError()):
+        docs, err, syn_after = load_initial_benchmark_documents(
+            "opensearch",
+            use_synthetic_after_opensearch_failure=False,
+        )
+    assert docs == []
+    assert err == ""
+    assert err is not None
+    assert syn_after is False
+
+
 def test_opensearch_failure_loads_synthetic_when_opt_in():
     synthetic = [{"metadata": {"document_id": "s1"}}]
     with patch("src.opensearch_client.BenchmarkDataSource", side_effect=RuntimeError("boom")):

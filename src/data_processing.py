@@ -14,9 +14,10 @@ import math
 from src.metric_registry import fallback_keys_for_test
 from src.benchmark_categories import category_for_test_name
 from src.regression_detection import (
+    REGRESSION_THRESHOLD_REL,
     change_category_tri_band,
     is_regression_higher_is_better,
-    percent_change as primary_metric_percent_change,
+    percent_change,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -302,10 +303,13 @@ class BenchmarkDataProcessor:
         result = baseline_agg.merge(comparison_agg, on=group_by, how='outer')
         
         result['delta'] = result['comparison_mean'] - result['baseline_mean']
+        # Vectorized §1.2 formula (same as regression_detection.percent_change per row).
         result['percent_change'] = (
             (result['comparison_mean'] - result['baseline_mean']) /
             result['baseline_mean'] * 100
         )
+        # Tri-band labels use STABILITY_BAND_PCT (±10%); programmatic is_regression uses
+        # REGRESSION_THRESHOLD_REL (-5%) — see change_category_tri_band docstring.
         result['change_category'] = result['percent_change'].apply(change_category_tri_band)
         
         return result
@@ -500,7 +504,7 @@ class BenchmarkDataProcessor:
     def analyze_rhel_simplified_regressions(
         self,
         df: pd.DataFrame,
-        regression_threshold: float = -5.0
+        regression_threshold: float = REGRESSION_THRESHOLD_REL,
     ) -> Dict[str, Any]:
         """
         Simplified RHEL regression analysis with three specific comparisons:
@@ -672,7 +676,7 @@ class BenchmarkDataProcessor:
                         continue
                     if baseline_mean == 0:
                         continue
-                    pct_change = primary_metric_percent_change(
+                    pct_change = percent_change(
                         float(baseline_mean), float(comparison_mean)
                     )
                     
@@ -739,7 +743,7 @@ class BenchmarkDataProcessor:
         df: pd.DataFrame,
         os_distribution: str = 'rhel',
         os_versions: Optional[List[str]] = None,
-        regression_threshold: float = -5.0
+        regression_threshold: float = REGRESSION_THRESHOLD_REL,
     ) -> Dict[str, Any]:
         """
         Analyze performance regressions across OS versions within a single OS distribution.
@@ -802,7 +806,7 @@ class BenchmarkDataProcessor:
                 if len(baseline_data) > 0 and len(current_data) > 0:
                     baseline_mean = baseline_data.mean()
                     current_mean = current_data.mean()
-                    pct_change = primary_metric_percent_change(
+                    pct_change = percent_change(
                         float(baseline_mean), float(current_mean)
                     )
                     

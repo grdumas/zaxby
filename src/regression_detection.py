@@ -11,6 +11,8 @@ from __future__ import annotations
 # Draft defaults — see REGRESSION_DETECTION.md §2
 REGRESSION_THRESHOLD_REL: float = -5.0
 STABILITY_BAND_PCT: float = 10.0
+# Lower-is-better metrics (e.g. latency): regression when pct_change exceeds +T (§3.2)
+REGRESSION_THRESHOLD_LATENCY: float = 5.0
 
 
 def percent_change(baseline_mean: float, comparison_mean: float) -> float:
@@ -38,7 +40,7 @@ def is_regression_higher_is_better(
 
 def is_regression_lower_is_better(
     pct_change: float,
-    regression_threshold_positive: float = 5.0,
+    regression_threshold_positive: float = REGRESSION_THRESHOLD_LATENCY,
 ) -> bool:
     """
     Latency / duration style metrics: regression when the metric got worse (higher).
@@ -57,6 +59,12 @@ def change_category_tri_band(
     Labels used by :meth:`BenchmarkDataProcessor.calculate_comparison` (§2.2).
 
     Outside ``±band_pct`` → Regression or Improvement; otherwise Stable.
+
+    **Policy:** With defaults, this uses ``±STABILITY_BAND_PCT`` (±10%) for display
+    categories. Programmatic ``is_regression`` flags elsewhere use
+    ``REGRESSION_THRESHOLD_REL`` (-5%). The wider band is intentional: UI "Regression"
+    / "Improvement" is more conservative than the -5% regression detector — do not
+    unify them without product sign-off (see REGRESSION_DETECTION.md §2).
     """
     if pct_change < -band_pct:
         return "Regression"

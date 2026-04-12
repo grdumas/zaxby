@@ -9,8 +9,8 @@ import pandas as pd
 
 from src.regression_detection import (
     REGRESSION_THRESHOLD_REL,
-    STABILITY_BAND_PCT,
-    is_regression_higher_is_better,
+    is_improvement_for_test_name,
+    is_regression_for_test_name,
     percent_change,
 )
 
@@ -147,10 +147,15 @@ def summarize_investigation_details(
         summary['percent_change'] = percent_change(
             summary['baseline_mean'], summary['comparison_mean']
         )
-        summary['is_regression'] = is_regression_higher_is_better(
-            summary['percent_change'], REGRESSION_THRESHOLD_REL
+        summary['is_regression'] = is_regression_for_test_name(
+            summary['percent_change'],
+            test_name,
+            regression_threshold=REGRESSION_THRESHOLD_REL,
         )
-        summary['is_improvement'] = summary['percent_change'] > STABILITY_BAND_PCT
+        summary['is_improvement'] = is_improvement_for_test_name(
+            summary['percent_change'],
+            test_name,
+        )
         
         if summary['is_regression']:
             summary['status'] = 'danger'

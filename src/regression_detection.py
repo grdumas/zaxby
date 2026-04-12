@@ -1,9 +1,10 @@
 """
 Regression detection helpers (Phase 1, P1-D).
 
-Implements the percent-change formula, default thresholds, tri-band labels, and
-status filtering described in ``docs/guides/REGRESSION_DETECTION.md`` §1.2–§4.
-Centralizing this logic keeps processor paths and tests aligned with the spec.
+Implements the percent-change formula, default thresholds, tri-band labels,
+status filtering, and per-``test.name`` directionality described in
+``docs/guides/REGRESSION_DETECTION.md`` §1.2–§4. Centralizing this logic keeps
+processor paths and tests aligned with the spec.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import logging
 from typing import Optional
 
 import pandas as pd
+
+from src.metric_registry import higher_is_better_for_test
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,41 @@ def is_regression_lower_is_better(
     regression when that exceeds ``+T`` (§3.2).
     """
     return pct_change > regression_threshold_positive
+
+
+def is_regression_for_test_name(
+    pct_change: float,
+    test_name: Optional[str],
+    *,
+    regression_threshold: float = REGRESSION_THRESHOLD_REL,
+    regression_threshold_latency: float = REGRESSION_THRESHOLD_LATENCY,
+) -> bool:
+    """
+    Whether ``pct_change`` counts as a regression for this ``test.name`` (§3).
+
+    Uses :func:`higher_is_better_for_test` from ``metric_registry`` to choose
+    between :func:`is_regression_higher_is_better` and :func:`is_regression_lower_is_better`.
+    """
+    if higher_is_better_for_test(test_name):
+        return is_regression_higher_is_better(pct_change, regression_threshold)
+    return is_regression_lower_is_better(pct_change, regression_threshold_latency)
+
+
+def is_improvement_for_test_name(
+    pct_change: float,
+    test_name: Optional[str],
+    *,
+    band_pct: float = STABILITY_BAND_PCT,
+) -> bool:
+    """
+    Tri-band "Improvement" side, aligned with :func:`change_category_tri_band` (§2.2).
+
+    Higher-is-better: improvement when ``pct_change > band_pct``.
+    Lower-is-better (e.g. latency): improvement when ``pct_change < -band_pct`` (metric dropped enough).
+    """
+    if higher_is_better_for_test(test_name):
+        return pct_change > band_pct
+    return pct_change < -band_pct
 
 
 def change_category_tri_band(

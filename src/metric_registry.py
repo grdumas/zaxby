@@ -5,12 +5,16 @@ When ``results.primary_metric.value`` is missing, :meth:`BenchmarkDataProcessor.
 in ``data_processing`` looks up metric keys in ``results.runs[*].metrics`` using this registry,
 keyed by lowercase ``test.name`` from OpenSearch documents.
 
-See :doc:`docs/guides/REGRESSION_DETECTION.md` §1.1 and companion appendix.
+See :doc:`docs/guides/REGRESSION_DETECTION.md` §1.1, §3, and companion appendix.
 """
 
 from __future__ import annotations
 
 from typing import Dict, List, Optional
+
+# ``test.name`` values (lowercase) whose primary metric is lower-is-better (e.g. latency).
+# Empty by default; add product-confirmed names here. See REGRESSION_DETECTION.md §3.2.
+LOWER_IS_BETTER_TEST_NAMES: frozenset[str] = frozenset()
 
 # Keys are lowercase ``test.name`` values; values are preferred order of run metric keys.
 PRIMARY_METRIC_FALLBACK_KEYS: Dict[str, List[str]] = {
@@ -44,3 +48,16 @@ def fallback_keys_for_test(test_name: Optional[str]) -> List[str]:
 def registered_test_names() -> frozenset[str]:
     """Frozen set of ``test.name`` keys present in :data:`PRIMARY_METRIC_FALLBACK_KEYS`."""
     return frozenset(PRIMARY_METRIC_FALLBACK_KEYS.keys())
+
+
+def higher_is_better_for_test(test_name: Optional[str]) -> bool:
+    """
+    Whether a larger ``primary_metric_value`` is better for this ``test.name``.
+
+    Default is ``True`` (throughput / score). Tests listed in
+    :data:`LOWER_IS_BETTER_TEST_NAMES` return ``False`` (e.g. latency).
+    """
+    tn = (test_name or "").lower().strip()
+    if not tn:
+        return True
+    return tn not in LOWER_IS_BETTER_TEST_NAMES

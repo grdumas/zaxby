@@ -11,24 +11,10 @@ from datetime import datetime
 import logging
 import math
 
+from src.metric_registry import PRIMARY_METRIC_FALLBACK_KEYS
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# When results.primary_metric.value is missing, try these keys in results.runs.*.metrics
-# (Zathras often omits primary_metric but still ships run metrics.)
-_PRIMARY_METRIC_FALLBACK_KEYS: Dict[str, List[str]] = {
-    "coremark": ["iterations_per_second", "score"],
-    "coremark_pro": ["multicore_score", "SUMM_CPU"],
-    "streams": ["triad__mb_per_sec", "triad_mb_per_sec", "add__mb_per_sec"],
-    "auto_hpl": ["gflops"],
-    "specjbb": ["MULTICORE_THROUGHPUT"],
-    "sysbench": ["events_per_second", "total_events"],
-    "fio": ["read_iops", "write_iops", "read_bw", "write_bw"],
-    "uperf": ["throughput_gbps", "throughput_mb_per_sec"],
-    "passmark": ["cpu_mark", "mark"],
-    "phoronix": ["result", "value"],
-    "pyperf": ["mean"],
-}
 
 
 class BenchmarkDataProcessor:
@@ -77,8 +63,8 @@ class BenchmarkDataProcessor:
 
         tn = (test_name or "").lower().strip()
         keys_to_try: List[str] = []
-        if tn in _PRIMARY_METRIC_FALLBACK_KEYS:
-            keys_to_try.extend(_PRIMARY_METRIC_FALLBACK_KEYS[tn])
+        if tn in PRIMARY_METRIC_FALLBACK_KEYS:
+            keys_to_try.extend(PRIMARY_METRIC_FALLBACK_KEYS[tn])
         for key in keys_to_try:
             if key in run_0_metrics:
                 v = run_0_metrics[key]

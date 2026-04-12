@@ -79,8 +79,9 @@ def _pulse_violations_for_public_cloud_axes(params: Mapping[str, object]) -> lis
     Recognized optional keys:
     - ``baseline_cloud_provider`` / ``candidate_cloud_provider``: both public and
       different → violation.
-    - ``cloud_providers``: sequence; if it contains more than one distinct public
-      cloud → violation (comparative rollup across providers).
+    - ``cloud_providers``: iterable of strings; must be ``list``, ``tuple``,
+      ``set``, or ``frozenset`` (other types are ignored). More than one distinct
+      recognized public cloud → violation (comparative rollup across providers).
     """
     errors: list[str] = []
     b = _canonical_public_cloud_slug(params.get("baseline_cloud_provider"))
@@ -92,7 +93,7 @@ def _pulse_violations_for_public_cloud_axes(params: Mapping[str, object]) -> lis
         )
 
     raw = params.get("cloud_providers")
-    if isinstance(raw, (list, tuple)):
+    if isinstance(raw, (list, tuple, set, frozenset)):
         seen: set[str] = set()
         for item in raw:
             slug = _canonical_public_cloud_slug(item)
@@ -119,8 +120,9 @@ def validate_comparison_request(
         template_id: Must match a row in COMPARISON_POLICY.md §5.
         params: Optional request parameters. For ``mode='pulse'``, values that
             imply cross–public-cloud comparative cohorts are rejected; see
-            COMPARISON_POLICY.md §3.1 (keys such as ``baseline_cloud_provider`` /
-            ``candidate_cloud_provider`` / ``cloud_providers``).
+            COMPARISON_POLICY.md §3.1. Supported keys include ``baseline_cloud_provider``,
+            ``candidate_cloud_provider``, and ``cloud_providers`` (the latter as
+            ``list``, ``tuple``, ``set``, or ``frozenset`` of provider slugs).
         mode: ``pulse`` rejects templates not marked Pulse-allowed in the policy doc
             and enforces §3 forbidden axes on ``params``.
 
@@ -149,6 +151,8 @@ def validate_comparison_request(
                 f"(see docs/guides/COMPARISON_POLICY.md §5)"
             )
         else:
+            # Template is Pulse-allowed; enforce §3 forbidden axes on params. (We do not
+            # run this when the template is already Pulse-rejected — avoid piling on errors.)
             errors.extend(_pulse_violations_for_public_cloud_axes(params or {}))
 
     return ValidationResult(ok=len(errors) == 0, errors=tuple(errors))

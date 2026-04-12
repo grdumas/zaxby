@@ -5,7 +5,9 @@ import pytest
 from src.opensearch_links import (
     _rison_escape_for_single_quoted_string,
     opensearch_discover_url_for_document,
+    opensearch_discover_url_for_timeseries_id,
     results_index_name,
+    timeseries_index_name,
 )
 
 
@@ -19,6 +21,16 @@ def test_results_index_name_falls_back_to_legacy_index(monkeypatch):
     monkeypatch.delenv("OPENSEARCH_INDEX_RESULTS", raising=False)
     monkeypatch.setenv("OPENSEARCH_INDEX", "legacy-only")
     assert results_index_name() == "legacy-only"
+
+
+def test_timeseries_index_name_from_env(monkeypatch):
+    monkeypatch.setenv("OPENSEARCH_INDEX_TIMESERIES", "zathras-timeseries")
+    assert timeseries_index_name() == "zathras-timeseries"
+
+
+def test_timeseries_index_name_empty_when_unset(monkeypatch):
+    monkeypatch.delenv("OPENSEARCH_INDEX_TIMESERIES", raising=False)
+    assert timeseries_index_name() == ""
 
 
 def test_opensearch_discover_url_for_document_contains_index_and_query():
@@ -79,3 +91,37 @@ def test_opensearch_discover_url_requires_index():
 def test_opensearch_discover_url_requires_document_id():
     with pytest.raises(ValueError, match="document_id"):
         opensearch_discover_url_for_document("https://x.com", "idx", "")
+
+
+def test_opensearch_discover_url_document_validates_base_before_document_id():
+    """Stable validation order: missing base is reported before empty document_id."""
+    with pytest.raises(ValueError, match="dashboards_base_url"):
+        opensearch_discover_url_for_document("", "idx", "")
+
+
+def test_opensearch_discover_url_for_timeseries_id_contains_query():
+    url = opensearch_discover_url_for_timeseries_id(
+        "https://osd.example.com:5601",
+        "zathras-timeseries",
+        "ts-uuid-123",
+    )
+    assert url.startswith("https://osd.example.com:5601/app/discover#/?")
+    assert "zathras-timeseries" in url
+    assert "metadata.timeseries_id" in url
+    assert "ts-uuid-123" in url
+
+
+def test_opensearch_discover_url_for_timeseries_id_requires_id():
+    with pytest.raises(ValueError, match="timeseries_id"):
+        opensearch_discover_url_for_timeseries_id("https://x.com", "idx", "")
+
+
+def test_opensearch_discover_url_timeseries_id_escapes_exclamation_in_kuery():
+    url = opensearch_discover_url_for_timeseries_id("https://x.com", "idx", "ts!id")
+    assert "metadata.timeseries_id" in url
+    assert "ts!!id" in url
+
+
+def test_opensearch_discover_url_timeseries_validates_base_before_timeseries_id():
+    with pytest.raises(ValueError, match="dashboards_base_url"):
+        opensearch_discover_url_for_timeseries_id("", "idx", "")

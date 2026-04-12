@@ -75,6 +75,8 @@ Configure both names in `.env` for production parity; avoid loading the full tim
 
 When `OPENSEARCH_DASHBOARDS_BASE_URL` is set, the investigation drill-down shows **View in OpenSearch Discover (most recent run)** using `src/opensearch_links.py::opensearch_discover_url_for_document`. The link targets **Discover** with a Kuery filter on `metadata.document_id` and uses the configured results index name (`OPENSEARCH_INDEX_RESULTS` or `OPENSEARCH_INDEX`).
 
+For **point-level** rows in `zathras-timeseries`, the same module provides `opensearch_discover_url_for_timeseries_id` (Kuery on `metadata.timeseries_id`) and `timeseries_index_name()` (reads `OPENSEARCH_INDEX_TIMESERIES`). Wire these when the UI surfaces a `timeseries_id`; index pattern must match your timeseries index name in Dashboards.
+
 **Operator notes:**
 
 - Use the **Dashboards base URL only** (scheme + host + port), not the full `/app/discover` path.

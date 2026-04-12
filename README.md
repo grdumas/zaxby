@@ -86,6 +86,7 @@ performance-dashboard/
 │   ├── opensearch_client.py    # OpenSearch connection
 │   ├── data_bootstrap.py       # Startup load (OpenSearch vs synthetic; P1-F failure UX)
 │   ├── data_processing.py      # Data transformation
+│   ├── metric_registry.py      # Primary metric fallbacks per test.name (P1-E)
 │   ├── synthetic_data.py       # Synthetic data generator
 │   └── components/
 │       ├── filters.py          # Filter components

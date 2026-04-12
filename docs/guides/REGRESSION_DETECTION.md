@@ -15,7 +15,7 @@ The processor flattens OpenSearch documents into a DataFrame and resolves a scal
 
 ### 1.1 Primary metric resolution
 
-`_resolve_primary_metric()` chooses a numeric value in order: `results.primary_metric.value`, then lookup by `primary_metric.name` in `results.runs[*].metrics`, then test-specific keys from `_PRIMARY_METRIC_FALLBACK_KEYS` (e.g. `pyperf` → `mean`, `streams` → triad throughput keys). See:
+`_resolve_primary_metric()` chooses a numeric value in order: `results.primary_metric.value`, then lookup by `primary_metric.name` in `results.runs[*].metrics`, then test-specific keys from `PRIMARY_METRIC_FALLBACK_KEYS` in `src/metric_registry.py` (Phase 1, P1-E; e.g. `pyperf` → `mean`, `streams` → triad throughput keys). See:
 
 ```49:91:src/data_processing.py
     def _resolve_primary_metric(
@@ -28,6 +28,26 @@ The processor flattens OpenSearch documents into a DataFrame and resolves a scal
 ```
 
 If resolution fails, `primary_metric_value` may be **null**; regression math must define behavior (§5).
+
+#### 1.1.1 Canonical `test.name` → run-metric keys
+
+Authoritative data structure: `PRIMARY_METRIC_FALLBACK_KEYS` in `src/metric_registry.py`. Helper: `fallback_keys_for_test(test_name)`. Summary:
+
+| test.name | Run metric keys (order tried in `results.runs[*].metrics`) |
+|-----------|------------------------------------------------------------|
+| `coremark` | `iterations_per_second`, `score` |
+| `coremark_pro` | `multicore_score`, `SUMM_CPU` |
+| `streams` | `triad__mb_per_sec`, `triad_mb_per_sec`, `add__mb_per_sec` |
+| `auto_hpl` | `gflops` |
+| `specjbb` | `MULTICORE_THROUGHPUT` |
+| `sysbench` | `events_per_second`, `total_events` |
+| `fio` | `read_iops`, `write_iops`, `read_bw`, `write_bw` |
+| `uperf` | `throughput_gbps`, `throughput_mb_per_sec` |
+| `passmark` | `cpu_mark`, `mark` |
+| `phoronix` | `result`, `value` |
+| `pyperf` | `mean` |
+
+Benchmarks not listed rely on `primary_metric` / run metrics only (no test-specific fallback list).
 
 ### 1.2 Percent change (current implementation)
 
@@ -144,3 +164,4 @@ Implementations should log counts of excluded rows per cohort when status filter
 | Date | Change |
 |------|--------|
 | 2026-04-06 | Initial draft: thresholds, directionality table, status handling, tie-in to `BenchmarkDataProcessor` |
+| 2026-04-12 | P1-E: primary metric registry in `src/metric_registry.py`; §1.1.1 table |

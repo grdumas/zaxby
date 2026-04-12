@@ -154,3 +154,44 @@ def test_pulse_cloud_providers_non_public_values_do_not_trigger_multi_cloud_erro
         mode="pulse",
     )
     assert r.ok is True
+
+
+def test_pulse_rejects_cross_cloud_uppercase_provider_names():
+    """_canonical_public_cloud_slug lowercases; cross-cloud still rejected."""
+    r = validate_comparison_request(
+        "TPL_RHEL_MINOR_SAME_HW",
+        {"baseline_cloud_provider": "AWS", "candidate_cloud_provider": "Azure"},
+        mode="pulse",
+    )
+    assert r.ok is False
+    assert any("baseline vs candidate" in e.lower() for e in r.errors)
+
+
+def test_pulse_allows_cloud_providers_mixed_public_and_non_public():
+    """Only distinct recognized public clouds count — one hyperscaler + on-prem is ok."""
+    r = validate_comparison_request(
+        "TPL_CATEGORY_ROLLUP",
+        {"cloud_providers": ["aws", "on-prem"]},
+        mode="pulse",
+    )
+    assert r.ok is True
+
+
+def test_pulse_allows_baseline_public_cloud_without_candidate():
+    """Both sides must be recognized public clouds before baseline vs candidate fires."""
+    r = validate_comparison_request(
+        "TPL_RHEL_MINOR_SAME_HW",
+        {"baseline_cloud_provider": "aws"},
+        mode="pulse",
+    )
+    assert r.ok is True
+
+
+def test_pulse_rejects_multi_public_cloud_in_cloud_providers_set():
+    r = validate_comparison_request(
+        "TPL_CATEGORY_ROLLUP",
+        {"cloud_providers": {"aws", "azure"}},
+        mode="pulse",
+    )
+    assert r.ok is False
+    assert any("multiple public" in e.lower() for e in r.errors)

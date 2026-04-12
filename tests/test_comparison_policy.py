@@ -21,6 +21,12 @@ def test_empty_template_id_rejected():
     assert "required" in r.errors[0].lower()
 
 
+def test_whitespace_only_template_id_rejected():
+    r = validate_comparison_request("   ", {})
+    assert r.ok is False
+    assert "required" in r.errors[0].lower()
+
+
 def test_unknown_template_rejected():
     r = validate_comparison_request("TPL_NOT_REAL", {}, mode="investigate")
     assert r.ok is False
@@ -51,6 +57,24 @@ def test_pulse_rejects_peer_os():
 def test_pulse_rejects_iteration_repeatability():
     r = validate_comparison_request("TPL_ITERATION_REPEATABILITY", {}, mode="pulse")
     assert r.ok is False
+
+
+@pytest.mark.parametrize(
+    "bad_mode",
+    ["Pulse", "PULSE", "investigate ", "pulse ", "foo", ""],
+)
+def test_invalid_mode_raises_value_error(bad_mode):
+    with pytest.raises(ValueError, match="mode must be"):
+        validate_comparison_request("TPL_RHEL_MINOR_SAME_HW", {}, mode=bad_mode)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "tid",
+    sorted(VALID_TEMPLATE_IDS - PULSE_ALLOWED_TEMPLATE_IDS),
+)
+def test_pulse_rejects_all_non_pulse_allowed_templates(tid):
+    r = validate_comparison_request(tid, {}, mode="pulse")
+    assert r.ok is False, tid
 
 
 def test_valid_template_ids_count_matches_policy():

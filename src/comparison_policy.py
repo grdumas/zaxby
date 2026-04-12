@@ -12,6 +12,8 @@ from typing import FrozenSet, Literal, Mapping, Optional
 
 Mode = Literal["pulse", "investigate"]
 
+_VALID_MODES: frozenset[str] = frozenset(("pulse", "investigate"))
+
 
 # Template IDs — must stay in sync with docs/guides/COMPARISON_POLICY.md §5
 VALID_TEMPLATE_IDS: FrozenSet[str] = frozenset(
@@ -40,6 +42,7 @@ PULSE_ALLOWED_TEMPLATE_IDS: FrozenSet[str] = frozenset(
         "TPL_OS_SEQUENTIAL_MINOR",
         "TPL_CLOUD_SCALE_SAME_OS",
         "TPL_TIME_WINDOW",
+        # Policy §5: Pulse only if single-provider / no cross-cloud delta; enforce via params in Phase 1
         "TPL_CATEGORY_ROLLUP",
         "TPL_SINGLE_RUN_LOOKUP",
         "TPL_PROVIDER_INTERNAL_REGION",
@@ -57,7 +60,7 @@ class ValidationResult:
 
 def validate_comparison_request(
     template_id: str,
-    params: Optional[Mapping[str, object]] = None,
+    _params: Optional[Mapping[str, object]] = None,
     *,
     mode: Mode = "investigate",
 ) -> ValidationResult:
@@ -66,13 +69,19 @@ def validate_comparison_request(
 
     Args:
         template_id: Must match a row in COMPARISON_POLICY.md §5.
-        params: Reserved for Phase 1 field checks (fixed dimensions, baseline/candidate).
+        _params: Reserved for Phase 1 field checks (fixed dimensions, baseline/candidate).
         mode: ``pulse`` rejects templates not marked Pulse-allowed in the policy doc.
 
     Returns:
         ``ValidationResult`` with ``ok`` and human-readable ``errors``.
+
+    Raises:
+        ValueError: if ``mode`` is not ``pulse`` or ``investigate``.
     """
-    del params  # Phase 1: enforce fixed dimensions and forbidden axes using params
+    if mode not in _VALID_MODES:
+        raise ValueError(
+            f"mode must be 'pulse' or 'investigate', not {mode!r}"
+        )
     errors: list[str] = []
     tid = (template_id or "").strip()
     if not tid:

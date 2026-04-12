@@ -62,6 +62,8 @@ validate_comparison_request(template_id: str, params: dict) -> ValidationResult
 - **Reject** unknown IDs, missing required parameters, or parameter values that violate fixed dimensions (e.g. two different `cloud_provider` values when the template requires equality).  
 - **Enforce Pulse:** if caller mode is Pulse, reject any template not marked Pulse-allowed, and reject any params that imply forbidden axes in §3.
 
+Reference implementation (template allowlist + Pulse check): `src/comparison_policy.py`. Parameter-level rules (§3) are Phase 1+.
+
 ---
 
 ## 5. Canonical templates (10–15)
@@ -109,3 +111,4 @@ Typical bindings (see [SCHEMA.md](SCHEMA.md) for full schema):
 | Date | Change |
 |------|--------|
 | 2026-04-06 | Initial draft for P0-E exit: templates + Pulse forbidden axes + validation contract |
+| 2026-04-11 | §4: reference `src/comparison_policy.py` implementation |

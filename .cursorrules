@@ -118,6 +118,11 @@ zaxby/
 - `*.pyc` (compiled Python)
 - `.DS_Store` (macOS)
 
+### Pull requests and review follow-ups
+- **Always implement PR feedback and follow-up commits on the same Git branch that backs the open PR** (the PR head branch, e.g. `feat/...` or `fix/...` from `gh pr view` / GitHub).
+- **Do not** put review changes only on a parallel branch named after the PR number (e.g. `pr-11`) or other ad-hoc locals — that splits history and forces cherry-picks. If unsure of the head branch name, check the PR on GitHub or `gh pr view <n> --json headRefName` before committing.
+- After work, **push that PR branch** so the PR updates; avoid leaving fixes only on a non-tracking branch.
+
 ## Dashboard Development
 
 ### Data Modes

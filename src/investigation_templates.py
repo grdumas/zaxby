@@ -131,7 +131,9 @@ def _build_rhel_minor_same_hw_body(params: Mapping[str, Any], *, size: int) -> D
     }
 
 
-TEMPLATE_BUILDERS: Dict[str, Callable[[Mapping[str, Any], int], Dict[str, Any]]] = {
+# Builders have signature ``(params: Mapping, *, size: int) -> dict`` and are always
+# called as ``builder(params, size=…)`` (keyword-only size — not positional ``int``).
+TEMPLATE_BUILDERS: Dict[str, Callable[..., Dict[str, Any]]] = {
     "TPL_RHEL_MINOR_SAME_HW": _build_rhel_minor_same_hw_body,
 }
 
@@ -164,7 +166,7 @@ def build_zathras_results_search_body(
 def resolve_and_build_opensearch_query(
     ui_params: Mapping[str, Any],
     *,
-    size: int | None = None,
+    size: Optional[int] = None,
 ) -> tuple[str, Dict[str, Any], Dict[str, Any]]:
     """
     Resolve UI params to a template and return ``(template_id, normalized_params, search_body)``.

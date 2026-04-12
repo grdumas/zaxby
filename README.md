@@ -42,8 +42,9 @@ Required environment variables:
 - `OPENSEARCH_PORT`: Port number (default: 9200)
 - `OPENSEARCH_USERNAME`: Authentication username
 - `OPENSEARCH_PASSWORD`: Authentication password
-- `OPENSEARCH_INDEX`: Run/results index the app queries (required; e.g. `zathras-results`)
-- `OPENSEARCH_INDEX_RESULTS` / `OPENSEARCH_INDEX_TIMESERIES`: Optional until client routing lands — set to match production (`zathras-results`, `zathras-timeseries`); see `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`
+- `OPENSEARCH_INDEX`: Run/results index (required for OpenSearch mode; e.g. `zathras-results`). The client resolves the canonical results index from `OPENSEARCH_INDEX_RESULTS` when set, otherwise from this variable.
+- `OPENSEARCH_INDEX_RESULTS`: Optional but recommended — same grain as `OPENSEARCH_INDEX` (e.g. `zathras-results`). When both are set, this value wins for the results index.
+- `OPENSEARCH_INDEX_TIMESERIES`: Point-level index (e.g. `zathras-timeseries`). Required for timeseries-only API calls (`search_timeseries`, `fetch_timeseries_for_document`); not used for bulk app startup. See [Two-index model](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md#two-index-model-zathras-production) in the connection guide.
 - `OPENSEARCH_DASHBOARDS_BASE_URL`: Optional — OpenSearch Dashboards base URL for “View in Discover” links from the investigation view; see [Discover deep links](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md#discover-deep-links) in the connection guide
 - `DATA_MODE`: Set to 'opensearch' or 'synthetic'
 

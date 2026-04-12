@@ -49,7 +49,7 @@ OPENSEARCH_PORT=9200
 OPENSEARCH_USERNAME=your-username
 OPENSEARCH_PASSWORD=your-password
 OPENSEARCH_INDEX=zathras-results
-# Optional today; set both so your config matches production (used when dual-index routing lands)
+# Recommended: set both so your environment matches production Zathras clusters
 OPENSEARCH_INDEX_RESULTS=zathras-results
 OPENSEARCH_INDEX_TIMESERIES=zathras-timeseries
 OPENSEARCH_USE_SSL=true
@@ -58,6 +58,8 @@ DATA_MODE=opensearch
 # OR for synthetic data mode (no OpenSearch needed)
 DATA_MODE=synthetic
 ```
+
+**Dual-index note:** `zathras-results` holds one document per test run (thousands of docs). `zathras-timeseries` holds point-level rows (much larger). The app loads run documents for the main dashboard; timeseries is for bounded, on-demand queries only. See `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`.
 
 ### 4. Run the Dashboard
 
@@ -69,37 +71,13 @@ The dashboard will be available at: **http://127.0.0.1:8050**
 
 ## Using the Dashboard
 
+The UI is organized around **three analyses** (RHEL regression vs peers, cloud scaling, etc.), with **advanced filters** and an **investigation drill-down** when you open a specific comparison. A **server snapshot** panel (when using OpenSearch) shows index-level counts without loading full datasets into the browser.
+
 ### Main Features
 
-1. **Filter Panel** (Left Sidebar)
-   - Select OS versions, instance types, benchmark types
-   - Filter by cloud provider and date range
-   - Choose test status (PASS/FAIL/UNKNOWN)
-
-2. **Overview Tab**
-   - Performance distribution by benchmark type
-   - OS version comparison
-   - Cloud provider analysis
-
-3. **Comparisons Tab**
-   - Side-by-side performance comparison
-   - Percentage change visualization
-   - Automatic comparison of first two OS versions in filter
-
-4. **Time Series Tab**
-   - Performance trends over time
-   - OS version trends
-   - Identify regressions and improvements
-
-5. **Heatmap Tab**
-   - OS Version × Instance Type matrix
-   - Benchmark × Cloud Provider matrix
-   - Quick regression identification
-
-6. **Detailed Table Tab**
-   - Complete test results
-   - Sortable columns
-   - Export-ready data view
+1. **Filters** — OS version, instance type, benchmark, cloud, date range, status (use **Show advanced filters** if collapsed).
+2. **Sections** — Expand RHEL regression, competitive performance, or cloud scaling; open an investigation to see detail charts and tables.
+3. **OpenSearch Discover** — If `OPENSEARCH_DASHBOARDS_BASE_URL` is set, the investigation view can link to the matching run in Dashboards.
 
 ### Tips
 
@@ -133,9 +111,13 @@ Connect to live OpenSearch instance for real data.
 DATA_MODE=opensearch
 OPENSEARCH_HOST=your-host
 OPENSEARCH_INDEX=zathras-results
-# OPENSEARCH_INDEX_RESULTS / OPENSEARCH_INDEX_TIMESERIES — see .env.example and OPENSEARCH_CONNECTION_GUIDE.md
-# ... other OpenSearch settings
+OPENSEARCH_INDEX_RESULTS=zathras-results
+OPENSEARCH_INDEX_TIMESERIES=zathras-timeseries
+# Optional: OPENSEARCH_DASHBOARDS_BASE_URL=https://your-dashboards-host:5601
+# ... credentials, SSL, etc.
 ```
+
+Migrating from a **single-index** setup: keep `OPENSEARCH_INDEX` pointed at your run/results index, then add `OPENSEARCH_INDEX_RESULTS` and `OPENSEARCH_INDEX_TIMESERIES` as above. See **Migration from single-index setups** in `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`.
 
 ## Troubleshooting
 

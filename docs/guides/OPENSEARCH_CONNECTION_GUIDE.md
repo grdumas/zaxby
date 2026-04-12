@@ -4,7 +4,7 @@ This document provides essential information for connecting to OpenSearch from t
 
 ## Overview
 
-The dashboard will visualize software performance benchmark results stored in an OpenSearch index. The data was previously downloaded from an internal OpenSearch instance and contains performance test results from a test orchestration tool.
+The dashboard visualizes benchmark results from OpenSearch. Production **Zathras** clusters typically expose **two** indices: a **run/results** index (`zathras-results`) and a **timeseries** index (`zathras-timeseries`). Configure both in `.env` so behavior matches production; the connection guide below describes when each index is queried.
 
 ## Required Python Packages
 
@@ -49,14 +49,14 @@ Use environment variables for configuration (managed via `.env` file with python
 | `OPENSEARCH_PASSWORD` | Authentication password | `admin` | `your-password` |
 | `OPENSEARCH_USE_SSL` | Use HTTPS | `false` | `true` or `false` |
 | `OPENSEARCH_VERIFY_CERTS` | Verify SSL certificates | `false` | `true` or `false` |
-| `OPENSEARCH_INDEX` | Index the dashboard queries today (run-level benchmark documents) | (empty) | `zathras-results` |
-| `OPENSEARCH_INDEX_RESULTS` | Canonical **run** index name (same grain as `OPENSEARCH_INDEX` in production); used when dual-index routing is implemented | (empty) | `zathras-results` |
-| `OPENSEARCH_INDEX_TIMESERIES` | **Timeseries / point-level** index (large volume; not for bulk load in the browser) | (empty) | `zathras-timeseries` |
+| `OPENSEARCH_INDEX` | Legacy / primary name for the **run/results** index (run-level benchmark documents) | (empty) | `zathras-results` |
+| `OPENSEARCH_INDEX_RESULTS` | Canonical **run** index; if set, overrides `OPENSEARCH_INDEX` for results routing in `BenchmarkDataSource` | (empty) | `zathras-results` |
+| `OPENSEARCH_INDEX_TIMESERIES` | **Timeseries / point-level** index (large volume; never bulk-loaded at app startup) | (empty) | `zathras-timeseries` |
 | `OPENSEARCH_DASHBOARDS_BASE_URL` | Base URL for OpenSearch Dashboards (Discover deep links from the app UI) | (empty) | `https://dashboards.example.com:5601` |
 
 **Migration from single-index setups:** If you previously set only `OPENSEARCH_INDEX`, keep that variable pointed at your run/results index (typically `zathras-results`). Add `OPENSEARCH_INDEX_RESULTS` and `OPENSEARCH_INDEX_TIMESERIES` with the values above so configuration matches production.
 
-**Client behavior:** `BenchmarkDataSource` in `src/opensearch_client.py` resolves the run index from `OPENSEARCH_INDEX_RESULTS` or, if unset, `OPENSEARCH_INDEX`. It exposes `search_results()` / `scroll_results()` for that index and `search_timeseries()` / `fetch_timeseries_for_document()` for `OPENSEARCH_INDEX_TIMESERIES` (required for timeseries calls).
+**Client behavior:** `BenchmarkDataSource` in `src/opensearch_client.py` resolves the run index from `OPENSEARCH_INDEX_RESULTS` or, if unset, `OPENSEARCH_INDEX`. It exposes `search_results()` / `scroll_results()` for that index only. It exposes `search_timeseries()` and `fetch_timeseries_for_document()` against `OPENSEARCH_INDEX_TIMESERIES` when that variable is set (required for those calls; omit timeseries env vars only if you never invoke timeseries APIs).
 
 ### Two-index model (Zathras production)
 
@@ -318,8 +318,10 @@ class BenchmarkDataSource:
     
     def __init__(self):
         load_dotenv()
-        
-        self.index_name = os.getenv('OPENSEARCH_INDEX')
+
+        # Run/results index: prefer OPENSEARCH_INDEX_RESULTS, else legacy OPENSEARCH_INDEX
+        self.index_name = os.getenv('OPENSEARCH_INDEX_RESULTS') or os.getenv('OPENSEARCH_INDEX', '')
+        self.timeseries_index = os.getenv('OPENSEARCH_INDEX_TIMESERIES', '')
         self.client = OpenSearch(
             hosts=[{
                 'host': os.getenv('OPENSEARCH_HOST', 'localhost'),

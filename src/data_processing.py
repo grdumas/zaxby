@@ -13,6 +13,11 @@ import math
 
 from src.metric_registry import fallback_keys_for_test
 from src.benchmark_categories import category_for_test_name
+from src.regression_detection import (
+    change_category_tri_band,
+    is_regression_higher_is_better,
+    percent_change as primary_metric_percent_change,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -298,16 +303,10 @@ class BenchmarkDataProcessor:
         
         result['delta'] = result['comparison_mean'] - result['baseline_mean']
         result['percent_change'] = (
-            (result['comparison_mean'] - result['baseline_mean']) / 
+            (result['comparison_mean'] - result['baseline_mean']) /
             result['baseline_mean'] * 100
         )
-        
-        # Classify change magnitude
-        result['change_category'] = result['percent_change'].apply(
-            lambda x: 'Regression' if x < -10 else (
-                'Improvement' if x > 10 else 'Stable'
-            )
-        )
+        result['change_category'] = result['percent_change'].apply(change_category_tri_band)
         
         return result
     
@@ -673,7 +672,9 @@ class BenchmarkDataProcessor:
                         continue
                     if baseline_mean == 0:
                         continue
-                    pct_change = ((comparison_mean - baseline_mean) / baseline_mean) * 100
+                    pct_change = primary_metric_percent_change(
+                        float(baseline_mean), float(comparison_mean)
+                    )
                     
                     comparison_results.append({
                         'test_name': test,
@@ -688,7 +689,9 @@ class BenchmarkDataProcessor:
                         'comparison_mean': comparison_mean,
                         'comparison_count': len(comparison_hw_data),
                         'percent_change': pct_change,
-                        'is_regression': pct_change < regression_threshold
+                        'is_regression': is_regression_higher_is_better(
+                            pct_change, regression_threshold
+                        ),
                     })
         
         comparison_df = pd.DataFrame(comparison_results)
@@ -799,7 +802,9 @@ class BenchmarkDataProcessor:
                 if len(baseline_data) > 0 and len(current_data) > 0:
                     baseline_mean = baseline_data.mean()
                     current_mean = current_data.mean()
-                    pct_change = ((current_mean - baseline_mean) / baseline_mean) * 100
+                    pct_change = primary_metric_percent_change(
+                        float(baseline_mean), float(current_mean)
+                    )
                     
                     comparison_results.append({
                         'test_name': test,
@@ -809,7 +814,9 @@ class BenchmarkDataProcessor:
                         'baseline_mean': baseline_mean,
                         'current_mean': current_mean,
                         'percent_change': pct_change,
-                        'is_regression': pct_change < regression_threshold
+                        'is_regression': is_regression_higher_is_better(
+                            pct_change, regression_threshold
+                        ),
                     })
         
         comparison_df = pd.DataFrame(comparison_results)

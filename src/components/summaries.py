@@ -7,6 +7,13 @@ Provides human-readable summaries of analysis results.
 from typing import Dict, Any, List
 import pandas as pd
 
+from src.regression_detection import (
+    REGRESSION_THRESHOLD_REL,
+    STABILITY_BAND_PCT,
+    is_regression_higher_is_better,
+    percent_change,
+)
+
 
 def format_regression_summary(analysis_result: Dict[str, Any]) -> str:
     """
@@ -137,9 +144,13 @@ def summarize_investigation_details(
     
     # Calculate regression metrics
     if 'baseline_mean' in summary and 'comparison_mean' in summary and summary['baseline_mean'] > 0:
-        summary['percent_change'] = ((summary['comparison_mean'] - summary['baseline_mean']) / summary['baseline_mean']) * 100
-        summary['is_regression'] = summary['percent_change'] < -5
-        summary['is_improvement'] = summary['percent_change'] > 10
+        summary['percent_change'] = percent_change(
+            summary['baseline_mean'], summary['comparison_mean']
+        )
+        summary['is_regression'] = is_regression_higher_is_better(
+            summary['percent_change'], REGRESSION_THRESHOLD_REL
+        )
+        summary['is_improvement'] = summary['percent_change'] > STABILITY_BAND_PCT
         
         if summary['is_regression']:
             summary['status'] = 'danger'

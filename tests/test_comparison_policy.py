@@ -84,3 +84,73 @@ def test_valid_template_ids_count_matches_policy():
 
 def test_pulse_allowed_subset_of_valid():
     assert PULSE_ALLOWED_TEMPLATE_IDS <= VALID_TEMPLATE_IDS
+
+
+# --- Pulse §3.1 — no cross–public-cloud comparative params ---
+
+
+def test_pulse_rejects_baseline_vs_candidate_different_public_clouds():
+    r = validate_comparison_request(
+        "TPL_RHEL_MINOR_SAME_HW",
+        {
+            "baseline_cloud_provider": "aws",
+            "candidate_cloud_provider": "azure",
+        },
+        mode="pulse",
+    )
+    assert r.ok is False
+    assert any("baseline vs candidate" in e.lower() for e in r.errors)
+
+
+def test_pulse_allows_baseline_vs_candidate_same_public_cloud():
+    r = validate_comparison_request(
+        "TPL_RHEL_MINOR_SAME_HW",
+        {
+            "baseline_cloud_provider": "aws",
+            "candidate_cloud_provider": "aws",
+        },
+        mode="pulse",
+    )
+    assert r.ok is True
+
+
+def test_investigate_allows_cross_public_cloud_params():
+    """§3.1 applies to Pulse surfaces; Investigate may pass stricter templates separately."""
+    r = validate_comparison_request(
+        "TPL_RHEL_MINOR_SAME_HW",
+        {
+            "baseline_cloud_provider": "aws",
+            "candidate_cloud_provider": "gcp",
+        },
+        mode="investigate",
+    )
+    assert r.ok is True
+
+
+def test_pulse_rejects_multi_public_cloud_in_cloud_providers_list():
+    r = validate_comparison_request(
+        "TPL_CATEGORY_ROLLUP",
+        {"cloud_providers": ["aws", "azure"]},
+        mode="pulse",
+    )
+    assert r.ok is False
+    assert any("multiple public" in e.lower() for e in r.errors)
+
+
+def test_pulse_allows_single_public_cloud_in_cloud_providers_list():
+    r = validate_comparison_request(
+        "TPL_CATEGORY_ROLLUP",
+        {"cloud_providers": ["aws", "aws"]},
+        mode="pulse",
+    )
+    assert r.ok is True
+
+
+def test_pulse_cloud_providers_non_public_values_do_not_trigger_multi_cloud_error():
+    """Only recognized hyperscaler slugs count toward §3.1."""
+    r = validate_comparison_request(
+        "TPL_CATEGORY_ROLLUP",
+        {"cloud_providers": ["on-prem-a", "on-prem-b"]},
+        mode="pulse",
+    )
+    assert r.ok is True

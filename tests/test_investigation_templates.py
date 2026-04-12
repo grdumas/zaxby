@@ -102,6 +102,18 @@ def test_build_body_clamps_size_to_max_search_hits():
     assert body["size"] == MAX_SEARCH_HITS
 
 
+@pytest.mark.parametrize("bad_size", [0, -1, -99])
+def test_build_body_clamps_non_positive_size_to_one(bad_size):
+    _, params = resolve_ui_investigation_to_template(_minimal_ui_params())
+    body = build_zathras_results_search_body("TPL_RHEL_MINOR_SAME_HW", params, size=bad_size)
+    assert body["size"] == 1
+
+
+def test_resolve_and_build_opensearch_query_default_size_none_uses_max_page():
+    _tid, _norm, body = resolve_and_build_opensearch_query(_minimal_ui_params(), size=None)
+    assert body["size"] == MAX_PAGE_SIZE
+
+
 def test_build_unknown_template_raises():
     with pytest.raises(InvestigationTemplateError, match="No OpenSearch query builder"):
         build_zathras_results_search_body("TPL_PEER_OS", {}, size=10)

@@ -41,11 +41,13 @@ def filter_dataframe_for_regression_math(
     Default regression aggregation includes **PASS** rows only (REGRESSION_DETECTION.md §4).
 
     FAIL and UNKNOWN are excluded; missing ``status`` is treated as non-PASS. If the
-    ``status`` column is absent, ``df`` is returned unchanged (backward compatibility
-    for callers without status in the schema).
+    ``status`` column is absent, no rows are dropped (same values as input), but the
+    result is still a **copy** so mutating the return value never affects ``df``.
+
+    Always returns a new DataFrame instance (bypass and filtered paths).
     """
     if df.empty or "status" not in df.columns:
-        return df
+        return df.copy()
     mask = df["status"].map(_is_pass_status)
     n_in = int(mask.sum())
     n_excl = int(len(df) - n_in)

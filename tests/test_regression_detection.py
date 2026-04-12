@@ -80,13 +80,26 @@ def test_filter_regression_math_pass_only():
     out = filter_dataframe_for_regression_math(df)
     assert len(out) == 2
     assert out["primary_metric_value"].tolist() == [1.0, 5.0]
+    assert out is not df
 
 
-def test_filter_regression_math_no_status_column_unchanged():
+def test_filter_regression_math_no_status_column_unchanged_values():
     df = pd.DataFrame({"primary_metric_value": [1.0, 2.0]})
     out = filter_dataframe_for_regression_math(df)
     pd.testing.assert_frame_equal(out, df)
+    assert out is not df
+
+
+def test_filter_regression_math_all_pass_no_exclusions():
+    df = pd.DataFrame({"status": ["PASS", "PASS"], "x": [1, 2]})
+    out = filter_dataframe_for_regression_math(df)
+    pd.testing.assert_frame_equal(out, df)
+    assert out is not df
+    assert len(out) == 2
 
 
 def test_filter_regression_math_empty():
-    assert filter_dataframe_for_regression_math(pd.DataFrame()).empty
+    df = pd.DataFrame()
+    out = filter_dataframe_for_regression_math(df)
+    assert out.empty
+    assert out is not df

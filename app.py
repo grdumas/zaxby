@@ -35,6 +35,18 @@ from src.components.summaries import (
     format_investigation_summary_text
 )
 
+
+def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
+    """Category trail for Competitive Performance drill-down (P1-C)."""
+    return dbc.Breadcrumb(
+        items=[
+            {"label": "Competitive Performance"},
+            {"label": category, "active": True},
+        ],
+        className="mb-0 bg-transparent py-0",
+    )
+
+
 # Load environment variables
 load_dotenv()
 
@@ -1437,9 +1449,12 @@ def handle_category_click(click_data, close_clicks, filtered_data_json):
         'category_data': category_df.to_json(orient='split')
     }
     
-    title = f"📊 {category} Benchmarks"
+    detail_header = html.Div([
+        competitive_performance_breadcrumb(category),
+        html.Div(f"📊 {category} benchmarks", className="fw-semibold mt-1"),
+    ])
     
-    return {"display": "block"}, title, summary_content, detail_fig, store_data
+    return {"display": "block"}, detail_header, summary_content, detail_fig, store_data
 
 
 @app.callback(
@@ -1527,7 +1542,10 @@ def toggle_category_modal(open_clicks, close_clicks, is_open, store_data):
                 ], color="info")
             ])
             
-            title = f"{category} - Deep Dive Analysis"
+            title = html.Div([
+                competitive_performance_breadcrumb(category),
+                html.Div(f"{category} — deep dive analysis", className="fw-semibold mt-1"),
+            ])
             return True, title, summary_content
     
     return is_open, "", ""

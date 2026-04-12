@@ -11,7 +11,7 @@ from datetime import datetime
 import logging
 import math
 
-from src.metric_registry import PRIMARY_METRIC_FALLBACK_KEYS
+from src.metric_registry import fallback_keys_for_test
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,10 +61,8 @@ class BenchmarkDataProcessor:
             if isinstance(v, (int, float)) and not (isinstance(v, float) and math.isnan(v)):
                 return float(v), str(name_hint), pm.get("unit")
 
-        tn = (test_name or "").lower().strip()
         keys_to_try: List[str] = []
-        if tn in PRIMARY_METRIC_FALLBACK_KEYS:
-            keys_to_try.extend(PRIMARY_METRIC_FALLBACK_KEYS[tn])
+        keys_to_try.extend(fallback_keys_for_test(test_name))
         for key in keys_to_try:
             if key in run_0_metrics:
                 v = run_0_metrics[key]

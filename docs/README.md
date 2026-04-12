@@ -18,6 +18,9 @@ Essential technical documentation for working with the dashboard:
 - **[OPENSEARCH_CONNECTION_GUIDE.md](guides/OPENSEARCH_CONNECTION_GUIDE.md)**  
   How to connect to OpenSearch, authentication, query patterns, and index structure
 
+- **[PHASE_1_AGENT_HANDOFF.md](guides/PHASE_1_AGENT_HANDOFF.md)**  
+  Handoff for Phase 1 implementation: read order, Phase 0 inventory, P1-A–P1-F scope, conventions, paste-ready agent prompt
+
 - **[SCHEMA.md](guides/SCHEMA.md)**  
   Complete data schema documentation including field types, benchmark types, and data patterns
 

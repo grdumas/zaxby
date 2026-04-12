@@ -47,6 +47,7 @@ Required environment variables:
 - `OPENSEARCH_INDEX_TIMESERIES`: Point-level index (e.g. `zathras-timeseries`). Required for timeseries-only API calls (`search_timeseries`, `fetch_timeseries_for_document`); not used for bulk app startup. See [Two-index model](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md#two-index-model-zathras-production) in the connection guide.
 - `OPENSEARCH_DASHBOARDS_BASE_URL`: Optional — OpenSearch Dashboards base URL for “View in Discover” links from the investigation view; see [Discover deep links](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md#discover-deep-links) in the connection guide
 - `DATA_MODE`: Set to 'opensearch' or 'synthetic'
+- `ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE`: Optional. When `DATA_MODE=opensearch`, if the initial OpenSearch load fails, set to `1`, `true`, or `yes` to load synthetic data **explicitly** after that failure. If unset, the app shows an error and empty data instead of silently using synthetic samples.
 
 ### 3. Run the Dashboard
 
@@ -83,6 +84,7 @@ performance-dashboard/
 │       └── *.json         # Generated datasets
 ├── src/
 │   ├── opensearch_client.py    # OpenSearch connection
+│   ├── data_bootstrap.py       # Startup load (OpenSearch vs synthetic; P1-F failure UX)
 │   ├── data_processing.py      # Data transformation
 │   ├── synthetic_data.py       # Synthetic data generator
 │   └── components/

@@ -1,18 +1,63 @@
 """
 Regression detection helpers (Phase 1, P1-D).
 
-Implements the percent-change formula, default thresholds, and tri-band labels
-described in ``docs/guides/REGRESSION_DETECTION.md`` §1.2–§3. Centralizing this
-logic keeps processor paths and tests aligned with the spec.
+Implements the percent-change formula, default thresholds, tri-band labels, and
+status filtering described in ``docs/guides/REGRESSION_DETECTION.md`` §1.2–§4.
+Centralizing this logic keeps processor paths and tests aligned with the spec.
 """
 
 from __future__ import annotations
+
+import logging
+from typing import Optional
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Draft defaults — see REGRESSION_DETECTION.md §2
 REGRESSION_THRESHOLD_REL: float = -5.0
 STABILITY_BAND_PCT: float = 10.0
 # Lower-is-better metrics (e.g. latency): regression when pct_change exceeds +T (§3.2)
 REGRESSION_THRESHOLD_LATENCY: float = 5.0
+
+
+def _is_pass_status(val: object) -> bool:
+    """True only for string PASS (case-insensitive); missing/NaN/non-PASS → False (§4)."""
+    try:
+        if pd.isna(val):
+            return False
+    except (TypeError, ValueError):
+        return False
+    return str(val).strip().upper() == "PASS"
+
+
+def filter_dataframe_for_regression_math(
+    df: pd.DataFrame,
+    *,
+    context: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Default regression aggregation includes **PASS** rows only (REGRESSION_DETECTION.md §4).
+
+    FAIL and UNKNOWN are excluded; missing ``status`` is treated as non-PASS. If the
+    ``status`` column is absent, ``df`` is returned unchanged (backward compatibility
+    for callers without status in the schema).
+    """
+    if df.empty or "status" not in df.columns:
+        return df
+    mask = df["status"].map(_is_pass_status)
+    n_in = int(mask.sum())
+    n_excl = int(len(df) - n_in)
+    if n_excl:
+        suffix = f" ({context})" if context else ""
+        logger.info(
+            "Regression math%s: %d PASS row(s), excluded %d non-PASS row(s)",
+            suffix,
+            n_in,
+            n_excl,
+        )
+    return df.loc[mask].copy()
 
 
 def percent_change(baseline_mean: float, comparison_mean: float) -> float:

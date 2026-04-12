@@ -1,5 +1,6 @@
 """Tests for regression_detection (P1-D) vs REGRESSION_DETECTION.md."""
 
+import pandas as pd
 import pytest
 
 from src.regression_detection import (
@@ -7,6 +8,7 @@ from src.regression_detection import (
     REGRESSION_THRESHOLD_REL,
     STABILITY_BAND_PCT,
     change_category_tri_band,
+    filter_dataframe_for_regression_math,
     is_regression_higher_is_better,
     is_regression_lower_is_better,
     percent_change,
@@ -66,3 +68,25 @@ def test_percent_change_zero_baseline_raises():
     """Callers must exclude zero baseline (REGRESSION_DETECTION.md §5)."""
     with pytest.raises(ZeroDivisionError):
         percent_change(0.0, 1.0)
+
+
+def test_filter_regression_math_pass_only():
+    df = pd.DataFrame(
+        {
+            "status": ["PASS", "FAIL", "UNKNOWN", None, "pass"],
+            "primary_metric_value": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    out = filter_dataframe_for_regression_math(df)
+    assert len(out) == 2
+    assert out["primary_metric_value"].tolist() == [1.0, 5.0]
+
+
+def test_filter_regression_math_no_status_column_unchanged():
+    df = pd.DataFrame({"primary_metric_value": [1.0, 2.0]})
+    out = filter_dataframe_for_regression_math(df)
+    pd.testing.assert_frame_equal(out, df)
+
+
+def test_filter_regression_math_empty():
+    assert filter_dataframe_for_regression_math(pd.DataFrame()).empty

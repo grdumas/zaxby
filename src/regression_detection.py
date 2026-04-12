@@ -119,6 +119,23 @@ def is_regression_for_test_name(
     return is_regression_lower_is_better(pct_change, regression_threshold_latency)
 
 
+def is_improvement_for_test_name(
+    pct_change: float,
+    test_name: Optional[str],
+    *,
+    band_pct: float = STABILITY_BAND_PCT,
+) -> bool:
+    """
+    Tri-band "Improvement" side, aligned with :func:`change_category_tri_band` (§2.2).
+
+    Higher-is-better: improvement when ``pct_change > band_pct``.
+    Lower-is-better (e.g. latency): improvement when ``pct_change < -band_pct`` (metric dropped enough).
+    """
+    if higher_is_better_for_test(test_name):
+        return pct_change > band_pct
+    return pct_change < -band_pct
+
+
 def change_category_tri_band(
     pct_change: float,
     band_pct: float = STABILITY_BAND_PCT,

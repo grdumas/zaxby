@@ -17,7 +17,8 @@ from dotenv import load_dotenv
 
 # Import local modules
 from src.opensearch_client import BenchmarkDataSource
-from src.data_processing import BenchmarkDataProcessor, load_synthetic_data
+from src.data_processing import BenchmarkDataProcessor
+from src.data_bootstrap import load_initial_benchmark_documents
 from src.query_service import (
     ResultsOverviewSnapshot,
     aggregate_results_overview_from_dataframe,
@@ -48,28 +49,32 @@ app.title = "RHEL Multi Arch Performance Engineering Dashboard"
 # Determine data mode
 DATA_MODE = os.getenv('DATA_MODE', 'synthetic').lower()
 
+# P1-F: explicit opt-in only — never silently substitute synthetic when OpenSearch fails
+USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE = os.getenv(
+    "ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE", ""
+).lower() in ("1", "true", "yes")
+
 # Initialize data processor
 processor = BenchmarkDataProcessor()
 
-# Load initial data
-def load_data():
-    """Load data based on configured mode."""
-    if DATA_MODE == 'opensearch':
-        try:
-            client = BenchmarkDataSource()
-            documents = client.scroll_results(max_docs=5000)
-            print(f"Loaded {len(documents)} documents from OpenSearch")
-            return documents
-        except Exception as e:
-            print(f"Failed to load from OpenSearch: {e}")
-            print("Falling back to synthetic data...")
-            return load_synthetic_data()
-    else:
-        return load_synthetic_data()
-
 # Load and process data
 print(f"Loading data in {DATA_MODE} mode...")
-raw_documents = load_data()
+raw_documents, OPENSEARCH_LOAD_ERROR, SYNTHETIC_AFTER_OPENSEARCH_FAILURE = (
+    load_initial_benchmark_documents(
+        DATA_MODE,
+        use_synthetic_after_opensearch_failure=USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE,
+        max_opensearch_docs=5000,
+    )
+)
+if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is None:
+    print(f"Loaded {len(raw_documents)} documents from OpenSearch")
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+    print(
+        "OpenSearch load failed; loaded synthetic data per "
+        "ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"
+    )
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+    print(f"OpenSearch load failed: {OPENSEARCH_LOAD_ERROR or '(no message)'}")
 df = processor.documents_to_dataframe(raw_documents)
 print(f"Processed {len(df)} records")
 
@@ -82,6 +87,16 @@ os_distributions = processor.get_unique_values(df, 'os_distribution')
 min_date = df['timestamp'].min().strftime('%Y-%m-%d') if len(df) > 0 else '2025-01-01'
 max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-12-31'
 
+if SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+    MODE_BADGE_LABEL = "SYNTHETIC (after OpenSearch failure — env opt-in)"
+    MODE_BADGE_COLOR = "warning"
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+    MODE_BADGE_LABEL = "OPENSEARCH (load failed — no data)"
+    MODE_BADGE_COLOR = "danger"
+else:
+    MODE_BADGE_LABEL = DATA_MODE.upper()
+    MODE_BADGE_COLOR = "secondary"
+
 # Create OS version map grouped by distribution (e.g., {'rhel': ['9.4', '9.5'], 'ubuntu': ['22.04']})
 os_version_map = {}
 if len(df) > 0:
@@ -90,7 +105,69 @@ if len(df) > 0:
         os_version_map[dist] = sorted(versions, key=lambda v: [float(x) for x in str(v).split('.')] if v else [0])
 
 # App Layout
-app.layout = dbc.Container([
+_opensearch_banners: list = []
+if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+    _opensearch_banners.append(
+        dbc.Alert(
+            [
+                html.Strong("OpenSearch unavailable — showing synthetic sample data. "),
+                "You set ",
+                html.Code("ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"),
+                ". Underlying error: ",
+                html.Code(OPENSEARCH_LOAD_ERROR or "(unknown)"),
+            ],
+            color="warning",
+            className="mb-3",
+        )
+    )
+elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+    _opensearch_banners.append(
+        dbc.Alert(
+            [
+                html.H4("Could not load benchmark data from OpenSearch", className="alert-heading"),
+                html.P(
+                    [
+                        "With ",
+                        html.Code("DATA_MODE=opensearch"),
+                        ", the app does not silently switch to synthetic data. ",
+                        "Fix the connection or choose an explicit recovery option below.",
+                    ]
+                ),
+                html.Hr(),
+                html.P([html.Strong("Error: "), html.Code(OPENSEARCH_LOAD_ERROR or "(unknown)")]),
+                html.Ul(
+                    [
+                        html.Li("Retry after fixing credentials, network, or index settings, then restart the app."),
+                        html.Li(
+                            [
+                                "Offline demo: set ",
+                                html.Code("DATA_MODE=synthetic"),
+                                " in ",
+                                html.Code(".env"),
+                                " and restart.",
+                            ]
+                        ),
+                        html.Li(
+                            [
+                                "Keep ",
+                                html.Code("DATA_MODE=opensearch"),
+                                " but load synthetic only after a failed OpenSearch attempt: set ",
+                                html.Code("ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"),
+                                " and restart. The header will show that data is not live OpenSearch.",
+                            ]
+                        ),
+                    ],
+                    className="mb-0",
+                ),
+            ],
+            color="danger",
+            className="mb-3",
+        )
+    )
+
+app.layout = dbc.Container(
+    [
+        *_opensearch_banners,
     # Store for filtered data and analysis results
     dcc.Store(id='filtered-data-store'),
     dcc.Store(id='analysis-results-store'),
@@ -133,8 +210,8 @@ app.layout = dbc.Container([
                             style={"fontSize": "0.9rem"}
                         ),
                         dbc.Badge(
-                            f"Mode: {DATA_MODE.upper()}",
-                            color="secondary",
+                            f"Mode: {MODE_BADGE_LABEL}",
+                            color=MODE_BADGE_COLOR,
                             className="px-3 py-2",
                             style={"fontSize": "0.9rem"}
                         ),
@@ -2043,6 +2120,13 @@ if __name__ == '__main__':
     print("RHEL Multi Arch Performance Engineering Dashboard (Redesigned)")
     print("="*60)
     print(f"Data Mode: {DATA_MODE.upper()}")
+    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and not SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+        print(f"OpenSearch load failed (synthetic not loaded): {OPENSEARCH_LOAD_ERROR or '(no message)'}")
+    elif SYNTHETIC_AFTER_OPENSEARCH_FAILURE and OPENSEARCH_LOAD_ERROR is not None:
+        print(
+            "Synthetic loaded after OpenSearch failure (env opt-in). Error was: "
+            f"{OPENSEARCH_LOAD_ERROR or '(no message)'}"
+        )
     print(f"Records Loaded: {len(df)}")
     print(f"Server: http://127.0.0.1:{port}")
     print(f"Debug Mode: {debug}")

@@ -121,6 +121,8 @@ OPENSEARCH_INDEX_TIMESERIES=zathras-timeseries
 
 Migrating from a **single-index** setup: keep `OPENSEARCH_INDEX` pointed at your run/results index, then add `OPENSEARCH_INDEX_RESULTS` and `OPENSEARCH_INDEX_TIMESERIES` as above. See **Migration from single-index setups** in `docs/guides/OPENSEARCH_CONNECTION_GUIDE.md`.
 
+**OpenSearch load failure:** With `DATA_MODE=opensearch`, a failed connection or scroll does **not** automatically switch to synthetic data (you would otherwise risk confusing offline samples with live cluster data). The UI shows the error and recovery options. To load synthetic data only after that failure, set `ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1` in `.env` and restart; the header indicates synthetic data loaded under this opt-in. Alternatively set `DATA_MODE=synthetic` for offline work.
+
 ## Troubleshooting
 
 ### Dashboard Won't Start

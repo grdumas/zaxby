@@ -96,6 +96,31 @@ def test_is_improvement_for_test_name_lower_is_better(monkeypatch):
     assert is_improvement_for_test_name(11.0, "latency_probe") is False
 
 
+def test_none_test_name_dispatches_higher_is_better():
+    """Missing test_name uses higher-is-better path (same as unknown benchmark)."""
+    assert is_regression_for_test_name(-6.0, None) is True
+    assert is_regression_for_test_name(-4.0, None) is False
+    assert is_improvement_for_test_name(11.0, None) is True
+    assert is_improvement_for_test_name(10.0, None) is False
+
+
+def test_is_regression_for_test_name_custom_regression_threshold_latency(monkeypatch):
+    monkeypatch.setattr(
+        "src.metric_registry.LOWER_IS_BETTER_TEST_NAMES",
+        frozenset({"latency_probe"}),
+    )
+    assert is_regression_for_test_name(
+        8.0,
+        "latency_probe",
+        regression_threshold_latency=7.0,
+    ) is True
+    assert is_regression_for_test_name(
+        6.0,
+        "latency_probe",
+        regression_threshold_latency=7.0,
+    ) is False
+
+
 def test_percent_change_zero_baseline_raises():
     """Callers must exclude zero baseline (REGRESSION_DETECTION.md §5)."""
     with pytest.raises(ZeroDivisionError):

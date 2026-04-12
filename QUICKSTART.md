@@ -73,6 +73,8 @@ The dashboard will be available at: **http://127.0.0.1:8050**
 
 The UI is organized around **three analyses** (RHEL regression vs peers, cloud scaling, etc.), with **advanced filters** and an **investigation drill-down** when you open a specific comparison. A **server snapshot** panel (when using OpenSearch) shows index-level counts without loading full datasets into the browser.
 
+This replaces older quick-start text that listed Overview / Comparisons / Time Series / Heatmap / Table **tabs**; those screens are not the current layout. Some sections still use **nested tabs** (for example benchmark breakdown views) inside an analysis.
+
 ### Main Features
 
 1. **Filters** — OS version, instance type, benchmark, cloud, date range, status (use **Show advanced filters** if collapsed).

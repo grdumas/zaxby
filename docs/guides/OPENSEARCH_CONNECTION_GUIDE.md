@@ -305,7 +305,7 @@ except Exception as e:
 
 ## Example: Dashboard Connection Class
 
-Here's a recommended pattern for the Dash dashboard:
+The project implementation lives in `src/opensearch_client.py`. Below is the same **index resolution pattern** that module uses (module-level helpers, stripped env values, `results_index` plus backward-compatible `index_name`).
 
 ```python
 from opensearchpy import OpenSearch, exceptions
@@ -313,15 +313,21 @@ from dotenv import load_dotenv
 import os
 import logging
 
+def _resolve_results_index() -> str:
+    return (os.getenv("OPENSEARCH_INDEX_RESULTS") or os.getenv("OPENSEARCH_INDEX") or "").strip()
+
+def _resolve_timeseries_index() -> str:
+    return (os.getenv("OPENSEARCH_INDEX_TIMESERIES") or "").strip()
+
 class BenchmarkDataSource:
     """Data source connector for OpenSearch benchmark results."""
     
     def __init__(self):
         load_dotenv()
 
-        # Run/results index: prefer OPENSEARCH_INDEX_RESULTS, else legacy OPENSEARCH_INDEX
-        self.index_name = os.getenv('OPENSEARCH_INDEX_RESULTS') or os.getenv('OPENSEARCH_INDEX', '')
-        self.timeseries_index = os.getenv('OPENSEARCH_INDEX_TIMESERIES', '')
+        self.results_index = _resolve_results_index()
+        self.timeseries_index = _resolve_timeseries_index()
+        self.index_name = self.results_index  # backward-compatible alias (run documents)
         self.client = OpenSearch(
             hosts=[{
                 'host': os.getenv('OPENSEARCH_HOST', 'localhost'),
@@ -370,7 +376,7 @@ class BenchmarkDataSource:
         
         try:
             response = self.client.search(
-                index=self.index_name,
+                index=self.results_index,
                 body=query,
                 size=limit
             )

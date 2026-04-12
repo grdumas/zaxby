@@ -16,6 +16,7 @@ from src.benchmark_categories import category_for_test_name
 from src.regression_detection import (
     REGRESSION_THRESHOLD_REL,
     change_category_tri_band,
+    filter_dataframe_for_regression_math,
     is_regression_higher_is_better,
     percent_change,
 )
@@ -620,6 +621,10 @@ class BenchmarkDataProcessor:
         Returns:
             Dictionary with comparison results including hardware configurations used
         """
+        df = filter_dataframe_for_regression_math(
+            df,
+            context=label or f"{baseline_version}→{comparison_version}",
+        )
         test_names = sorted(df['test_name'].dropna().unique())
         comparison_results = []
         hardware_configs = set()
@@ -761,6 +766,10 @@ class BenchmarkDataProcessor:
         
         # Filter to only the specified OS distribution
         df_os = df_with_cats[df_with_cats['os_distribution'].str.lower() == os_distribution.lower()].copy()
+        df_os = filter_dataframe_for_regression_math(
+            df_os,
+            context=f"{os_distribution} os regressions",
+        )
         
         if df_os.empty:
             return {

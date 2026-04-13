@@ -119,6 +119,58 @@ def is_regression_for_test_name(
     return is_regression_lower_is_better(pct_change, regression_threshold_latency)
 
 
+def regression_severity_score(
+    pct_change: float,
+    test_name: Optional[str],
+) -> float:
+    """
+    Scalar "how bad" the regression is for sorting worst-first in summaries.
+
+    Higher-is-better metrics: regressions are negative ``pct_change``; more negative
+    is worse → score is ``-pct_change`` (e.g. -20% → 20).
+
+    Lower-is-better metrics: regressions are positive ``pct_change``; larger positive
+    is worse → score is ``pct_change`` (e.g. +30% → 30).
+
+    Only meaningful for rows already flagged as regressions; callers use this to sort
+    mixed test types correctly (ascending ``percent_change`` alone would rank mild
+    latency regressions above severe ones).
+    """
+    pc = float(pct_change)
+    if higher_is_better_for_test(test_name):
+        return -pc
+    return pc
+
+
+def sort_regressions_worst_first(
+    regressions: pd.DataFrame,
+    *,
+    pct_col: str = "percent_change",
+    test_col: str = "test_name",
+) -> pd.DataFrame:
+    """
+    Sort regression rows so the most severe appear first (for ``head(k)`` summaries).
+
+    Empty or missing-column frames are returned unchanged.
+    """
+    if regressions.empty:
+        return regressions
+    if pct_col not in regressions.columns:
+        return regressions
+    if test_col not in regressions.columns:
+        return regressions.sort_values(pct_col, ascending=True)
+
+    severity = regressions.apply(
+        lambda r: regression_severity_score(r[pct_col], r[test_col]),
+        axis=1,
+    )
+    return (
+        regressions.assign(_severity=severity)
+        .sort_values("_severity", ascending=False)
+        .drop(columns=["_severity"])
+    )
+
+
 def is_improvement_for_test_name(
     pct_change: float,
     test_name: Optional[str],

@@ -19,6 +19,7 @@ from src.regression_detection import (
     filter_dataframe_for_regression_math,
     is_regression_for_test_name,
     percent_change,
+    sort_regressions_worst_first,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -725,8 +726,12 @@ class BenchmarkDataProcessor:
         
         comparison_df = pd.DataFrame(comparison_results)
         
-        # Identify regressions
-        regressions = comparison_df[comparison_df['is_regression']].sort_values('percent_change') if not comparison_df.empty else pd.DataFrame()
+        # Identify regressions (worst-first for top-k summary text; direction-aware)
+        regressions = (
+            sort_regressions_worst_first(comparison_df[comparison_df['is_regression']])
+            if not comparison_df.empty
+            else pd.DataFrame()
+        )
         
         # Generate summary for this comparison
         num_regressions = len(regressions)
@@ -859,8 +864,10 @@ class BenchmarkDataProcessor:
         
         comparison_df = pd.DataFrame(comparison_results)
         
-        # Identify regressions
-        regressions = comparison_df[comparison_df['is_regression']].sort_values('percent_change')
+        # Identify regressions (worst-first for top-k summary; direction-aware)
+        regressions = sort_regressions_worst_first(
+            comparison_df[comparison_df['is_regression']]
+        )
         
         # Create heatmap data (pivot table) - only for the specified OS distribution
         heatmap_data = df_os.pivot_table(

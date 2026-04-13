@@ -25,6 +25,7 @@ from src.query_service import (
     fetch_results_overview_aggregates,
 )
 from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
+from src.regression_detection import sort_regressions_worst_first
 from src.components import filters, visualizations
 from src.components.summaries import (
     format_regression_summary,
@@ -62,7 +63,9 @@ def _q1_regression_discover_block(comparison_df):
         return None
     if "is_regression" not in comparison_df.columns:
         return None
-    regressions = comparison_df[comparison_df["is_regression"]]
+    regressions = sort_regressions_worst_first(
+        comparison_df[comparison_df["is_regression"]]
+    )
     if regressions.empty:
         return None
 

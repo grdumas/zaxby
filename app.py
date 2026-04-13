@@ -47,6 +47,83 @@ def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
     )
 
 
+def _q1_regression_discover_block(comparison_df):
+    """
+    Per-regression OpenSearch Discover links when OPENSEARCH_DASHBOARDS_BASE_URL
+    and OPENSEARCH_INDEX_RESULTS (or OPENSEARCH_INDEX) are configured.
+    """
+    import pandas as pd
+
+    dashboards_base = (os.getenv("OPENSEARCH_DASHBOARDS_BASE_URL") or "").strip()
+    idx_name = results_index_name()
+    if not dashboards_base or not idx_name:
+        return None
+    if comparison_df is None or comparison_df.empty:
+        return None
+    if "is_regression" not in comparison_df.columns:
+        return None
+    regressions = comparison_df[comparison_df["is_regression"]]
+    if regressions.empty:
+        return None
+
+    link_rows = []
+    for _, row in regressions.head(10).iterrows():
+        test = row.get("test_name", "test")
+        hw = row.get("hardware_config", "")
+        label_parts = [str(test)]
+        if hw is not None and str(hw).strip():
+            label_parts.append(str(hw))
+        row_label = " · ".join(label_parts)
+
+        anchors = []
+        for col, leg in (
+            ("baseline_document_id", "baseline"),
+            ("comparison_document_id", "comparison"),
+        ):
+            if col not in row.index:
+                continue
+            doc_id = row[col]
+            if doc_id is None or (isinstance(doc_id, float) and pd.isna(doc_id)):
+                continue
+            doc_str = str(doc_id).strip()
+            if not doc_str:
+                continue
+            try:
+                url = opensearch_discover_url_for_document(
+                    dashboards_base, idx_name, doc_str
+                )
+            except ValueError:
+                continue
+            anchors.append(
+                html.A(
+                    f"Discover ({leg})",
+                    href=url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    className="me-2",
+                )
+            )
+        if anchors:
+            link_rows.append(
+                html.Div(
+                    [
+                        html.Small(row_label, className="text-muted d-block"),
+                        html.Div(anchors, className="small"),
+                    ],
+                    className="mb-2",
+                )
+            )
+
+    if not link_rows:
+        return None
+    return html.Div(
+        [
+            html.H6("Open in Discover", className="mt-2 mb-2 small text-muted"),
+            *link_rows,
+        ]
+    )
+
+
 # Load environment variables
 load_dotenv()
 
@@ -1075,6 +1152,7 @@ def update_major_release_comparison(analysis_json):
         return visualizations.create_empty_figure("No data available for this comparison"), dbc.Alert("No data available", color="info")
     
     # Recreate DataFrame from JSON
+    comparison_df = None
     if comp_data.get('comparison_data'):
         comparison_df = pd.read_json(StringIO(comp_data['comparison_data']), orient='split')
         fig = visualizations.create_version_comparison_bar_chart(
@@ -1091,13 +1169,15 @@ def update_major_release_comparison(analysis_json):
     summary_text = comp_data.get('summary', 'No analysis available')
     hw_summary = comp_data.get('hardware_summary', '')
     icon = get_status_icon(num_regressions)
+    discover_block = _q1_regression_discover_block(comparison_df)
     
     summary_component = dbc.Alert([
         html.Strong([icon, f" {num_regressions} regression(s) detected"]),
         html.Br(),
         html.Small(f"{num_comparisons} test×hardware comparison(s) | {hw_summary}", className="text-muted"),
         html.Hr(className="my-2"),
-        dcc.Markdown(summary_text)
+        dcc.Markdown(summary_text),
+        *([html.Hr(className="my-2"), discover_block] if discover_block else []),
     ], color="warning" if num_regressions > 0 else "success")
     
     return fig, summary_component
@@ -1123,6 +1203,7 @@ def update_rhel9_sequential(analysis_json):
         return visualizations.create_empty_figure("No data available for this comparison"), dbc.Alert("No data available", color="info")
     
     # Recreate DataFrame from JSON
+    comparison_df = None
     if comp_data.get('comparison_data'):
         comparison_df = pd.read_json(StringIO(comp_data['comparison_data']), orient='split')
         fig = visualizations.create_version_comparison_bar_chart(
@@ -1139,13 +1220,15 @@ def update_rhel9_sequential(analysis_json):
     summary_text = comp_data.get('summary', 'No analysis available')
     hw_summary = comp_data.get('hardware_summary', '')
     icon = get_status_icon(num_regressions)
+    discover_block = _q1_regression_discover_block(comparison_df)
     
     summary_component = dbc.Alert([
         html.Strong([icon, f" {num_regressions} regression(s) detected"]),
         html.Br(),
         html.Small(f"{num_comparisons} test×hardware comparison(s) | {hw_summary}", className="text-muted"),
         html.Hr(className="my-2"),
-        dcc.Markdown(summary_text)
+        dcc.Markdown(summary_text),
+        *([html.Hr(className="my-2"), discover_block] if discover_block else []),
     ], color="warning" if num_regressions > 0 else "success")
     
     return fig, summary_component
@@ -1171,6 +1254,7 @@ def update_rhel10_sequential(analysis_json):
         return visualizations.create_empty_figure("No data available for this comparison"), dbc.Alert("No data available", color="info")
     
     # Recreate DataFrame from JSON
+    comparison_df = None
     if comp_data.get('comparison_data'):
         comparison_df = pd.read_json(StringIO(comp_data['comparison_data']), orient='split')
         fig = visualizations.create_version_comparison_bar_chart(
@@ -1187,13 +1271,15 @@ def update_rhel10_sequential(analysis_json):
     summary_text = comp_data.get('summary', 'No analysis available')
     hw_summary = comp_data.get('hardware_summary', '')
     icon = get_status_icon(num_regressions)
+    discover_block = _q1_regression_discover_block(comparison_df)
     
     summary_component = dbc.Alert([
         html.Strong([icon, f" {num_regressions} regression(s) detected"]),
         html.Br(),
         html.Small(f"{num_comparisons} test×hardware comparison(s) | {hw_summary}", className="text-muted"),
         html.Hr(className="my-2"),
-        dcc.Markdown(summary_text)
+        dcc.Markdown(summary_text),
+        *([html.Hr(className="my-2"), discover_block] if discover_block else []),
     ], color="warning" if num_regressions > 0 else "success")
     
     return fig, summary_component

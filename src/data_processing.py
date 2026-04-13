@@ -25,6 +25,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _first_document_id(df: pd.DataFrame) -> Optional[str]:
+    """
+    Return the first non-empty ``document_id`` from a row subset, if the column exists.
+
+    Used to attach OpenSearch Discover drill-down targets to aggregated comparisons.
+    """
+    if df is None or df.empty or "document_id" not in df.columns:
+        return None
+    for v in df["document_id"].dropna():
+        s = str(v).strip()
+        if s:
+            return s
+    return None
+
+
 class BenchmarkDataProcessor:
     """Process and transform benchmark results for visualization."""
     
@@ -664,15 +679,16 @@ class BenchmarkDataProcessor:
             for cloud_provider, instance_type in common_hw_configs:
                 hardware_configs.add((cloud_provider, instance_type))
                 
-                baseline_hw_data = baseline_test_df[
+                baseline_hw_df = baseline_test_df[
                     (baseline_test_df['cloud_provider'] == cloud_provider) &
                     (baseline_test_df['instance_type'] == instance_type)
-                ]['primary_metric_value']
-                
-                comparison_hw_data = comparison_test_df[
+                ]
+                comparison_hw_df = comparison_test_df[
                     (comparison_test_df['cloud_provider'] == cloud_provider) &
                     (comparison_test_df['instance_type'] == instance_type)
-                ]['primary_metric_value']
+                ]
+                baseline_hw_data = baseline_hw_df['primary_metric_value']
+                comparison_hw_data = comparison_hw_df['primary_metric_value']
                 
                 if len(baseline_hw_data) > 0 and len(comparison_hw_data) > 0:
                     baseline_mean = baseline_hw_data.mean()
@@ -703,6 +719,8 @@ class BenchmarkDataProcessor:
                             test,
                             regression_threshold=regression_threshold,
                         ),
+                        'baseline_document_id': _first_document_id(baseline_hw_df),
+                        'comparison_document_id': _first_document_id(comparison_hw_df),
                     })
         
         comparison_df = pd.DataFrame(comparison_results)
@@ -804,15 +822,16 @@ class BenchmarkDataProcessor:
             current_ver = os_versions[i]
             
             for test in test_names:
-                baseline_data = df_os[
-                    (df_os['os_version'] == baseline_ver) & 
+                baseline_rows = df_os[
+                    (df_os['os_version'] == baseline_ver) &
                     (df_os['test_name'] == test)
-                ]['primary_metric_value']
-                
-                current_data = df_os[
-                    (df_os['os_version'] == current_ver) & 
+                ]
+                comparison_rows = df_os[
+                    (df_os['os_version'] == current_ver) &
                     (df_os['test_name'] == test)
-                ]['primary_metric_value']
+                ]
+                baseline_data = baseline_rows['primary_metric_value']
+                current_data = comparison_rows['primary_metric_value']
                 
                 if len(baseline_data) > 0 and len(current_data) > 0:
                     baseline_mean = baseline_data.mean()
@@ -834,6 +853,8 @@ class BenchmarkDataProcessor:
                             test,
                             regression_threshold=regression_threshold,
                         ),
+                        'baseline_document_id': _first_document_id(baseline_rows),
+                        'comparison_document_id': _first_document_id(comparison_rows),
                     })
         
         comparison_df = pd.DataFrame(comparison_results)

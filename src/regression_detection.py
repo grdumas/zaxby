@@ -160,14 +160,16 @@ def sort_regressions_worst_first(
     if test_col not in regressions.columns:
         return regressions.sort_values(pct_col, ascending=True)
 
+    # Scratch column name must not collide with caller data (see PR #19 review).
+    _sort_key_col = "__regression_sort_key__"
     severity = regressions.apply(
         lambda r: regression_severity_score(r[pct_col], r[test_col]),
         axis=1,
     )
     return (
-        regressions.assign(_severity=severity)
-        .sort_values("_severity", ascending=False)
-        .drop(columns=["_severity"])
+        regressions.assign(**{_sort_key_col: severity})
+        .sort_values(_sort_key_col, ascending=False)
+        .drop(columns=[_sort_key_col])
     )
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 from src.comparison_policy import validate_comparison_request
+from src.query_service import MAX_PAGE_SIZE, MAX_SEARCH_HITS
 
 
 class _SearchResultsClient(Protocol):
@@ -24,8 +25,6 @@ class _SearchResultsClient(Protocol):
     def search_results(self, body: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         ...
 
-
-from src.query_service import MAX_PAGE_SIZE, MAX_SEARCH_HITS
 
 # OpenSearch field paths — align with docs/guides/COMPARISON_POLICY.md §6 and SCHEMA.md
 FIELD_TEST_NAME = "test.name.keyword"

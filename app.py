@@ -7,13 +7,17 @@ Main Dash application for visualizing benchmark results with three key analyses:
 3. Cloud Scaling: Analyze performance across cloud instance classes
 """
 
+from __future__ import annotations
+
 import os
 import json
 from datetime import datetime
 from io import StringIO
-from dash import Dash, html, dcc, Input, Output, State, callback
+from dash import Dash, html, dcc, Input, Output, State, callback, no_update
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from dotenv import load_dotenv
+import pandas as pd
 
 # Import local modules
 from src.opensearch_client import BenchmarkDataSource
@@ -150,216 +154,305 @@ USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE = os.getenv(
 # Initialize data processor
 processor = BenchmarkDataProcessor()
 
-# Load and process data
-print(f"Loading data in {DATA_MODE} mode...")
-raw_documents, OPENSEARCH_LOAD_ERROR, SYNTHETIC_AFTER_OPENSEARCH_FAILURE = (
-    load_initial_benchmark_documents(
-        DATA_MODE,
-        use_synthetic_after_opensearch_failure=USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE,
-        max_opensearch_docs=5000,
+# Populated by refresh_bootstrap_state() at import and after in-app OpenSearch retry
+raw_documents: list = []
+OPENSEARCH_LOAD_ERROR = None
+SYNTHETIC_AFTER_OPENSEARCH_FAILURE = False
+df: pd.DataFrame | None = None
+os_versions: list = []
+instance_types: list = []
+test_names: list = []
+cloud_providers: list = []
+os_distributions: list = []
+min_date = "2025-01-01"
+max_date = "2025-12-31"
+MODE_BADGE_LABEL = ""
+MODE_BADGE_COLOR = "secondary"
+os_version_map: dict = {}
+
+
+def refresh_bootstrap_state() -> None:
+    """Load or reload benchmark documents and refresh derived globals (startup and Retry button).
+
+    Mutates module-level state (``df``, filter metadata, etc.). Intended for a single worker
+    process (e.g. ``python app.py`` or one gunicorn worker); multiple workers would not share
+    these globals, and concurrent retry vs. callback reads could race.
+    """
+    global raw_documents, OPENSEARCH_LOAD_ERROR, SYNTHETIC_AFTER_OPENSEARCH_FAILURE
+    global df, os_versions, instance_types, test_names, cloud_providers, os_distributions
+    global min_date, max_date, os_version_map, MODE_BADGE_LABEL, MODE_BADGE_COLOR
+
+    print(f"Loading data in {DATA_MODE} mode...")
+    raw_documents, OPENSEARCH_LOAD_ERROR, SYNTHETIC_AFTER_OPENSEARCH_FAILURE = (
+        load_initial_benchmark_documents(
+            DATA_MODE,
+            use_synthetic_after_opensearch_failure=USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE,
+            max_opensearch_docs=5000,
+        )
     )
+    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is None:
+        print(f"Loaded {len(raw_documents)} documents from OpenSearch")
+    elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+        print(
+            "OpenSearch load failed; loaded synthetic data per "
+            "ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"
+        )
+    elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+        print(f"OpenSearch load failed: {OPENSEARCH_LOAD_ERROR or '(no message)'}")
+    df = processor.documents_to_dataframe(raw_documents)
+    print(f"Processed {len(df)} records")
+
+    os_versions = processor.get_unique_values(df, "os_version")
+    instance_types = processor.get_unique_values(df, "instance_type")
+    test_names = processor.get_unique_values(df, "test_name")
+    cloud_providers = processor.get_unique_values(df, "cloud_provider")
+    os_distributions = processor.get_unique_values(df, "os_distribution")
+    min_date = df["timestamp"].min().strftime("%Y-%m-%d") if len(df) > 0 else "2025-01-01"
+    max_date = df["timestamp"].max().strftime("%Y-%m-%d") if len(df) > 0 else "2025-12-31"
+
+    if SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+        MODE_BADGE_LABEL = "SYNTHETIC (after OpenSearch failure — env opt-in)"
+        MODE_BADGE_COLOR = "warning"
+    elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+        MODE_BADGE_LABEL = "OPENSEARCH (load failed — no data)"
+        MODE_BADGE_COLOR = "danger"
+    else:
+        MODE_BADGE_LABEL = DATA_MODE.upper()
+        MODE_BADGE_COLOR = "secondary"
+
+    os_version_map = {}
+    if len(df) > 0:
+        for dist in df["os_distribution"].dropna().unique():
+            versions = df[df["os_distribution"] == dist]["os_version"].dropna().unique().tolist()
+            os_version_map[dist] = sorted(versions, key=lambda v: [float(x) for x in str(v).split(".")] if v else [0])
+
+
+refresh_bootstrap_state()
+
+
+def _opensearch_alert_banners() -> list:
+    """Top-of-page alerts for OpenSearch load issues (content reflects current globals)."""
+    banners: list = []
+    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
+        banners.append(
+            dbc.Alert(
+                [
+                    html.Strong("OpenSearch unavailable — showing synthetic sample data. "),
+                    "You set ",
+                    html.Code("ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"),
+                    ". Underlying error: ",
+                    html.Code(OPENSEARCH_LOAD_ERROR or "(unknown)"),
+                ],
+                color="warning",
+                className="mb-3",
+            )
+        )
+    elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
+        banners.append(
+            dbc.Alert(
+                [
+                    html.H4("Could not load benchmark data from OpenSearch", className="alert-heading"),
+                    html.P(
+                        [
+                            "With ",
+                            html.Code("DATA_MODE=opensearch"),
+                            ", the app does not silently switch to synthetic data. ",
+                            "Fix the connection or choose an explicit recovery option below.",
+                        ]
+                    ),
+                    html.Hr(),
+                    html.P([html.Strong("Error: "), html.Code(OPENSEARCH_LOAD_ERROR or "(unknown)")]),
+                    html.Ul(
+                        [
+                            html.Li(
+                                [
+                                    "Use ",
+                                    html.Strong("Retry OpenSearch"),
+                                    " in the header after fixing credentials, network, or index settings ",
+                                    "(or restart the app if the problem persists).",
+                                ]
+                            ),
+                            html.Li(
+                                [
+                                    "Offline demo: set ",
+                                    html.Code("DATA_MODE=synthetic"),
+                                    " in ",
+                                    html.Code(".env"),
+                                    " and restart.",
+                                ]
+                            ),
+                            html.Li(
+                                [
+                                    "Keep ",
+                                    html.Code("DATA_MODE=opensearch"),
+                                    " but load synthetic only after a failed OpenSearch attempt: set ",
+                                    html.Code("ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"),
+                                    " and restart. The header will show that data is not live OpenSearch.",
+                                ]
+                            ),
+                        ],
+                        className="mb-0",
+                    ),
+                ],
+                color="danger",
+                className="mb-3",
+            )
+        )
+    return banners
+
+
+def serve_layout():
+    """Callable layout so a full reload after Retry picks up refreshed benchmark state."""
+    show_opensearch_retry = DATA_MODE == "opensearch" and (
+        OPENSEARCH_LOAD_ERROR is not None or SYNTHETIC_AFTER_OPENSEARCH_FAILURE
+    )
+    return dbc.Container(
+        [
+            dcc.Location(id="opensearch-retry-reload", refresh=True),
+            *_opensearch_alert_banners(),
+            # Store for filtered data and analysis results
+            dcc.Store(id='filtered-data-store'),
+            dcc.Store(id='analysis-results-store'),
+            dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
+
+            # Header
+            dbc.Card([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                html.H1([
+                                    html.Span("🔬 ", style={"fontSize": "2rem"}),
+                                    "RHEL Multi Arch Performance Engineering Dashboard"
+                                ], className="mb-2"),
+                                html.P(
+                                    "Benchmark Analysis & Regression Detection",
+                                    className="text-muted mb-0",
+                                    style={"fontSize": "1.1rem"}
+                                ),
+                            ]),
+                        ], width=7),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Button(
+                                    [
+                                        html.I(className="bi bi-arrow-repeat me-1"),
+                                        "Retry OpenSearch",
+                                    ],
+                                    id="btn-retry-opensearch",
+                                    color="outline-primary",
+                                    size="sm",
+                                    className="me-2"
+                                    + ("" if show_opensearch_retry else " d-none"),
+                                ),
+                                html.Button(
+                                    id="dark-mode-toggle",
+                                    className="me-3",
+                                    style={
+                                        "border": "none",
+                                        "background": "transparent",
+                                        "cursor": "pointer",
+                                        "padding": "0"
+                                    },
+                                    **{"aria-label": "Toggle dark mode"}
+                                ),
+                                dbc.Badge(
+                                    f"📊 {len(df):,} Records",
+                                    color="primary",
+                                    className="me-2 px-3 py-2",
+                                    style={"fontSize": "0.9rem"}
+                                ),
+                                dbc.Badge(
+                                    f"Mode: {MODE_BADGE_LABEL}",
+                                    color=MODE_BADGE_COLOR,
+                                    className="px-3 py-2",
+                                    style={"fontSize": "0.9rem"}
+                                ),
+                            ], className="d-flex justify-content-end align-items-center h-100")
+                        ], width=5)
+                    ]),
+                    html.Hr(className="my-3", style={"borderTop": "2px solid #e5e7eb"}),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("📅 Date Range:", className="fw-bold text-muted small mb-1"),
+                            dcc.DatePickerRange(
+                                id='header-date-range',
+                                start_date=min_date,
+                                end_date=max_date,
+                                display_format='YYYY-MM-DD',
+                                className="mb-2"
+                            ),
+                        ], width=5),
+                        dbc.Col([
+                            dbc.Button(
+                                [html.I(className="bi bi-sliders me-2"), "Advanced Filters"],
+                                id="btn-show-filters",
+                                size="md",
+                                color="secondary",
+                                className="w-100"
+                            ),
+                        ], width=3, className="d-flex align-items-end")
+                    ], className="mt-2"),
+                    html.Div(id="opensearch-retry-status", className="text-end mt-2 small"),
+                ], style={
+                    "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+                    "borderRadius": "0.75rem"
+                })
+            ], id="dashboard-header", className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
+
+            # Advanced Filters Collapse
+            dbc.Collapse([
+                dbc.Card([
+                    dbc.CardBody([
+                        filters.create_filter_panel(
+                            os_versions=os_versions,
+                            instance_types=instance_types,
+                            test_names=test_names,
+                            cloud_providers=cloud_providers,
+                            min_date=min_date,
+                            max_date=max_date,
+                            os_version_map=os_version_map
+                        )
+                    ])
+                ], className="mb-3")
+            ], id="collapse-filters", is_open=False),
+
+            # Main Content - switches between overview and investigation
+            html.Div(id="main-content")
+
+    ], fluid=True)
+
+
+app.layout = serve_layout
+
+
+@app.callback(
+    Output("opensearch-retry-status", "children"),
+    Output("opensearch-retry-reload", "href"),
+    Input("btn-retry-opensearch", "n_clicks"),
+    prevent_initial_call=True,
 )
-if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is None:
-    print(f"Loaded {len(raw_documents)} documents from OpenSearch")
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
-    print(
-        "OpenSearch load failed; loaded synthetic data per "
-        "ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"
-    )
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
-    print(f"OpenSearch load failed: {OPENSEARCH_LOAD_ERROR or '(no message)'}")
-df = processor.documents_to_dataframe(raw_documents)
-print(f"Processed {len(df)} records")
-
-# Extract filter options
-os_versions = processor.get_unique_values(df, 'os_version')
-instance_types = processor.get_unique_values(df, 'instance_type')
-test_names = processor.get_unique_values(df, 'test_name')
-cloud_providers = processor.get_unique_values(df, 'cloud_provider')
-os_distributions = processor.get_unique_values(df, 'os_distribution')
-min_date = df['timestamp'].min().strftime('%Y-%m-%d') if len(df) > 0 else '2025-01-01'
-max_date = df['timestamp'].max().strftime('%Y-%m-%d') if len(df) > 0 else '2025-12-31'
-
-if SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
-    MODE_BADGE_LABEL = "SYNTHETIC (after OpenSearch failure — env opt-in)"
-    MODE_BADGE_COLOR = "warning"
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
-    MODE_BADGE_LABEL = "OPENSEARCH (load failed — no data)"
-    MODE_BADGE_COLOR = "danger"
-else:
-    MODE_BADGE_LABEL = DATA_MODE.upper()
-    MODE_BADGE_COLOR = "secondary"
-
-# Create OS version map grouped by distribution (e.g., {'rhel': ['9.4', '9.5'], 'ubuntu': ['22.04']})
-os_version_map = {}
-if len(df) > 0:
-    for dist in df['os_distribution'].dropna().unique():
-        versions = df[df['os_distribution'] == dist]['os_version'].dropna().unique().tolist()
-        os_version_map[dist] = sorted(versions, key=lambda v: [float(x) for x in str(v).split('.')] if v else [0])
-
-# App Layout
-_opensearch_banners: list = []
-if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None and SYNTHETIC_AFTER_OPENSEARCH_FAILURE:
-    _opensearch_banners.append(
+def retry_opensearch_connection(_n_clicks):
+    """Reload benchmark data from OpenSearch without restarting the process."""
+    # Defensive: UI hides the button unless DATA_MODE is opensearch, but keep a guard if layout changes.
+    if DATA_MODE != "opensearch":
+        raise PreventUpdate
+    refresh_bootstrap_state()
+    if OPENSEARCH_LOAD_ERROR is None:
+        return "", "/"
+    err = OPENSEARCH_LOAD_ERROR or "(unknown)"
+    return (
         dbc.Alert(
             [
-                html.Strong("OpenSearch unavailable — showing synthetic sample data. "),
-                "You set ",
-                html.Code("ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"),
-                ". Underlying error: ",
-                html.Code(OPENSEARCH_LOAD_ERROR or "(unknown)"),
+                "Still cannot reach OpenSearch: ",
+                html.Code(err),
             ],
             color="warning",
-            className="mb-3",
-        )
+            className="mb-0 py-2",
+            dismissable=True,
+        ),
+        no_update,
     )
-elif DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is not None:
-    _opensearch_banners.append(
-        dbc.Alert(
-            [
-                html.H4("Could not load benchmark data from OpenSearch", className="alert-heading"),
-                html.P(
-                    [
-                        "With ",
-                        html.Code("DATA_MODE=opensearch"),
-                        ", the app does not silently switch to synthetic data. ",
-                        "Fix the connection or choose an explicit recovery option below.",
-                    ]
-                ),
-                html.Hr(),
-                html.P([html.Strong("Error: "), html.Code(OPENSEARCH_LOAD_ERROR or "(unknown)")]),
-                html.Ul(
-                    [
-                        html.Li("Retry after fixing credentials, network, or index settings, then restart the app."),
-                        html.Li(
-                            [
-                                "Offline demo: set ",
-                                html.Code("DATA_MODE=synthetic"),
-                                " in ",
-                                html.Code(".env"),
-                                " and restart.",
-                            ]
-                        ),
-                        html.Li(
-                            [
-                                "Keep ",
-                                html.Code("DATA_MODE=opensearch"),
-                                " but load synthetic only after a failed OpenSearch attempt: set ",
-                                html.Code("ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE=1"),
-                                " and restart. The header will show that data is not live OpenSearch.",
-                            ]
-                        ),
-                    ],
-                    className="mb-0",
-                ),
-            ],
-            color="danger",
-            className="mb-3",
-        )
-    )
-
-app.layout = dbc.Container(
-    [
-        *_opensearch_banners,
-    # Store for filtered data and analysis results
-    dcc.Store(id='filtered-data-store'),
-    dcc.Store(id='analysis-results-store'),
-    dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
-    
-    # Header
-    dbc.Card([
-        dbc.CardBody([
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.H1([
-                            html.Span("🔬 ", style={"fontSize": "2rem"}),
-                            "RHEL Multi Arch Performance Engineering Dashboard"
-                        ], className="mb-2"),
-                        html.P(
-                            "Benchmark Analysis & Regression Detection",
-                            className="text-muted mb-0",
-                            style={"fontSize": "1.1rem"}
-                        ),
-                    ]),
-                ], width=7),
-                dbc.Col([
-                    html.Div([
-                        html.Button(
-                            id="dark-mode-toggle",
-                            className="me-3",
-                            style={
-                                "border": "none",
-                                "background": "transparent",
-                                "cursor": "pointer",
-                                "padding": "0"
-                            },
-                            **{"aria-label": "Toggle dark mode"}
-                        ),
-                        dbc.Badge(
-                            f"📊 {len(df):,} Records",
-                            color="primary",
-                            className="me-2 px-3 py-2",
-                            style={"fontSize": "0.9rem"}
-                        ),
-                        dbc.Badge(
-                            f"Mode: {MODE_BADGE_LABEL}",
-                            color=MODE_BADGE_COLOR,
-                            className="px-3 py-2",
-                            style={"fontSize": "0.9rem"}
-                        ),
-                    ], className="d-flex justify-content-end align-items-center h-100")
-                ], width=5)
-            ]),
-            html.Hr(className="my-3", style={"borderTop": "2px solid #e5e7eb"}),
-            dbc.Row([
-                dbc.Col([
-                    html.Label("📅 Date Range:", className="fw-bold text-muted small mb-1"),
-                    dcc.DatePickerRange(
-                        id='header-date-range',
-                        start_date=min_date,
-                        end_date=max_date,
-                        display_format='YYYY-MM-DD',
-                        className="mb-2"
-                    ),
-                ], width=5),
-                dbc.Col([
-                    dbc.Button(
-                        [html.I(className="bi bi-sliders me-2"), "Advanced Filters"],
-                        id="btn-show-filters",
-                        size="md",
-                        color="secondary",
-                        className="w-100"
-                    ),
-                ], width=3, className="d-flex align-items-end")
-            ], className="mt-2")
-        ], style={
-            "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
-            "borderRadius": "0.75rem"
-        })
-    ], id="dashboard-header", className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
-    
-    # Advanced Filters Collapse
-    dbc.Collapse([
-        dbc.Card([
-            dbc.CardBody([
-                filters.create_filter_panel(
-                    os_versions=os_versions,
-                    instance_types=instance_types,
-                    test_names=test_names,
-                    cloud_providers=cloud_providers,
-                    min_date=min_date,
-                    max_date=max_date,
-                    os_version_map=os_version_map
-                )
-            ])
-        ], className="mb-3")
-    ], id="collapse-filters", is_open=False),
-    
-    # Main Content - switches between overview and investigation
-    html.Div(id="main-content")
-    
-], fluid=True)
 
 
 # Clientside callback for dark mode toggle

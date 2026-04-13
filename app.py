@@ -26,6 +26,7 @@ from src.query_service import (
 )
 from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
 from src.regression_detection import sort_regressions_worst_first
+from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
 from src.components import filters, visualizations
 from src.components.summaries import (
     format_regression_summary,
@@ -2070,25 +2071,57 @@ def handle_back_to_overview(n_clicks):
 def update_investigation_view(nav_state, filtered_data_json):
     """Update investigation drill-down view."""
     import pandas as pd
-    
-    if not nav_state or nav_state['view'] != 'investigation' or not filtered_data_json:
-        empty_fig = visualizations.create_empty_figure("No investigation data")
+
+    empty_fig = visualizations.create_empty_figure("No investigation data")
+
+    if not nav_state or nav_state['view'] != 'investigation':
         return "", empty_fig, empty_fig, ""
-    
+
     params = nav_state.get('investigation_params', {})
     test_name = params.get('test_name', 'Unknown')
     baseline_version = params.get('baseline_version', 'N/A')
     comparison_version = params.get('comparison_version', 'N/A')
     os_distribution = params.get('os_distribution', 'rhel')
-    
-    filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
-    
-    # Filter data for this specific test and OS distribution
-    test_df = filtered_df[
-        (filtered_df['test_name'] == test_name) & 
-        (filtered_df['os_distribution'].str.lower() == os_distribution.lower())
-    ]
-    
+
+    # P1-A: bounded OpenSearch query from investigation template (not capped scroll slice)
+    use_server_investigation = (
+        DATA_MODE == "opensearch"
+        and OPENSEARCH_LOAD_ERROR is None
+        and not SYNTHETIC_AFTER_OPENSEARCH_FAILURE
+    )
+    investigation_scope_note = None
+
+    if use_server_investigation:
+        try:
+            client = BenchmarkDataSource()
+            tid, _normalized, sources = fetch_investigation_documents(params, client)
+            test_df = processor.documents_to_dataframe(sources)
+            investigation_scope_note = (
+                f"Data: OpenSearch template {tid} ({len(test_df)} run document(s); "
+                "scoped query, not limited to the overview document cap)."
+            )
+        except InvestigationTemplateError as exc:
+            summary = dbc.Alert(
+                ["Invalid investigation parameters: ", html.Code(str(exc))],
+                color="danger",
+            )
+            return summary, empty_fig, empty_fig, ""
+        except Exception as exc:  # noqa: BLE001 — OpenSearch errors vary
+            summary = dbc.Alert(
+                ["Investigation query failed: ", html.Code(str(exc))],
+                color="warning",
+            )
+            return summary, empty_fig, empty_fig, ""
+    else:
+        if not filtered_data_json:
+            return "", empty_fig, empty_fig, ""
+        filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+        # Filter data for this specific test and OS distribution
+        test_df = filtered_df[
+            (filtered_df['test_name'] == test_name)
+            & (filtered_df['os_distribution'].str.lower() == os_distribution.lower())
+        ]
+
     if test_df.empty:
         empty_fig = visualizations.create_empty_figure(f"No data for {test_name}")
         summary = dbc.Alert("No data available for this test", color="warning")
@@ -2109,10 +2142,15 @@ def update_investigation_view(nav_state, filtered_data_json):
     alert_color = summary_data.get('status', 'info')
     status_icon = get_status_icon(1 if summary_data.get('is_regression', False) else 0)
     
-    summary_component = dbc.Alert([
+    summary_children = [
         html.H4([status_icon, f" {summary_data.get('status_text', 'Analysis')}"], className="mb-3"),
-        dcc.Markdown(summary_text)
-    ], color=alert_color)
+        dcc.Markdown(summary_text),
+    ]
+    if investigation_scope_note:
+        summary_children.append(
+            html.P(investigation_scope_note, className="text-muted small mb-0")
+        )
+    summary_component = dbc.Alert(summary_children, color=alert_color)
     
     # Create comparison chart
     comparison_fig = visualizations.create_investigation_detail_chart(

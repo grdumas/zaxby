@@ -7,6 +7,8 @@ Main Dash application for visualizing benchmark results with three key analyses:
 3. Cloud Scaling: Analyze performance across cloud instance classes
 """
 
+from __future__ import annotations
+
 import os
 import json
 from datetime import datetime
@@ -15,6 +17,7 @@ from dash import Dash, html, dcc, Input, Output, State, callback, no_update
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from dotenv import load_dotenv
+import pandas as pd
 
 # Import local modules
 from src.opensearch_client import BenchmarkDataSource
@@ -155,7 +158,7 @@ processor = BenchmarkDataProcessor()
 raw_documents: list = []
 OPENSEARCH_LOAD_ERROR = None
 SYNTHETIC_AFTER_OPENSEARCH_FAILURE = False
-df = None
+df: pd.DataFrame | None = None
 os_versions: list = []
 instance_types: list = []
 test_names: list = []
@@ -169,7 +172,12 @@ os_version_map: dict = {}
 
 
 def refresh_bootstrap_state() -> None:
-    """Load or reload benchmark documents and refresh derived globals (startup and Retry button)."""
+    """Load or reload benchmark documents and refresh derived globals (startup and Retry button).
+
+    Mutates module-level state (``df``, filter metadata, etc.). Intended for a single worker
+    process (e.g. ``python app.py`` or one gunicorn worker); multiple workers would not share
+    these globals, and concurrent retry vs. callback reads could race.
+    """
     global raw_documents, OPENSEARCH_LOAD_ERROR, SYNTHETIC_AFTER_OPENSEARCH_FAILURE
     global df, os_versions, instance_types, test_names, cloud_providers, os_distributions
     global min_date, max_date, os_version_map, MODE_BADGE_LABEL, MODE_BADGE_COLOR
@@ -299,120 +307,120 @@ def serve_layout():
         OPENSEARCH_LOAD_ERROR is not None or SYNTHETIC_AFTER_OPENSEARCH_FAILURE
     )
     return dbc.Container(
-    [
-        dcc.Location(id="opensearch-retry-reload", refresh=True),
-        *_opensearch_alert_banners(),
-    # Store for filtered data and analysis results
-    dcc.Store(id='filtered-data-store'),
-    dcc.Store(id='analysis-results-store'),
-    dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
-    
-    # Header
-    dbc.Card([
-        dbc.CardBody([
-            dbc.Row([
-                dbc.Col([
-                    html.Div([
-                        html.H1([
-                            html.Span("🔬 ", style={"fontSize": "2rem"}),
-                            "RHEL Multi Arch Performance Engineering Dashboard"
-                        ], className="mb-2"),
-                        html.P(
-                            "Benchmark Analysis & Regression Detection",
-                            className="text-muted mb-0",
-                            style={"fontSize": "1.1rem"}
-                        ),
+        [
+            dcc.Location(id="opensearch-retry-reload", refresh=True),
+            *_opensearch_alert_banners(),
+            # Store for filtered data and analysis results
+            dcc.Store(id='filtered-data-store'),
+            dcc.Store(id='analysis-results-store'),
+            dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
+
+            # Header
+            dbc.Card([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                html.H1([
+                                    html.Span("🔬 ", style={"fontSize": "2rem"}),
+                                    "RHEL Multi Arch Performance Engineering Dashboard"
+                                ], className="mb-2"),
+                                html.P(
+                                    "Benchmark Analysis & Regression Detection",
+                                    className="text-muted mb-0",
+                                    style={"fontSize": "1.1rem"}
+                                ),
+                            ]),
+                        ], width=7),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Button(
+                                    [
+                                        html.I(className="bi bi-arrow-repeat me-1"),
+                                        "Retry OpenSearch",
+                                    ],
+                                    id="btn-retry-opensearch",
+                                    color="outline-primary",
+                                    size="sm",
+                                    className="me-2"
+                                    + ("" if show_opensearch_retry else " d-none"),
+                                ),
+                                html.Button(
+                                    id="dark-mode-toggle",
+                                    className="me-3",
+                                    style={
+                                        "border": "none",
+                                        "background": "transparent",
+                                        "cursor": "pointer",
+                                        "padding": "0"
+                                    },
+                                    **{"aria-label": "Toggle dark mode"}
+                                ),
+                                dbc.Badge(
+                                    f"📊 {len(df):,} Records",
+                                    color="primary",
+                                    className="me-2 px-3 py-2",
+                                    style={"fontSize": "0.9rem"}
+                                ),
+                                dbc.Badge(
+                                    f"Mode: {MODE_BADGE_LABEL}",
+                                    color=MODE_BADGE_COLOR,
+                                    className="px-3 py-2",
+                                    style={"fontSize": "0.9rem"}
+                                ),
+                            ], className="d-flex justify-content-end align-items-center h-100")
+                        ], width=5)
                     ]),
-                ], width=7),
-                dbc.Col([
-                    html.Div([
-                        dbc.Button(
-                            [
-                                html.I(className="bi bi-arrow-repeat me-1"),
-                                "Retry OpenSearch",
-                            ],
-                            id="btn-retry-opensearch",
-                            color="outline-primary",
-                            size="sm",
-                            className="me-2"
-                            + ("" if show_opensearch_retry else " d-none"),
-                        ),
-                        html.Button(
-                            id="dark-mode-toggle",
-                            className="me-3",
-                            style={
-                                "border": "none",
-                                "background": "transparent",
-                                "cursor": "pointer",
-                                "padding": "0"
-                            },
-                            **{"aria-label": "Toggle dark mode"}
-                        ),
-                        dbc.Badge(
-                            f"📊 {len(df):,} Records",
-                            color="primary",
-                            className="me-2 px-3 py-2",
-                            style={"fontSize": "0.9rem"}
-                        ),
-                        dbc.Badge(
-                            f"Mode: {MODE_BADGE_LABEL}",
-                            color=MODE_BADGE_COLOR,
-                            className="px-3 py-2",
-                            style={"fontSize": "0.9rem"}
-                        ),
-                    ], className="d-flex justify-content-end align-items-center h-100")
-                ], width=5)
-            ]),
-            html.Hr(className="my-3", style={"borderTop": "2px solid #e5e7eb"}),
-            dbc.Row([
-                dbc.Col([
-                    html.Label("📅 Date Range:", className="fw-bold text-muted small mb-1"),
-                    dcc.DatePickerRange(
-                        id='header-date-range',
-                        start_date=min_date,
-                        end_date=max_date,
-                        display_format='YYYY-MM-DD',
-                        className="mb-2"
-                    ),
-                ], width=5),
-                dbc.Col([
-                    dbc.Button(
-                        [html.I(className="bi bi-sliders me-2"), "Advanced Filters"],
-                        id="btn-show-filters",
-                        size="md",
-                        color="secondary",
-                        className="w-100"
-                    ),
-                ], width=3, className="d-flex align-items-end")
-            ], className="mt-2"),
-            html.Div(id="opensearch-retry-status", className="text-end mt-2 small"),
-        ], style={
-            "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
-            "borderRadius": "0.75rem"
-        })
-    ], id="dashboard-header", className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
-    
-    # Advanced Filters Collapse
-    dbc.Collapse([
-        dbc.Card([
-            dbc.CardBody([
-                filters.create_filter_panel(
-                    os_versions=os_versions,
-                    instance_types=instance_types,
-                    test_names=test_names,
-                    cloud_providers=cloud_providers,
-                    min_date=min_date,
-                    max_date=max_date,
-                    os_version_map=os_version_map
-                )
-            ])
-        ], className="mb-3")
-    ], id="collapse-filters", is_open=False),
-    
-    # Main Content - switches between overview and investigation
-    html.Div(id="main-content")
-    
-], fluid=True)
+                    html.Hr(className="my-3", style={"borderTop": "2px solid #e5e7eb"}),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("📅 Date Range:", className="fw-bold text-muted small mb-1"),
+                            dcc.DatePickerRange(
+                                id='header-date-range',
+                                start_date=min_date,
+                                end_date=max_date,
+                                display_format='YYYY-MM-DD',
+                                className="mb-2"
+                            ),
+                        ], width=5),
+                        dbc.Col([
+                            dbc.Button(
+                                [html.I(className="bi bi-sliders me-2"), "Advanced Filters"],
+                                id="btn-show-filters",
+                                size="md",
+                                color="secondary",
+                                className="w-100"
+                            ),
+                        ], width=3, className="d-flex align-items-end")
+                    ], className="mt-2"),
+                    html.Div(id="opensearch-retry-status", className="text-end mt-2 small"),
+                ], style={
+                    "background": "linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)",
+                    "borderRadius": "0.75rem"
+                })
+            ], id="dashboard-header", className="mb-4 mt-3", style={"border": "none", "boxShadow": "0 4px 12px rgba(0,0,0,0.1)"}),
+
+            # Advanced Filters Collapse
+            dbc.Collapse([
+                dbc.Card([
+                    dbc.CardBody([
+                        filters.create_filter_panel(
+                            os_versions=os_versions,
+                            instance_types=instance_types,
+                            test_names=test_names,
+                            cloud_providers=cloud_providers,
+                            min_date=min_date,
+                            max_date=max_date,
+                            os_version_map=os_version_map
+                        )
+                    ])
+                ], className="mb-3")
+            ], id="collapse-filters", is_open=False),
+
+            # Main Content - switches between overview and investigation
+            html.Div(id="main-content")
+
+    ], fluid=True)
 
 
 app.layout = serve_layout
@@ -424,10 +432,9 @@ app.layout = serve_layout
     Input("btn-retry-opensearch", "n_clicks"),
     prevent_initial_call=True,
 )
-def retry_opensearch_connection(n_clicks):
+def retry_opensearch_connection(_n_clicks):
     """Reload benchmark data from OpenSearch without restarting the process."""
-    if not n_clicks:
-        raise PreventUpdate
+    # Defensive: UI hides the button unless DATA_MODE is opensearch, but keep a guard if layout changes.
     if DATA_MODE != "opensearch":
         raise PreventUpdate
     refresh_bootstrap_state()

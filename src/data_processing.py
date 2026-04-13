@@ -865,8 +865,10 @@ class BenchmarkDataProcessor:
         comparison_df = pd.DataFrame(comparison_results)
         
         # Identify regressions (worst-first for top-k summary; direction-aware)
-        regressions = sort_regressions_worst_first(
-            comparison_df[comparison_df['is_regression']]
+        regressions = (
+            sort_regressions_worst_first(comparison_df[comparison_df['is_regression']])
+            if not comparison_df.empty
+            else pd.DataFrame()
         )
         
         # Create heatmap data (pivot table) - only for the specified OS distribution

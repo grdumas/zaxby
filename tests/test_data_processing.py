@@ -279,4 +279,35 @@ def test_compare_two_versions_propagates_document_ids(processor):
     assert row["comparison_document_id"] == "doc-c1"
 
 
+def test_analyze_os_version_regressions_empty_comparison_matrix_no_keyerror(processor):
+    """
+    When no test×version pair yields both baseline and current rows, comparison_results
+    is empty; DataFrame has no columns and must not index ``is_regression`` without a guard.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "os_distribution": "rhel",
+                "os_version": "9.0",
+                "test_name": "coremark",
+                "primary_metric_value": 100.0,
+                "status": "PASS",
+            },
+            {
+                "os_distribution": "rhel",
+                "os_version": "9.1",
+                "test_name": "streams",
+                "primary_metric_value": 200.0,
+                "status": "PASS",
+            },
+        ]
+    )
+    out = processor.analyze_os_version_regressions(
+        df, os_distribution="rhel", os_versions=["9.0", "9.1"]
+    )
+    assert out["comparison_data"].empty
+    assert out["num_regressions"] == 0
+    assert out["regressions"] == []
+
+
 

@@ -13,10 +13,18 @@ This module starts with the RHEL regression chart drill-down
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 from src.comparison_policy import validate_comparison_request
 from src.query_service import MAX_PAGE_SIZE, MAX_SEARCH_HITS
+
+
+class _SearchResultsClient(Protocol):
+    """Minimal protocol for :func:`fetch_investigation_documents`."""
+
+    def search_results(self, body: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        ...
+
 
 # OpenSearch field paths — align with docs/guides/COMPARISON_POLICY.md §6 and SCHEMA.md
 FIELD_TEST_NAME = "test.name.keyword"
@@ -175,3 +183,25 @@ def resolve_and_build_opensearch_query(
     sz = size if size is not None else MAX_PAGE_SIZE
     body = build_zathras_results_search_body(tid, normalized, size=sz)
     return tid, normalized, body
+
+
+def fetch_investigation_documents(
+    ui_params: Mapping[str, Any],
+    search_client: _SearchResultsClient,
+    *,
+    size: Optional[int] = None,
+) -> tuple[str, Dict[str, Any], List[Dict[str, Any]]]:
+    """
+    Resolve UI params, run ``search_client.search_results`` on the results index, and
+    return ``(template_id, normalized_params, sources)`` where ``sources`` are document
+    bodies (``_source``) for :meth:`BenchmarkDataProcessor.documents_to_dataframe`.
+    """
+    tid, normalized, body = resolve_and_build_opensearch_query(ui_params, size=size)
+    resp = search_client.search_results(body)
+    hits = resp.get("hits", {}).get("hits", [])
+    sources: List[Dict[str, Any]] = []
+    for h in hits:
+        src = h.get("_source")
+        if isinstance(src, dict):
+            sources.append(src)
+    return tid, normalized, sources

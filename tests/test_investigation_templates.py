@@ -1,5 +1,7 @@
 """Tests for investigation template resolution and OpenSearch body building (P1-A)."""
 
+from typing import Any, Dict, Optional
+
 import pytest
 
 from src.investigation_templates import (
@@ -8,6 +10,7 @@ from src.investigation_templates import (
     FIELD_TEST_NAME,
     InvestigationTemplateError,
     build_zathras_results_search_body,
+    fetch_investigation_documents,
     normalize_investigation_params,
     resolve_and_build_opensearch_query,
     resolve_ui_investigation_to_template,
@@ -117,3 +120,41 @@ def test_resolve_and_build_opensearch_query_default_size_none_uses_max_page():
 def test_build_unknown_template_raises():
     with pytest.raises(InvestigationTemplateError, match="No OpenSearch query builder"):
         build_zathras_results_search_body("TPL_PEER_OS", {}, size=10)
+
+
+class _FakeSearchClient:
+    """Stub with ``search_results`` for :func:`fetch_investigation_documents` tests."""
+
+    def __init__(self, response: Dict[str, Any]):
+        self.response = response
+        self.last_body: Optional[Dict[str, Any]] = None
+
+    def search_results(self, body: Dict[str, Any], **kwargs):
+        self.last_body = body
+        return self.response
+
+
+def test_fetch_investigation_documents_extracts_sources_and_forwards_body():
+    """OpenSearch response hits are flattened to _source list; search body is from template."""
+    os_response = {
+        "hits": {
+            "hits": [
+                {"_source": {"test": {"name": "coremark"}, "metadata": {"document_id": "d1"}}},
+                {"_source": {"test": {"name": "coremark"}, "metadata": {"document_id": "d2"}}},
+            ]
+        }
+    }
+    client = _FakeSearchClient(os_response)
+    tid, norm, sources = fetch_investigation_documents(_minimal_ui_params(), client)
+    assert tid == "TPL_RHEL_MINOR_SAME_HW"
+    assert norm["test_name"] == "coremark"
+    assert len(sources) == 2
+    assert sources[0]["metadata"]["document_id"] == "d1"
+    assert client.last_body is not None
+    assert client.last_body["query"]["bool"]["filter"]  # template body present
+
+
+def test_fetch_investigation_documents_skips_hits_without_source():
+    client = _FakeSearchClient({"hits": {"hits": [{"_id": "x"}]}})
+    _tid, _norm, sources = fetch_investigation_documents(_minimal_ui_params(), client)
+    assert sources == []

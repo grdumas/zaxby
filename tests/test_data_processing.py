@@ -4,7 +4,7 @@ Tests for data processing module.
 
 import pytest
 import pandas as pd
-from src.data_processing import BenchmarkDataProcessor
+from src.data_processing import BenchmarkDataProcessor, _first_document_id
 
 
 @pytest.fixture
@@ -229,6 +229,85 @@ def test_extract_record_primary_metric_fallback_from_runs(processor):
     record = processor._extract_record(doc)
     assert record["primary_metric_value"] == 123456.0
     assert record["primary_metric_name"] == "iterations_per_second"
+
+
+def test_first_document_id_empty():
+    assert _first_document_id(pd.DataFrame()) is None
+
+
+def test_first_document_id_missing_column():
+    df = pd.DataFrame({"a": [1]})
+    assert _first_document_id(df) is None
+
+
+def test_first_document_id_first_non_null():
+    df = pd.DataFrame({"document_id": [None, "x", "y"]})
+    assert _first_document_id(df) == "x"
+
+
+def test_compare_two_versions_propagates_document_ids(processor):
+    """Aggregated comparison rows carry representative document_ids for Discover."""
+    df = pd.DataFrame(
+        [
+            {
+                "os_version": "9.0",
+                "test_name": "coremark",
+                "cloud_provider": "aws",
+                "instance_type": "m5.xlarge",
+                "primary_metric_value": 100.0,
+                "benchmark_category": "cpu",
+                "document_id": "doc-b1",
+                "status": "PASS",
+            },
+            {
+                "os_version": "10.0",
+                "test_name": "coremark",
+                "cloud_provider": "aws",
+                "instance_type": "m5.xlarge",
+                "primary_metric_value": 80.0,
+                "benchmark_category": "cpu",
+                "document_id": "doc-c1",
+                "status": "PASS",
+            },
+        ]
+    )
+    out = processor._compare_two_versions(df, "9.0", "10.0", -5.0, label="t")
+    comp = out["comparison_data"]
+    assert not comp.empty
+    row = comp.iloc[0]
+    assert row["baseline_document_id"] == "doc-b1"
+    assert row["comparison_document_id"] == "doc-c1"
+
+
+def test_analyze_os_version_regressions_empty_comparison_matrix_no_keyerror(processor):
+    """
+    When no test×version pair yields both baseline and current rows, comparison_results
+    is empty; DataFrame has no columns and must not index ``is_regression`` without a guard.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "os_distribution": "rhel",
+                "os_version": "9.0",
+                "test_name": "coremark",
+                "primary_metric_value": 100.0,
+                "status": "PASS",
+            },
+            {
+                "os_distribution": "rhel",
+                "os_version": "9.1",
+                "test_name": "streams",
+                "primary_metric_value": 200.0,
+                "status": "PASS",
+            },
+        ]
+    )
+    out = processor.analyze_os_version_regressions(
+        df, os_distribution="rhel", os_versions=["9.0", "9.1"]
+    )
+    assert out["comparison_data"].empty
+    assert out["num_regressions"] == 0
+    assert out["regressions"] == []
 
 
 

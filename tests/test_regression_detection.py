@@ -14,6 +14,8 @@ from src.regression_detection import (
     is_regression_higher_is_better,
     is_regression_lower_is_better,
     percent_change,
+    regression_severity_score,
+    sort_regressions_worst_first,
 )
 
 
@@ -160,3 +162,81 @@ def test_filter_regression_math_empty():
     out = filter_dataframe_for_regression_math(df)
     assert out.empty
     assert out is not df
+
+
+def test_regression_severity_score_higher_is_better():
+    assert regression_severity_score(-20.0, "streams") == pytest.approx(20.0)
+    assert regression_severity_score(-5.0, "streams") == pytest.approx(5.0)
+
+
+def test_regression_severity_score_lower_is_better(monkeypatch):
+    monkeypatch.setattr(
+        "src.metric_registry.LOWER_IS_BETTER_TEST_NAMES",
+        frozenset({"latency_probe"}),
+    )
+    assert regression_severity_score(30.0, "latency_probe") == pytest.approx(30.0)
+    assert regression_severity_score(10.0, "latency_probe") == pytest.approx(10.0)
+
+
+def test_sort_regressions_worst_first_prefers_severe_latency(monkeypatch):
+    """Ascending pct_change would put +8% before +25% for lower-is-better tests."""
+    monkeypatch.setattr(
+        "src.metric_registry.LOWER_IS_BETTER_TEST_NAMES",
+        frozenset({"latency_probe"}),
+    )
+    df = pd.DataFrame(
+        [
+            {"test_name": "latency_probe", "percent_change": 8.0, "is_regression": True},
+            {"test_name": "latency_probe", "percent_change": 25.0, "is_regression": True},
+        ]
+    )
+    out = sort_regressions_worst_first(df)
+    assert out.iloc[0]["percent_change"] == pytest.approx(25.0)
+    assert out.iloc[1]["percent_change"] == pytest.approx(8.0)
+
+
+def test_sort_regressions_worst_first_mixed_hib_and_lib(monkeypatch):
+    monkeypatch.setattr(
+        "src.metric_registry.LOWER_IS_BETTER_TEST_NAMES",
+        frozenset({"latency_probe"}),
+    )
+    df = pd.DataFrame(
+        [
+            {"test_name": "streams", "percent_change": -20.0, "is_regression": True},
+            {"test_name": "latency_probe", "percent_change": 25.0, "is_regression": True},
+            {"test_name": "latency_probe", "percent_change": 8.0, "is_regression": True},
+        ]
+    )
+    out = sort_regressions_worst_first(df)
+    assert out.iloc[0]["percent_change"] == pytest.approx(25.0)
+    assert out.iloc[1]["percent_change"] == pytest.approx(-20.0)
+    assert out.iloc[2]["percent_change"] == pytest.approx(8.0)
+
+
+def test_sort_regressions_worst_first_preserves_unrelated_severity_column():
+    """
+    Scratch sort column is __regression_sort_key__; a caller column named _severity
+    must not be overwritten or dropped (PR #19).
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "test_name": "streams",
+                "percent_change": -10.0,
+                "is_regression": True,
+                "_severity": 999.0,
+            },
+            {
+                "test_name": "streams",
+                "percent_change": -20.0,
+                "is_regression": True,
+                "_severity": 888.0,
+            },
+        ]
+    )
+    out = sort_regressions_worst_first(df)
+    assert "_severity" in out.columns
+    assert out.iloc[0]["percent_change"] == pytest.approx(-20.0)
+    assert out.iloc[0]["_severity"] == pytest.approx(888.0)
+    assert out.iloc[1]["percent_change"] == pytest.approx(-10.0)
+    assert out.iloc[1]["_severity"] == pytest.approx(999.0)

@@ -211,3 +211,32 @@ def test_sort_regressions_worst_first_mixed_hib_and_lib(monkeypatch):
     assert out.iloc[0]["percent_change"] == pytest.approx(25.0)
     assert out.iloc[1]["percent_change"] == pytest.approx(-20.0)
     assert out.iloc[2]["percent_change"] == pytest.approx(8.0)
+
+
+def test_sort_regressions_worst_first_preserves_unrelated_severity_column():
+    """
+    Scratch sort column is __regression_sort_key__; a caller column named _severity
+    must not be overwritten or dropped (PR #19).
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "test_name": "streams",
+                "percent_change": -10.0,
+                "is_regression": True,
+                "_severity": 999.0,
+            },
+            {
+                "test_name": "streams",
+                "percent_change": -20.0,
+                "is_regression": True,
+                "_severity": 888.0,
+            },
+        ]
+    )
+    out = sort_regressions_worst_first(df)
+    assert "_severity" in out.columns
+    assert out.iloc[0]["percent_change"] == pytest.approx(-20.0)
+    assert out.iloc[0]["_severity"] == pytest.approx(888.0)
+    assert out.iloc[1]["percent_change"] == pytest.approx(-10.0)
+    assert out.iloc[1]["_severity"] == pytest.approx(999.0)

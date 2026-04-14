@@ -53,6 +53,18 @@ def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
     )
 
 
+def investigation_drill_breadcrumb(benchmark_category: str, test_name: str) -> dbc.Breadcrumb:
+    """Category → leaf trail for RHEL Regression investigation drill-down (P1-C)."""
+    return dbc.Breadcrumb(
+        items=[
+            {"label": "RHEL Regression Analysis"},
+            {"label": benchmark_category},
+            {"label": test_name, "active": True},
+        ],
+        className="mb-2 bg-transparent py-0",
+    )
+
+
 def _q1_regression_discover_block(comparison_df):
     """
     Per-regression OpenSearch Discover links when OPENSEARCH_DASHBOARDS_BASE_URL
@@ -869,8 +881,18 @@ def create_overview_layout():
     ])
 
 
-def create_investigation_layout(test_name, baseline_version, comparison_version, os_distribution='rhel'):
-    """Create the investigation drill-down layout."""
+def create_investigation_layout(
+    test_name,
+    baseline_version,
+    comparison_version,
+    benchmark_category,
+    os_distribution='rhel',
+):
+    """Create the investigation drill-down layout (category → benchmark per P1-C).
+
+    ``benchmark_category`` is required so call sites cannot omit category resolution
+    and accidentally show a misleading default in the breadcrumb.
+    """
     return html.Div([
         # Breadcrumb / Back button
         dbc.Row([
@@ -881,9 +903,10 @@ def create_investigation_layout(test_name, baseline_version, comparison_version,
                     color="link",
                     size="sm"
                 ),
-                html.H3(f"Investigating: {test_name}", className="mt-2"),
-                html.P(f"OS: {os_distribution.upper()} | Comparing {baseline_version} → {comparison_version}", 
-                       className="text-muted")
+                investigation_drill_breadcrumb(benchmark_category, test_name),
+                html.H3(f"Investigating: {test_name}", className="mt-1"),
+                html.P(f"OS: {os_distribution.upper()} | Comparing {baseline_version} → {comparison_version}",
+                       className="text-muted mb-0"),
             ])
         ], className="mb-3"),
         
@@ -2069,11 +2092,14 @@ def render_main_content(nav_state):
         return create_overview_layout()
     elif nav_state['view'] == 'investigation':
         params = nav_state.get('investigation_params', {})
+        test_name = params.get('test_name', 'Unknown')
+        benchmark_category = processor.get_benchmark_category(test_name)
         return create_investigation_layout(
-            test_name=params.get('test_name', 'Unknown'),
+            test_name=test_name,
             baseline_version=params.get('baseline_version', 'N/A'),
             comparison_version=params.get('comparison_version', 'N/A'),
-            os_distribution=params.get('os_distribution', 'rhel')
+            os_distribution=params.get('os_distribution', 'rhel'),
+            benchmark_category=benchmark_category,
         )
     else:
         return create_overview_layout()

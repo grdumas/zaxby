@@ -1,4 +1,4 @@
-"""Tests for server-side aggregation helpers (P0-C, P2-A category KPIs)."""
+"""Tests for server-side aggregation helpers (P0-C, P2-A Pulse KPIs)."""
 
 import pandas as pd
 from unittest.mock import MagicMock, patch
@@ -9,14 +9,20 @@ from src.pulse_policy import validate_pulse_request
 from src.query_service import (
     MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI,
     PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
+    RESULTS_ACTIVITY_TIMESTAMP_FIELD,
+    ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
     ResultsOverviewSnapshot,
+    aggregate_activity_timeline_from_dataframe,
     aggregate_category_kpis_from_dataframe,
     aggregate_results_overview_from_dataframe,
+    build_results_monthly_activity_histogram_body,
     build_results_overview_aggregation_body,
     build_results_test_name_terms_aggregation_body,
+    fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
+    parse_monthly_activity_histogram_response,
     parse_overview_aggregation_response,
     parse_test_name_buckets_to_category_counts,
 )
@@ -223,3 +229,68 @@ def test_pulse_category_kpi_uses_same_template_as_overview():
     """Category KPI and overview snapshot share the Pulse policy anchor."""
     vr_o = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
     assert vr_o.ok
+
+
+def test_build_results_monthly_activity_histogram_body():
+    body = build_results_monthly_activity_histogram_body()
+    assert body["size"] == 0
+    dh = body["aggs"]["runs_by_month"]["date_histogram"]
+    assert dh["field"] == RESULTS_ACTIVITY_TIMESTAMP_FIELD
+    assert dh["calendar_interval"] == "1M"
+
+
+def test_parse_monthly_activity_histogram_response():
+    resp = {
+        "aggregations": {
+            "runs_by_month": {
+                "buckets": [
+                    {"key_as_string": "2025-01-01T00:00:00.000Z", "doc_count": 4},
+                    {"key_as_string": "2025-02-01T00:00:00.000Z", "doc_count": 7},
+                ]
+            }
+        }
+    }
+    pairs = parse_monthly_activity_histogram_response(resp)
+    assert pairs == [("2025-01", 4), ("2025-02", 7)]
+
+
+def test_aggregate_activity_timeline_from_dataframe():
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                ["2025-01-15", "2025-01-20", "2025-02-01", "2025-02-10"]
+            ),
+            "test_name": ["a", "b", "c", "d"],
+        }
+    )
+    snap = aggregate_activity_timeline_from_dataframe(df)
+    assert isinstance(snap, ActivityTimelineSnapshot)
+    assert snap.error is None
+    assert snap.by_month == [("2025-01", 2), ("2025-02", 2)]
+
+
+def test_fetch_results_activity_timeline_success():
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {
+            "runs_by_month": {
+                "buckets": [
+                    {"key_as_string": "2024-12-01T00:00:00.000Z", "doc_count": 1},
+                ]
+            }
+        }
+    }
+    snap = fetch_results_activity_timeline(mock_client)
+    assert snap.source == "opensearch"
+    assert snap.error is None
+    assert snap.by_month == [("2024-12", 1)]
+
+
+def test_fetch_results_activity_timeline_skips_search_when_pulse_policy_fails():
+    mock_client = MagicMock()
+    with patch("src.query_service.validate_pulse_request") as vp:
+        vp.return_value = ValidationResult(False, ("policy block",))
+        snap = fetch_results_activity_timeline(mock_client)
+    assert snap.source == "opensearch"
+    assert "Pulse policy" in (snap.error or "")
+    mock_client.search_results.assert_not_called()

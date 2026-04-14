@@ -55,6 +55,11 @@ PULSE_RESULTS_OVERVIEW_TEMPLATE_ID = "TPL_CATEGORY_ROLLUP"
 # the full DataFrame and is exact).
 MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI: int = 200
 
+# Hard ceiling for terms aggregation ``size`` in :func:`build_results_test_name_terms_aggregation_body`.
+# OpenSearch allows up to ``2^31-1`` per request, but very large values stress shards; 500 is a
+# conservative safety bound for this KPI path (tune with ops if needed).
+MAX_TERMS_AGG_HARD_CAP: int = 500
+
 
 def build_results_overview_aggregation_body() -> Dict[str, Any]:
     """
@@ -172,7 +177,7 @@ def build_results_test_name_terms_aggregation_body(
 
     Align field name with :mod:`src.investigation_templates` / SCHEMA keyword mappings.
     """
-    cap = max(1, min(int(max_terms), 500))
+    cap = max(1, min(int(max_terms), MAX_TERMS_AGG_HARD_CAP))
     return {
         "size": 0,
         "track_total_hits": True,
@@ -231,7 +236,7 @@ def aggregate_category_kpis_from_dataframe(df: pd.DataFrame) -> CategoryKpiSnaps
     if df is None or df.empty or "test_name" not in df.columns:
         return CategoryKpiSnapshot(by_category=[], source="synthetic", error=None)
     cats = df["test_name"].apply(category_for_test_name)
-    vc = cats.value_counts().sort_values(ascending=False)
+    vc = cats.value_counts()  # descending by count by default
     pairs = [(str(k), int(v)) for k, v in vc.items()]
     return CategoryKpiSnapshot(by_category=pairs, source="synthetic", error=None)
 
@@ -257,7 +262,7 @@ def fetch_results_category_kpis(client: Any) -> CategoryKpiSnapshot:
     body = build_results_test_name_terms_aggregation_body()
     try:
         resp = client.search_results(body)
-    except Exception as exc:  # noqa: BLE001
+        pairs = parse_test_name_buckets_to_category_counts(resp)
+    except Exception as exc:  # noqa: BLE001 — network, malformed responses, parse edge cases
         return CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
-    pairs = parse_test_name_buckets_to_category_counts(resp)
     return CategoryKpiSnapshot(by_category=pairs, source="opensearch", error=None)

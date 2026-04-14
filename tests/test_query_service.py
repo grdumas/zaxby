@@ -1,4 +1,4 @@
-"""Tests for server-side aggregation helpers (P0-C)."""
+"""Tests for server-side aggregation helpers (P0-C, P2-A category KPIs)."""
 
 import pandas as pd
 from unittest.mock import MagicMock, patch
@@ -6,12 +6,18 @@ from unittest.mock import MagicMock, patch
 from src.comparison_policy import ValidationResult
 from src.pulse_policy import validate_pulse_request
 from src.query_service import (
+    MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI,
     PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
+    CategoryKpiSnapshot,
     ResultsOverviewSnapshot,
+    aggregate_category_kpis_from_dataframe,
     aggregate_results_overview_from_dataframe,
     build_results_overview_aggregation_body,
+    build_results_test_name_terms_aggregation_body,
+    fetch_results_category_kpis,
     fetch_results_overview_aggregates,
     parse_overview_aggregation_response,
+    parse_test_name_buckets_to_category_counts,
 )
 
 
@@ -105,3 +111,77 @@ def test_fetch_results_overview_aggregates_search_error():
     assert snap.source == "opensearch"
     assert snap.error == "boom"
     assert snap.by_cloud == []
+
+
+def test_build_results_test_name_terms_aggregation_body():
+    body = build_results_test_name_terms_aggregation_body()
+    assert body["size"] == 0
+    assert body["aggs"]["by_test_name"]["terms"]["field"] == "test.name.keyword"
+    assert body["aggs"]["by_test_name"]["terms"]["size"] == MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI
+
+
+def test_parse_test_name_buckets_to_category_counts_merges_same_category():
+    resp = {
+        "aggregations": {
+            "by_test_name": {
+                "buckets": [
+                    {"key": "pyperf", "doc_count": 3},
+                    {"key": "pyperf_scenario_a", "doc_count": 2},
+                ]
+            }
+        }
+    }
+    pairs = parse_test_name_buckets_to_category_counts(resp)
+    assert isinstance(pairs, list)
+    assert pairs[0][1] >= pairs[-1][1]  # sorted by count desc
+
+
+def test_aggregate_category_kpis_from_dataframe():
+    df = pd.DataFrame(
+        {
+            "test_name": ["pyperf", "pyperf", "unknown_xyz_benchmark"],
+            "cloud_provider": ["aws", "aws", "gcp"],
+        }
+    )
+    snap = aggregate_category_kpis_from_dataframe(df)
+    assert isinstance(snap, CategoryKpiSnapshot)
+    assert snap.source == "synthetic"
+    assert snap.error is None
+    labels = [c for c, _ in snap.by_category]
+    assert "Python" in labels or "Other" in labels
+
+
+def test_fetch_results_category_kpis_success():
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {
+            "by_test_name": {
+                "buckets": [
+                    {"key": "streams", "doc_count": 10},
+                    {"key": "coremark", "doc_count": 5},
+                ]
+            }
+        }
+    }
+    snap = fetch_results_category_kpis(mock_client)
+    assert snap.source == "opensearch"
+    assert snap.error is None
+    assert len(snap.by_category) >= 1
+    mock_client.search_results.assert_called_once()
+
+
+def test_fetch_results_category_kpis_skips_search_when_pulse_policy_fails():
+    mock_client = MagicMock()
+    with patch("src.query_service.validate_pulse_request") as vp:
+        vp.return_value = ValidationResult(False, ("policy block",))
+        snap = fetch_results_category_kpis(mock_client)
+    assert snap.source == "opensearch"
+    assert snap.error is not None
+    assert "Pulse policy" in snap.error
+    mock_client.search_results.assert_not_called()
+
+
+def test_pulse_category_kpi_uses_same_template_as_overview():
+    """Category KPI and overview snapshot share the Pulse policy anchor."""
+    vr_o = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
+    assert vr_o.ok

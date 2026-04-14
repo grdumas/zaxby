@@ -36,6 +36,10 @@ def test_higher_is_better_for_test_defaults_true():
     assert higher_is_better_for_test(None) is True
 
 
+def test_higher_is_better_for_test_pyperf_lower_is_better():
+    assert higher_is_better_for_test("pyperf") is False
+
+
 def test_higher_is_better_for_test_respects_lower_is_better_list(monkeypatch):
     monkeypatch.setattr(
         "src.metric_registry.LOWER_IS_BETTER_TEST_NAMES",

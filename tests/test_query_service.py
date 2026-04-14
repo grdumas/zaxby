@@ -1,9 +1,12 @@
 """Tests for server-side aggregation helpers (P0-C)."""
 
 import pandas as pd
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from src.comparison_policy import ValidationResult
+from src.pulse_policy import validate_pulse_request
 from src.query_service import (
+    PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
     ResultsOverviewSnapshot,
     aggregate_results_overview_from_dataframe,
     build_results_overview_aggregation_body,
@@ -73,6 +76,26 @@ def test_fetch_results_overview_aggregates_success():
     assert snap.by_cloud == [("aws", 5)]
     assert snap.error is None
     mock_client.search_results.assert_called_once()
+
+
+def test_pulse_results_overview_template_passes_pulse_policy():
+    """Behavioral check: overview constant must remain Pulse-allowed in comparison_policy."""
+    vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
+    assert vr.ok, vr.errors
+
+
+def test_fetch_results_overview_aggregates_skips_search_when_pulse_policy_fails():
+    mock_client = MagicMock()
+    with patch("src.query_service.validate_pulse_request") as vp:
+        vp.return_value = ValidationResult(False, ("rejected for unit test",))
+        snap = fetch_results_overview_aggregates(mock_client)
+    assert snap.source == "opensearch"
+    assert snap.total is None
+    assert snap.by_cloud == []
+    assert snap.error is not None
+    assert snap.error.startswith("Pulse policy:")
+    assert "rejected for unit test" in snap.error
+    mock_client.search_results.assert_not_called()
 
 
 def test_fetch_results_overview_aggregates_search_error():

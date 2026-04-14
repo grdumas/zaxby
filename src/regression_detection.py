@@ -193,11 +193,20 @@ def is_improvement_for_test_name(
 def change_category_tri_band(
     pct_change: float,
     band_pct: float = STABILITY_BAND_PCT,
+    *,
+    test_name: Optional[str] = None,
 ) -> str:
     """
     Labels used by :meth:`BenchmarkDataProcessor.calculate_comparison` (§2.2).
 
     Outside ``±band_pct`` → Regression or Improvement; otherwise Stable.
+
+    For **higher-is-better** metrics (default), negative ``pct_change`` beyond
+    ``-band_pct`` is labeled Regression; positive beyond ``+band_pct`` is Improvement.
+
+    For **lower-is-better** metrics (when ``test_name`` resolves via
+    :func:`higher_is_better_for_test`), the bands swap: a large positive change
+    (worse) is Regression; a large negative change (better) is Improvement.
 
     **Policy:** With defaults, this uses ``±STABILITY_BAND_PCT`` (±10%) for display
     categories. Programmatic ``is_regression`` flags elsewhere use
@@ -205,8 +214,14 @@ def change_category_tri_band(
     / "Improvement" is more conservative than the -5% regression detector — do not
     unify them without product sign-off (see REGRESSION_DETECTION.md §2).
     """
-    if pct_change < -band_pct:
-        return "Regression"
+    if higher_is_better_for_test(test_name):
+        if pct_change < -band_pct:
+            return "Regression"
+        if pct_change > band_pct:
+            return "Improvement"
+        return "Stable"
     if pct_change > band_pct:
+        return "Regression"
+    if pct_change < -band_pct:
         return "Improvement"
     return "Stable"

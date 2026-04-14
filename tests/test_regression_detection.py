@@ -62,6 +62,20 @@ def test_change_category_tri_band_custom_band_pct():
     assert change_category_tri_band(-5.0, band_pct=5.0) == "Stable"
 
 
+def test_change_category_tri_band_lower_is_better_pyperf():
+    """Mean time up → Regression label; mean time down → Improvement (§3.2)."""
+    assert change_category_tri_band(11.0, test_name="pyperf") == "Regression"
+    assert change_category_tri_band(-11.0, test_name="pyperf") == "Improvement"
+    assert change_category_tri_band(0.0, test_name="pyperf") == "Stable"
+    assert change_category_tri_band(10.0, test_name="pyperf") == "Stable"
+    assert change_category_tri_band(-10.0, test_name="pyperf") == "Stable"
+
+
+def test_change_category_tri_band_custom_band_lower_is_better_pyperf():
+    assert change_category_tri_band(6.0, band_pct=5.0, test_name="pyperf") == "Regression"
+    assert change_category_tri_band(-6.0, band_pct=5.0, test_name="pyperf") == "Improvement"
+
+
 def test_constants_align_with_regression_detection_doc():
     assert REGRESSION_THRESHOLD_REL == -5.0
     assert STABILITY_BAND_PCT == 10.0

@@ -15,6 +15,7 @@ from src.metric_registry import fallback_keys_for_test
 from src.benchmark_categories import category_for_test_name
 from src.regression_detection import (
     REGRESSION_THRESHOLD_REL,
+    STABILITY_BAND_PCT,
     change_category_tri_band,
     filter_dataframe_for_regression_math,
     is_regression_for_test_name,
@@ -327,7 +328,24 @@ class BenchmarkDataProcessor:
         )
         # Tri-band labels use STABILITY_BAND_PCT (±10%); programmatic is_regression uses
         # REGRESSION_THRESHOLD_REL (-5%) — see change_category_tri_band docstring.
-        result['change_category'] = result['percent_change'].apply(change_category_tri_band)
+        if group_by == "test_name":
+
+            def _tri_category(row: pd.Series) -> str:
+                raw = row["test_name"]
+                if raw is None or pd.isna(raw):
+                    tn: Optional[str] = None
+                else:
+                    s = str(raw).strip()
+                    tn = s if s else None
+                return change_category_tri_band(
+                    float(row["percent_change"]),
+                    band_pct=STABILITY_BAND_PCT,
+                    test_name=tn,
+                )
+
+            result["change_category"] = result.apply(_tri_category, axis=1)
+        else:
+            result["change_category"] = result["percent_change"].apply(change_category_tri_band)
         
         return result
     

@@ -5,7 +5,8 @@ When ``results.primary_metric.value`` is missing, :meth:`BenchmarkDataProcessor.
 in ``data_processing`` looks up metric keys in ``results.runs[*].metrics`` using this registry,
 keyed by lowercase ``test.name`` from OpenSearch documents.
 
-See :doc:`docs/guides/REGRESSION_DETECTION.md` §1.1, §3, and companion appendix.
+See ``docs/guides/REGRESSION_DETECTION.md`` §1.1, §3. CI: ``tests/test_metric_registry_doc_parity.py``
+keeps §1.1.1 aligned with :data:`PRIMARY_METRIC_FALLBACK_KEYS`.
 """
 
 from __future__ import annotations

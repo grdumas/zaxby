@@ -1,5 +1,5 @@
 """
-P1-E: Keep docs/guides/REGRESSION_DETECTION.md §1.1.1 in sync with code.
+P1-E: Keep docs/guides/REGRESSION_DETECTION.md §1.1.1 and §3.2 in sync with code.
 
 The canonical map is PRIMARY_METRIC_FALLBACK_KEYS in src/metric_registry.py; the
 markdown table is a human-readable mirror.
@@ -15,6 +15,11 @@ Enforcement (see tests below):
   checks each metric key appears as a Markdown `` `key` `` token in *that row's*
   second column only—not ``key in full_document``, which would false-pass for
   short tokens (``mean``, ``score``, etc.) in unrelated prose.
+
+- **§3.2 Latency / time vs** ``LOWER_IS_BETTER_TEST_NAMES``: ``test_lower_is_better_latency_row_matches_registry``
+  parses backtick `` `test.name` `` tokens from the Examples column of the
+  ``Latency / time`` row (excluding metric-only tokens such as ``mean``) and
+  asserts equality with the frozenset in code.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from src.metric_registry import PRIMARY_METRIC_FALLBACK_KEYS
+from src.metric_registry import LOWER_IS_BETTER_TEST_NAMES, PRIMARY_METRIC_FALLBACK_KEYS
 
 _REGRESSION_DOC = (
     Path(__file__).resolve().parents[1] / "docs" / "guides" / "REGRESSION_DETECTION.md"
@@ -32,6 +37,12 @@ _REGRESSION_DOC = (
 
 _SECTION_111_HEADING = "#### 1.1.1 Canonical"
 _TABLE_TAIL = "Benchmarks not listed rely on"
+
+_SECTION_32_HEADING = "### 3.2 Draft direction table (to be confirmed by product)"
+_SECTION_32_TAIL = "## 4."
+_LATENCY_TIME_KIND = "Latency / time"
+# Backtick tokens in the §3.2 Examples column that annotate metrics, not ``test.name``.
+_BACKTICK_EXCLUDE_NOT_TEST_NAME = frozenset({"mean"})
 
 
 def _extract_section_111_table_block(full_doc: str) -> str:
@@ -72,6 +83,53 @@ def _parse_fallback_table_rows(table_block: str) -> dict[str, str]:
     return rows
 
 
+def _extract_section_32_table_block(full_doc: str) -> str:
+    """Return markdown fragment containing the §3.2 direction table (header + rows)."""
+    if _SECTION_32_HEADING not in full_doc:
+        pytest.fail("REGRESSION_DETECTION.md: missing §3.2 heading")
+    after = full_doc.split(_SECTION_32_HEADING, 1)[1]
+    if _SECTION_32_TAIL in after:
+        return after.split(_SECTION_32_TAIL, 1)[0]
+    pytest.fail("REGRESSION_DETECTION.md: could not bound §3.2 table (no ## 4. tail)")
+
+
+def _latency_time_examples_cell(table_block: str) -> str:
+    """Second column (Examples) of the ``Latency / time`` data row."""
+    for line in table_block.splitlines():
+        line = line.rstrip()
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 4:
+            continue
+        if parts[1] == _LATENCY_TIME_KIND:
+            return parts[2]
+    pytest.fail(
+        "REGRESSION_DETECTION.md §3.2: no table row with Kind "
+        f"{_LATENCY_TIME_KIND!r} (expected Examples column for parity)"
+    )
+
+
+def _test_names_from_latency_examples_cell(examples_cell: str) -> set[str]:
+    """
+    Collect ``test.name``-style tokens from backticks in the Examples cell.
+
+    Excludes metric-only backticks (e.g. ``mean``) so prose like
+    `` `pyperf` (`mean` time) `` yields only ``pyperf``.
+    """
+    out: set[str] = set()
+    for raw in re.findall(r"`([^`]+)`", examples_cell):
+        token = raw.strip()
+        if token in _BACKTICK_EXCLUDE_NOT_TEST_NAME:
+            continue
+        if re.fullmatch(r"[a-z][a-z0-9_]*", token):
+            out.add(token)
+        else:
+            pytest.fail(
+                f"REGRESSION_DETECTION.md §3.2 Latency row: backtick token {token!r} "
+                "is not a valid test.name slug (use [a-z][a-z0-9_]* or extend exclude list)"
+            )
+    return out
+
+
 @pytest.fixture(scope="module")
 def regression_doc_text() -> str:
     if not _REGRESSION_DOC.is_file():
@@ -87,6 +145,23 @@ def section_111_table_block(regression_doc_text: str) -> str:
 @pytest.fixture(scope="module")
 def parsed_fallback_table(section_111_table_block: str) -> dict[str, str]:
     return _parse_fallback_table_rows(section_111_table_block)
+
+
+@pytest.fixture(scope="module")
+def section_32_table_block(regression_doc_text: str) -> str:
+    return _extract_section_32_table_block(regression_doc_text)
+
+
+def test_lower_is_better_latency_row_matches_registry(section_32_table_block: str) -> None:
+    """§3.2 ``Latency / time`` Examples column and LOWER_IS_BETTER_TEST_NAMES list the same names."""
+    cell = _latency_time_examples_cell(section_32_table_block)
+    from_doc = _test_names_from_latency_examples_cell(cell)
+    from_registry = set(LOWER_IS_BETTER_TEST_NAMES)
+    assert from_registry == from_doc, (
+        "§3.2 Latency / time vs LOWER_IS_BETTER_TEST_NAMES mismatch: "
+        f"only in registry={sorted(from_registry - from_doc)!r}, "
+        f"only in doc={sorted(from_doc - from_registry)!r}"
+    )
 
 
 def test_fallback_table_test_names_match_registry_both_ways(parsed_fallback_table: dict[str, str]) -> None:

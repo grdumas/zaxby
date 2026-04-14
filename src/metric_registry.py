@@ -6,7 +6,8 @@ in ``data_processing`` looks up metric keys in ``results.runs[*].metrics`` using
 keyed by lowercase ``test.name`` from OpenSearch documents.
 
 See ``docs/guides/REGRESSION_DETECTION.md`` §1.1, §3. CI: ``tests/test_metric_registry_doc_parity.py``
-keeps §1.1.1 aligned with :data:`PRIMARY_METRIC_FALLBACK_KEYS`.
+keeps §1.1.1 aligned with :data:`PRIMARY_METRIC_FALLBACK_KEYS` and §3.2 with
+:data:`LOWER_IS_BETTER_TEST_NAMES`.
 """
 
 from __future__ import annotations

@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
+from src.pulse_policy import validate_pulse_request
+
 # --- Pagination contract (Investigate / bounded search) ----------------------------
 
 # Maximum hits per search request for interactive drill-down; tune with cluster limits.
@@ -30,6 +32,11 @@ Pagination strategy (draft for Phase 1 Investigate):
 - Cap ``size`` at :data:`MAX_PAGE_SIZE` for UI-driven requests unless a dedicated
   export path uses scroll/Point in Time APIs with ops approval.
 """
+
+# Template declared for the results-index overview snapshot (total + per-cloud counts).
+# Non-comparative index health counts; Pulse-allowed when params do not imply
+# cross-cloud comparative cohorts (see COMPARISON_POLICY.md §3, TPL_CATEGORY_ROLLUP).
+PULSE_RESULTS_OVERVIEW_TEMPLATE_ID = "TPL_CATEGORY_ROLLUP"
 
 
 def build_results_overview_aggregation_body() -> Dict[str, Any]:
@@ -107,9 +114,20 @@ def fetch_results_overview_aggregates(client: Any) -> ResultsOverviewSnapshot:
     """
     Run server-side aggregation on the results index via ``BenchmarkDataSource.search_results``.
 
+    Pulse policy (P1-B): validates :data:`PULSE_RESULTS_OVERVIEW_TEMPLATE_ID` with
+    empty params before any OpenSearch call.
+
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
     """
+    vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
+    if not vr.ok:
+        return ResultsOverviewSnapshot(
+            total=None,
+            by_cloud=[],
+            source="opensearch",
+            error="Pulse policy: " + "; ".join(vr.errors),
+        )
     body = build_results_overview_aggregation_body()
     try:
         resp = client.search_results(body)

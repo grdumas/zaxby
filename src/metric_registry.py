@@ -14,8 +14,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 # ``test.name`` values (lowercase) whose primary metric is lower-is-better (e.g. latency).
-# Empty by default; add product-confirmed names here. See REGRESSION_DETECTION.md §3.2.
-LOWER_IS_BETTER_TEST_NAMES: frozenset[str] = frozenset()
+# See REGRESSION_DETECTION.md §3.2.
+LOWER_IS_BETTER_TEST_NAMES: frozenset[str] = frozenset({"pyperf"})
 
 # Keys are lowercase ``test.name`` values; values are preferred order of run metric keys.
 PRIMARY_METRIC_FALLBACK_KEYS: Dict[str, List[str]] = {

@@ -904,6 +904,7 @@ def create_investigation_layout(
                     size="sm"
                 ),
                 investigation_drill_breadcrumb(benchmark_category, test_name),
+                html.H3(f"Investigating: {test_name}", className="mt-1"),
                 html.P(f"OS: {os_distribution.upper()} | Comparing {baseline_version} → {comparison_version}",
                        className="text-muted mb-0"),
             ])

@@ -62,6 +62,20 @@ def test_change_category_tri_band_custom_band_pct():
     assert change_category_tri_band(-5.0, band_pct=5.0) == "Stable"
 
 
+def test_change_category_tri_band_lower_is_better_pyperf():
+    """Mean time up → Regression label; mean time down → Improvement (§3.2)."""
+    assert change_category_tri_band(11.0, test_name="pyperf") == "Regression"
+    assert change_category_tri_band(-11.0, test_name="pyperf") == "Improvement"
+    assert change_category_tri_band(0.0, test_name="pyperf") == "Stable"
+    assert change_category_tri_band(10.0, test_name="pyperf") == "Stable"
+    assert change_category_tri_band(-10.0, test_name="pyperf") == "Stable"
+
+
+def test_change_category_tri_band_custom_band_lower_is_better_pyperf():
+    assert change_category_tri_band(6.0, band_pct=5.0, test_name="pyperf") == "Regression"
+    assert change_category_tri_band(-6.0, band_pct=5.0, test_name="pyperf") == "Improvement"
+
+
 def test_constants_align_with_regression_detection_doc():
     assert REGRESSION_THRESHOLD_REL == -5.0
     assert STABILITY_BAND_PCT == 10.0
@@ -96,6 +110,18 @@ def test_is_improvement_for_test_name_lower_is_better(monkeypatch):
     assert is_improvement_for_test_name(-11.0, "latency_probe") is True
     assert is_improvement_for_test_name(-10.0, "latency_probe") is False
     assert is_improvement_for_test_name(11.0, "latency_probe") is False
+
+
+def test_pyperf_is_regression_for_test_name_mean_time_worse():
+    """pyperf is lower-is-better: higher mean time → positive pct_change → regression."""
+    assert is_regression_for_test_name(6.0, "pyperf") is True
+    assert is_regression_for_test_name(-6.0, "pyperf") is False
+    assert is_regression_for_test_name(4.0, "pyperf") is False
+
+
+def test_pyperf_is_improvement_for_test_name_mean_time_better():
+    assert is_improvement_for_test_name(-11.0, "pyperf") is True
+    assert is_improvement_for_test_name(11.0, "pyperf") is False
 
 
 def test_none_test_name_dispatches_higher_is_better():

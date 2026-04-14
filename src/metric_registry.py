@@ -6,7 +6,8 @@ in ``data_processing`` looks up metric keys in ``results.runs[*].metrics`` using
 keyed by lowercase ``test.name`` from OpenSearch documents.
 
 See ``docs/guides/REGRESSION_DETECTION.md`` §1.1, §3. CI: ``tests/test_metric_registry_doc_parity.py``
-keeps §1.1.1 aligned with :data:`PRIMARY_METRIC_FALLBACK_KEYS`.
+keeps §1.1.1 aligned with :data:`PRIMARY_METRIC_FALLBACK_KEYS` and §3.2 with
+:data:`LOWER_IS_BETTER_TEST_NAMES`.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 # ``test.name`` values (lowercase) whose primary metric is lower-is-better (e.g. latency).
-# Empty by default; add product-confirmed names here. See REGRESSION_DETECTION.md §3.2.
-LOWER_IS_BETTER_TEST_NAMES: frozenset[str] = frozenset()
+# See REGRESSION_DETECTION.md §3.2.
+LOWER_IS_BETTER_TEST_NAMES: frozenset[str] = frozenset({"pyperf"})
 
 # Keys are lowercase ``test.name`` values; values are preferred order of run metric keys.
 PRIMARY_METRIC_FALLBACK_KEYS: Dict[str, List[str]] = {

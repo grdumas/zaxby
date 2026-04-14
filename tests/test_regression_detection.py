@@ -98,6 +98,18 @@ def test_is_improvement_for_test_name_lower_is_better(monkeypatch):
     assert is_improvement_for_test_name(11.0, "latency_probe") is False
 
 
+def test_pyperf_is_regression_for_test_name_mean_time_worse():
+    """pyperf is lower-is-better: higher mean time → positive pct_change → regression."""
+    assert is_regression_for_test_name(6.0, "pyperf") is True
+    assert is_regression_for_test_name(-6.0, "pyperf") is False
+    assert is_regression_for_test_name(4.0, "pyperf") is False
+
+
+def test_pyperf_is_improvement_for_test_name_mean_time_better():
+    assert is_improvement_for_test_name(-11.0, "pyperf") is True
+    assert is_improvement_for_test_name(11.0, "pyperf") is False
+
+
 def test_none_test_name_dispatches_higher_is_better():
     """Missing test_name uses higher-is-better path (same as unknown benchmark)."""
     assert is_regression_for_test_name(-6.0, None) is True

@@ -5,9 +5,10 @@ Investigate / large pulls use explicit pagination limits; this module documents
 the contract and implements small aggregation paths that do not scale with
 full-index scroll size in the browser.
 
-Phase 2 (P2-A): category KPI rollup — terms aggregation on ``test.name`` mapped
-through :func:`src.benchmark_categories.category_for_test_name` (same policy
-anchor as the results overview snapshot).
+Phase 2 (P2-A): Pulse KPIs — category rollup (``test.name`` terms → dashboard
+categories), and activity-over-time (monthly ``date_histogram`` on
+``metadata.test_timestamp``). Both reuse the same Pulse policy anchor as the
+cloud overview snapshot.
 """
 
 from __future__ import annotations
@@ -59,6 +60,9 @@ MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI: int = 200
 # OpenSearch allows up to ``2^31-1`` per request, but very large values stress shards; 500 is a
 # conservative safety bound for this KPI path (tune with ops if needed).
 MAX_TERMS_AGG_HARD_CAP: int = 500
+
+# OpenSearch date field for run activity (see docs/guides/SCHEMA.md).
+RESULTS_ACTIVITY_TIMESTAMP_FIELD = "metadata.test_timestamp"
 
 
 def build_results_overview_aggregation_body() -> Dict[str, Any]:
@@ -269,3 +273,96 @@ def fetch_results_category_kpis(client: Any) -> CategoryKpiSnapshot:
     except Exception as exc:  # noqa: BLE001 — network, malformed responses, parse edge cases
         return CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
     return CategoryKpiSnapshot(by_category=pairs, source="opensearch", error=None)
+
+
+# --- Phase 2 P2-A: document activity by month (trend window) -----------------------
+
+
+def build_results_monthly_activity_histogram_body() -> Dict[str, Any]:
+    """
+    OpenSearch body: ``size: 0``, monthly ``date_histogram`` on test run timestamp.
+
+    Uses ``calendar_interval: 1M`` and ``format: yyyy-MM`` for stable bucket labels.
+    """
+    return {
+        "size": 0,
+        "track_total_hits": True,
+        "query": {"match_all": {}},
+        "aggs": {
+            "runs_by_month": {
+                "date_histogram": {
+                    "field": RESULTS_ACTIVITY_TIMESTAMP_FIELD,
+                    "calendar_interval": "1M",
+                    "format": "yyyy-MM",
+                    "min_doc_count": 0,
+                }
+            }
+        },
+    }
+
+
+def parse_monthly_activity_histogram_response(response: Dict[str, Any]) -> List[Tuple[str, int]]:
+    """
+    Extract ``(yyyy-MM, doc_count)`` from ``runs_by_month`` buckets, chronological order.
+    """
+    buckets = (
+        response.get("aggregations", {})
+        .get("runs_by_month", {})
+        .get("buckets", [])
+    )
+    pairs: List[Tuple[str, int]] = []
+    for b in buckets:
+        label = b.get("key_as_string")
+        if label is None:
+            continue
+        s = str(label).strip()
+        if len(s) >= 7:
+            s = s[:7]
+        pairs.append((s, int(b.get("doc_count", 0))))
+    return pairs
+
+
+@dataclass
+class ActivityTimelineSnapshot:
+    """Monthly document counts for Pulse overview (bounded aggregation)."""
+
+    by_month: List[Tuple[str, int]]  # ("yyyy-MM", count), ascending by month
+    source: str
+    error: str | None = None
+
+
+def aggregate_activity_timeline_from_dataframe(df: pd.DataFrame) -> ActivityTimelineSnapshot:
+    """Mirror :func:`fetch_results_activity_timeline` using ``timestamp`` from the benchmark DataFrame."""
+    if df is None or df.empty or "timestamp" not in df.columns:
+        return ActivityTimelineSnapshot(by_month=[], source="synthetic", error=None)
+    t = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    valid = t.notna()
+    if not valid.any():
+        return ActivityTimelineSnapshot(by_month=[], source="synthetic", error=None)
+    month_bucket = t[valid].dt.strftime("%Y-%m")
+    vc = month_bucket.value_counts().sort_index()
+    pairs = [(str(k), int(v)) for k, v in vc.items()]
+    return ActivityTimelineSnapshot(by_month=pairs, source="synthetic", error=None)
+
+
+def fetch_results_activity_timeline(client: Any) -> ActivityTimelineSnapshot:
+    """
+    Monthly run counts via ``date_histogram`` (non-comparative index view; same Pulse anchor).
+
+    Args:
+        client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
+    """
+    vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
+    if not vr.ok:
+        return ActivityTimelineSnapshot(
+            by_month=[],
+            source="opensearch",
+            error="Pulse policy: " + "; ".join(vr.errors),
+        )
+    body = build_results_monthly_activity_histogram_body()
+    try:
+        resp = client.search_results(body)
+        pairs = parse_monthly_activity_histogram_response(resp)
+    except Exception as exc:  # noqa: BLE001
+        return ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
+    return ActivityTimelineSnapshot(by_month=pairs, source="opensearch", error=None)

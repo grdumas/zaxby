@@ -283,6 +283,8 @@ def build_results_monthly_activity_histogram_body() -> Dict[str, Any]:
     OpenSearch body: ``size: 0``, monthly ``date_histogram`` on test run timestamp.
 
     Uses ``calendar_interval: 1M`` and ``format: yyyy-MM`` for stable bucket labels.
+    ``min_doc_count: 1`` omits empty months between first/last hits (aligned with
+    :func:`aggregate_activity_timeline_from_dataframe`, which uses non-zero counts only).
     """
     return {
         "size": 0,
@@ -294,7 +296,7 @@ def build_results_monthly_activity_histogram_body() -> Dict[str, Any]:
                     "field": RESULTS_ACTIVITY_TIMESTAMP_FIELD,
                     "calendar_interval": "1M",
                     "format": "yyyy-MM",
-                    "min_doc_count": 0,
+                    "min_doc_count": 1,
                 }
             }
         },
@@ -304,6 +306,9 @@ def build_results_monthly_activity_histogram_body() -> Dict[str, Any]:
 def parse_monthly_activity_histogram_response(response: Dict[str, Any]) -> List[Tuple[str, int]]:
     """
     Extract ``(yyyy-MM, doc_count)`` from ``runs_by_month`` buckets, chronological order.
+
+    Skips buckets with zero ``doc_count`` so behaviour stays consistent if a cluster
+    returns them despite ``min_doc_count: 1``.
     """
     buckets = (
         response.get("aggregations", {})
@@ -315,10 +320,13 @@ def parse_monthly_activity_histogram_response(response: Dict[str, Any]) -> List[
         label = b.get("key_as_string")
         if label is None:
             continue
+        n = int(b.get("doc_count", 0))
+        if n <= 0:
+            continue
         s = str(label).strip()
         if len(s) >= 7:
             s = s[:7]
-        pairs.append((s, int(b.get("doc_count", 0))))
+        pairs.append((s, n))
     return pairs
 
 
@@ -332,7 +340,13 @@ class ActivityTimelineSnapshot:
 
 
 def aggregate_activity_timeline_from_dataframe(df: pd.DataFrame) -> ActivityTimelineSnapshot:
-    """Mirror :func:`fetch_results_activity_timeline` using ``timestamp`` from the benchmark DataFrame."""
+    """
+    Mirror :func:`fetch_results_activity_timeline` using the ``timestamp`` column.
+
+    That column is populated from ``metadata.test_timestamp`` in
+    :meth:`src.data_processing.BenchmarkDataProcessor.documents_to_dataframe`, matching
+    :data:`RESULTS_ACTIVITY_TIMESTAMP_FIELD` on OpenSearch.
+    """
     if df is None or df.empty or "timestamp" not in df.columns:
         return ActivityTimelineSnapshot(by_month=[], source="synthetic", error=None)
     t = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")

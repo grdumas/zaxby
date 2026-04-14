@@ -235,7 +235,10 @@ def aggregate_category_kpis_from_dataframe(df: pd.DataFrame) -> CategoryKpiSnaps
     """Mirror :func:`fetch_results_category_kpis` using the loaded benchmark DataFrame."""
     if df is None or df.empty or "test_name" not in df.columns:
         return CategoryKpiSnapshot(by_category=[], source="synthetic", error=None)
-    cats = df["test_name"].apply(category_for_test_name)
+    sub = df.dropna(subset=["test_name"])
+    if sub.empty:
+        return CategoryKpiSnapshot(by_category=[], source="synthetic", error=None)
+    cats = sub["test_name"].apply(category_for_test_name)
     vc = cats.value_counts()  # descending by count by default
     pairs = [(str(k), int(v)) for k, v in vc.items()]
     return CategoryKpiSnapshot(by_category=pairs, source="synthetic", error=None)

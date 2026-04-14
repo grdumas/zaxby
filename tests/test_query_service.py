@@ -155,6 +155,19 @@ def test_aggregate_category_kpis_from_dataframe():
     assert snap.by_category[1][1] == 1
 
 
+def test_aggregate_category_kpis_from_dataframe_ignores_missing_test_name():
+    """NaN/None test_name must not break the rollup (category_for_test_name expects str-like)."""
+    df = pd.DataFrame(
+        {
+            "test_name": ["streams", float("nan"), None, "streams"],
+            "cloud_provider": ["aws", "aws", "gcp", "aws"],
+        }
+    )
+    snap = aggregate_category_kpis_from_dataframe(df)
+    assert snap.error is None
+    assert snap.by_category == [(category_for_test_name("streams"), 2)]
+
+
 def test_fetch_results_category_kpis_success():
     mock_client = MagicMock()
     mock_client.search_results.return_value = {

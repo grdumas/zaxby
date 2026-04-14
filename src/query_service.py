@@ -36,6 +36,12 @@ Pagination strategy (draft for Phase 1 Investigate):
 # Template declared for the results-index overview snapshot (total + per-cloud counts).
 # Non-comparative index health counts; Pulse-allowed when params do not imply
 # cross-cloud comparative cohorts (see COMPARISON_POLICY.md §3, TPL_CATEGORY_ROLLUP).
+#
+# Policy anchor: ``fetch_results_overview_aggregates`` validates this id against
+# :mod:`src.comparison_policy` before OpenSearch. Callers pass no runtime params today
+# (``{}``), so failure is unexpected unless the template id drifts from the Pulse
+# allowlist—then the error path surfaces a clear policy message. Future optional
+# filter params should be threaded through the same ``validate_pulse_request`` call.
 PULSE_RESULTS_OVERVIEW_TEMPLATE_ID = "TPL_CATEGORY_ROLLUP"
 
 
@@ -115,7 +121,8 @@ def fetch_results_overview_aggregates(client: Any) -> ResultsOverviewSnapshot:
     Run server-side aggregation on the results index via ``BenchmarkDataSource.search_results``.
 
     Pulse policy (P1-B): validates :data:`PULSE_RESULTS_OVERVIEW_TEMPLATE_ID` with
-    empty params before any OpenSearch call.
+    empty params before any OpenSearch call (static contract / policy anchor; see
+    constant docstring).
 
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.

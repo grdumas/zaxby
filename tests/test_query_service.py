@@ -4,6 +4,7 @@ import pandas as pd
 from unittest.mock import MagicMock, patch
 
 from src.comparison_policy import ValidationResult
+from src.pulse_policy import validate_pulse_request
 from src.query_service import (
     PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
     ResultsOverviewSnapshot,
@@ -77,8 +78,10 @@ def test_fetch_results_overview_aggregates_success():
     mock_client.search_results.assert_called_once()
 
 
-def test_pulse_results_overview_template_id_is_pulse_allowed():
-    assert PULSE_RESULTS_OVERVIEW_TEMPLATE_ID == "TPL_CATEGORY_ROLLUP"
+def test_pulse_results_overview_template_passes_pulse_policy():
+    """Behavioral check: overview constant must remain Pulse-allowed in comparison_policy."""
+    vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
+    assert vr.ok, vr.errors
 
 
 def test_fetch_results_overview_aggregates_skips_search_when_pulse_policy_fails():

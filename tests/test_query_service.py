@@ -237,9 +237,27 @@ def test_build_results_monthly_activity_histogram_body():
     dh = body["aggs"]["runs_by_month"]["date_histogram"]
     assert dh["field"] == RESULTS_ACTIVITY_TIMESTAMP_FIELD
     assert dh["calendar_interval"] == "1M"
+    assert dh["min_doc_count"] == 1
 
 
-def test_parse_monthly_activity_histogram_response():
+def test_parse_monthly_activity_histogram_response_yyyy_mm_keys():
+    """Happy path: key_as_string matches format yyyy-MM from the aggregation request."""
+    resp = {
+        "aggregations": {
+            "runs_by_month": {
+                "buckets": [
+                    {"key_as_string": "2025-01", "doc_count": 4},
+                    {"key_as_string": "2025-02", "doc_count": 7},
+                ]
+            }
+        }
+    }
+    pairs = parse_monthly_activity_histogram_response(resp)
+    assert pairs == [("2025-01", 4), ("2025-02", 7)]
+
+
+def test_parse_monthly_activity_histogram_response_truncates_long_key_as_string():
+    """Defensive: older/alternate clients may return ISO timestamps in key_as_string."""
     resp = {
         "aggregations": {
             "runs_by_month": {
@@ -252,6 +270,20 @@ def test_parse_monthly_activity_histogram_response():
     }
     pairs = parse_monthly_activity_histogram_response(resp)
     assert pairs == [("2025-01", 4), ("2025-02", 7)]
+
+
+def test_parse_monthly_activity_histogram_response_skips_zero_doc_count():
+    resp = {
+        "aggregations": {
+            "runs_by_month": {
+                "buckets": [
+                    {"key_as_string": "2025-01", "doc_count": 0},
+                    {"key_as_string": "2025-02", "doc_count": 3},
+                ]
+            }
+        }
+    }
+    assert parse_monthly_activity_histogram_response(resp) == [("2025-02", 3)]
 
 
 def test_aggregate_activity_timeline_from_dataframe():
@@ -275,7 +307,7 @@ def test_fetch_results_activity_timeline_success():
         "aggregations": {
             "runs_by_month": {
                 "buckets": [
-                    {"key_as_string": "2024-12-01T00:00:00.000Z", "doc_count": 1},
+                    {"key_as_string": "2024-12", "doc_count": 1},
                 ]
             }
         }

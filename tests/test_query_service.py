@@ -3,6 +3,7 @@
 import pandas as pd
 from unittest.mock import MagicMock, patch
 
+from src.benchmark_categories import category_for_test_name
 from src.comparison_policy import ValidationResult
 from src.pulse_policy import validate_pulse_request
 from src.query_service import (
@@ -132,23 +133,26 @@ def test_parse_test_name_buckets_to_category_counts_merges_same_category():
         }
     }
     pairs = parse_test_name_buckets_to_category_counts(resp)
-    assert isinstance(pairs, list)
-    assert pairs[0][1] >= pairs[-1][1]  # sorted by count desc
+    assert pairs == [("Other", 5)]
 
 
 def test_aggregate_category_kpis_from_dataframe():
     df = pd.DataFrame(
         {
-            "test_name": ["pyperf", "pyperf", "unknown_xyz_benchmark"],
-            "cloud_provider": ["aws", "aws", "gcp"],
+            "test_name": ["streams", "streams", "coremark"],
+            "cloud_provider": ["aws", "aws", "aws"],
         }
     )
     snap = aggregate_category_kpis_from_dataframe(df)
     assert isinstance(snap, CategoryKpiSnapshot)
     assert snap.source == "synthetic"
     assert snap.error is None
-    labels = [c for c, _ in snap.by_category]
-    assert "Python" in labels or "Other" in labels
+    assert snap.by_category[0] == (
+        category_for_test_name("streams"),
+        2,
+    )
+    assert snap.by_category[1][0] == category_for_test_name("coremark")
+    assert snap.by_category[1][1] == 1
 
 
 def test_fetch_results_category_kpis_success():
@@ -166,8 +170,29 @@ def test_fetch_results_category_kpis_success():
     snap = fetch_results_category_kpis(mock_client)
     assert snap.source == "opensearch"
     assert snap.error is None
-    assert len(snap.by_category) >= 1
+    assert snap.by_category == [
+        (category_for_test_name("streams"), 10),
+        (category_for_test_name("coremark"), 5),
+    ]
     mock_client.search_results.assert_called_once()
+
+
+def test_fetch_results_category_kpis_malformed_buckets_surfaces_error():
+    """Parsing failures must return CategoryKpiSnapshot.error, not raise."""
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {
+            "by_test_name": {
+                "buckets": [
+                    {"key": "streams", "doc_count": "not_a_number"},
+                ]
+            }
+        }
+    }
+    snap = fetch_results_category_kpis(mock_client)
+    assert snap.source == "opensearch"
+    assert snap.error is not None
+    assert snap.by_category == []
 
 
 def test_fetch_results_category_kpis_skips_search_when_pulse_policy_fails():

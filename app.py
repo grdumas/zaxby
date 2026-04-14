@@ -32,6 +32,7 @@ from src.opensearch_links import opensearch_discover_url_for_document, results_i
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
 from src.components import filters, visualizations
+from src.components.investigation_nav import investigation_drill_breadcrumb
 from src.components.summaries import (
     format_regression_summary,
     format_peer_comparison_summary,
@@ -869,8 +870,14 @@ def create_overview_layout():
     ])
 
 
-def create_investigation_layout(test_name, baseline_version, comparison_version, os_distribution='rhel'):
-    """Create the investigation drill-down layout."""
+def create_investigation_layout(
+    test_name,
+    baseline_version,
+    comparison_version,
+    os_distribution='rhel',
+    benchmark_category='Other',
+):
+    """Create the investigation drill-down layout (category → benchmark per P1-C)."""
     return html.Div([
         # Breadcrumb / Back button
         dbc.Row([
@@ -881,9 +888,9 @@ def create_investigation_layout(test_name, baseline_version, comparison_version,
                     color="link",
                     size="sm"
                 ),
-                html.H3(f"Investigating: {test_name}", className="mt-2"),
-                html.P(f"OS: {os_distribution.upper()} | Comparing {baseline_version} → {comparison_version}", 
-                       className="text-muted")
+                investigation_drill_breadcrumb(benchmark_category, test_name),
+                html.P(f"OS: {os_distribution.upper()} | Comparing {baseline_version} → {comparison_version}",
+                       className="text-muted mb-0"),
             ])
         ], className="mb-3"),
         
@@ -2069,11 +2076,14 @@ def render_main_content(nav_state):
         return create_overview_layout()
     elif nav_state['view'] == 'investigation':
         params = nav_state.get('investigation_params', {})
+        test_name = params.get('test_name', 'Unknown')
+        benchmark_category = processor.get_benchmark_category(test_name)
         return create_investigation_layout(
-            test_name=params.get('test_name', 'Unknown'),
+            test_name=test_name,
             baseline_version=params.get('baseline_version', 'N/A'),
             comparison_version=params.get('comparison_version', 'N/A'),
-            os_distribution=params.get('os_distribution', 'rhel')
+            os_distribution=params.get('os_distribution', 'rhel'),
+            benchmark_category=benchmark_category,
         )
     else:
         return create_overview_layout()

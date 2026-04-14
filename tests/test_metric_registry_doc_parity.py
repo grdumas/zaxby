@@ -2,12 +2,14 @@
 P1-E: Keep docs/guides/REGRESSION_DETECTION.md §1.1.1 in sync with code.
 
 The canonical map is PRIMARY_METRIC_FALLBACK_KEYS in src/metric_registry.py; the
-markdown table is a human-readable mirror. This test fails if a row or metric key
-is added/changed in code without updating the doc (or vice versa).
+markdown table is a human-readable mirror. Parity is checked in both directions,
+using only the §1.1.1 table body (not the whole doc) so short keys like ``mean``
+cannot match unrelated prose.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,47 @@ _REGRESSION_DOC = (
     Path(__file__).resolve().parents[1] / "docs" / "guides" / "REGRESSION_DETECTION.md"
 )
 
+_SECTION_111_HEADING = "#### 1.1.1 Canonical"
+_TABLE_TAIL = "Benchmarks not listed rely on"
+
+
+def _extract_section_111_table_block(full_doc: str) -> str:
+    """Return markdown fragment containing the §1.1.1 table (header + rows)."""
+    if _SECTION_111_HEADING not in full_doc:
+        pytest.fail("REGRESSION_DETECTION.md: missing §1.1.1 heading")
+    after = full_doc.split(_SECTION_111_HEADING, 1)[1]
+    if _TABLE_TAIL in after:
+        return after.split(_TABLE_TAIL, 1)[0]
+    if "### 1.2" in after:
+        return after.split("### 1.2", 1)[0]
+    pytest.fail("REGRESSION_DETECTION.md: could not bound §1.1.1 table (no tail marker)")
+
+
+# Data rows: | `test_name` | `key1`, `key2` |
+_ROW_RE = re.compile(
+    r"^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|?\s*$",
+)
+
+
+def _parse_fallback_table_rows(table_block: str) -> dict[str, str]:
+    """
+    Parse data rows into ``test.name`` -> second-column text (metric keys cell).
+
+    Skips the header row (first column ``test.name`` without leading backtick in
+    the pattern we match) and separator lines.
+    """
+    rows: dict[str, str] = {}
+    for line in table_block.splitlines():
+        line = line.rstrip()
+        m = _ROW_RE.match(line)
+        if not m:
+            continue
+        test_name, second_col = m.group(1), m.group(2).strip()
+        if test_name == "test.name":
+            continue
+        rows[test_name] = second_col
+    return rows
+
 
 @pytest.fixture(scope="module")
 def regression_doc_text() -> str:
@@ -26,16 +69,34 @@ def regression_doc_text() -> str:
     return _REGRESSION_DOC.read_text(encoding="utf-8")
 
 
-def test_regression_detection_doc_lists_every_registered_test_name(regression_doc_text: str) -> None:
-    for test_name in sorted(PRIMARY_METRIC_FALLBACK_KEYS.keys()):
-        assert (
-            f"| `{test_name}` |" in regression_doc_text
-        ), f"REGRESSION_DETECTION.md §1.1.1 missing row for test.name={test_name!r}"
+@pytest.fixture(scope="module")
+def section_111_table_block(regression_doc_text: str) -> str:
+    return _extract_section_111_table_block(regression_doc_text)
 
 
-def test_regression_detection_doc_mentions_every_fallback_key(regression_doc_text: str) -> None:
+@pytest.fixture(scope="module")
+def parsed_fallback_table(section_111_table_block: str) -> dict[str, str]:
+    return _parse_fallback_table_rows(section_111_table_block)
+
+
+def test_fallback_table_test_names_match_registry_both_ways(parsed_fallback_table: dict[str, str]) -> None:
+    """Doc table rows and PRIMARY_METRIC_FALLBACK_KEYS must have the same test.name set."""
+    from_registry = set(PRIMARY_METRIC_FALLBACK_KEYS.keys())
+    from_doc = set(parsed_fallback_table.keys())
+    assert from_registry == from_doc, (
+        "§1.1.1 table vs PRIMARY_METRIC_FALLBACK_KEYS mismatch: "
+        f"only in registry={sorted(from_registry - from_doc)!r}, "
+        f"only in doc={sorted(from_doc - from_registry)!r}"
+    )
+
+
+def test_fallback_table_rows_document_registry_keys_with_backticks(
+    parsed_fallback_table: dict[str, str],
+) -> None:
+    """Each metric key must appear in its row as a Markdown backtick token (scoped, not whole-doc)."""
     for test_name, keys in PRIMARY_METRIC_FALLBACK_KEYS.items():
+        row = parsed_fallback_table[test_name]
         for key in keys:
-            assert key in regression_doc_text, (
-                f"REGRESSION_DETECTION.md must document metric key {key!r} for {test_name!r}"
+            assert f"`{key}`" in row, (
+                f"§1.1.1 row for {test_name!r} must contain backtick-wrapped key {key!r}; row={row!r}"
             )

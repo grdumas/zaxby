@@ -21,7 +21,8 @@ _REGRESSION_DOC = (
 
 @pytest.fixture(scope="module")
 def regression_doc_text() -> str:
-    assert _REGRESSION_DOC.is_file(), f"Missing {_REGRESSION_DOC}"
+    if not _REGRESSION_DOC.is_file():
+        pytest.fail(f"Missing {_REGRESSION_DOC}")
     return _REGRESSION_DOC.read_text(encoding="utf-8")
 
 

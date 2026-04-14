@@ -24,8 +24,11 @@ from src.opensearch_client import BenchmarkDataSource
 from src.data_processing import BenchmarkDataProcessor
 from src.data_bootstrap import load_initial_benchmark_documents
 from src.query_service import (
+    CategoryKpiSnapshot,
     ResultsOverviewSnapshot,
+    aggregate_category_kpis_from_dataframe,
     aggregate_results_overview_from_dataframe,
+    fetch_results_category_kpis,
     fetch_results_overview_aggregates,
 )
 from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
@@ -532,7 +535,8 @@ def create_overview_layout():
                     dbc.Col([
                         html.H5("Results index snapshot", className="mb-2"),
                         html.P(
-                            "Run counts from a server-side aggregation (OpenSearch size=0) or, in synthetic mode, from the loaded sample. Does not use the full scroll payload.",
+                            "Run counts and benchmark mix from server-side aggregations (OpenSearch size=0) or, "
+                            "in synthetic mode, from the loaded sample. Does not use the full scroll payload.",
                             className="text-muted small mb-2",
                         ),
                         html.Div(id="server-snapshot-content", children=dbc.Spinner(size="sm")),
@@ -957,12 +961,19 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         if DATA_MODE == "opensearch":
             client = BenchmarkDataSource()
             snap = fetch_results_overview_aggregates(client)
+            cat_snap = fetch_results_category_kpis(client)
         else:
             snap = aggregate_results_overview_from_dataframe(df)
+            cat_snap = aggregate_category_kpis_from_dataframe(df)
     except Exception as exc:  # noqa: BLE001 — connection/bootstrap; P1-F will refine UX
         snap = ResultsOverviewSnapshot(
             total=None,
             by_cloud=[],
+            source="opensearch" if DATA_MODE == "opensearch" else "synthetic",
+            error=str(exc),
+        )
+        cat_snap = CategoryKpiSnapshot(
+            by_category=[],
             source="opensearch" if DATA_MODE == "opensearch" else "synthetic",
             error=str(exc),
         )
@@ -1002,6 +1013,45 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         )
     else:
         parts.append(html.P("No cloud provider buckets in snapshot.", className="text-muted small mb-0"))
+
+    parts.append(html.Hr(className="my-3"))
+    parts.append(html.H6("Benchmark mix by category", className="mb-2"))
+    if cat_snap.error:
+        parts.append(
+            dbc.Alert(
+                ["Category KPI failed: ", html.Code(cat_snap.error)],
+                color="warning",
+                className="mb-0",
+            )
+        )
+    elif cat_snap.by_category:
+        parts.append(
+            html.P(
+                "Documents per dashboard category (from test.name). OpenSearch uses a bounded "
+                "terms aggregation; counts for rare tests may be folded into the tail.",
+                className="text-muted small mb-2",
+            )
+        )
+        parts.append(
+            html.P(
+                [
+                    html.Strong("By category: "),
+                    *[
+                        dbc.Badge(
+                            f"{name}: {count:,}",
+                            color="light",
+                            text_color="dark",
+                            className="me-1 mb-1",
+                        )
+                        for name, count in cat_snap.by_category[:24]
+                    ],
+                ],
+                className="mb-0",
+            )
+        )
+    else:
+        parts.append(html.P("No category breakdown available.", className="text-muted small mb-0"))
+
     return html.Div(parts)
 
 

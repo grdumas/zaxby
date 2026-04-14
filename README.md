@@ -90,7 +90,6 @@ performance-dashboard/
 │   ├── synthetic_data.py       # Synthetic data generator
 │   └── components/
 │       ├── filters.py          # Filter components
-│       ├── investigation_nav.py  # Investigation breadcrumbs (P1-C)
 │       ├── summaries.py        # Summary generation
 │       └── visualizations.py   # Visualization components
 ├── tests/

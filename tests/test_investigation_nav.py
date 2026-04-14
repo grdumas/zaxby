@@ -1,6 +1,6 @@
-"""Tests for investigation drill-down navigation (P1-C)."""
+"""Tests for investigation drill-down breadcrumb (P1-C); helper lives in app.py."""
 
-from src.components.investigation_nav import investigation_drill_breadcrumb
+from app import investigation_drill_breadcrumb
 
 
 def test_investigation_drill_breadcrumb_three_levels():

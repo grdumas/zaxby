@@ -32,7 +32,6 @@ from src.opensearch_links import opensearch_discover_url_for_document, results_i
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
 from src.components import filters, visualizations
-from src.components.investigation_nav import investigation_drill_breadcrumb
 from src.components.summaries import (
     format_regression_summary,
     format_peer_comparison_summary,
@@ -51,6 +50,18 @@ def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
             {"label": category, "active": True},
         ],
         className="mb-0 bg-transparent py-0",
+    )
+
+
+def investigation_drill_breadcrumb(benchmark_category: str, test_name: str) -> dbc.Breadcrumb:
+    """Category → leaf trail for RHEL Regression investigation drill-down (P1-C)."""
+    return dbc.Breadcrumb(
+        items=[
+            {"label": "RHEL Regression Analysis"},
+            {"label": benchmark_category},
+            {"label": test_name, "active": True},
+        ],
+        className="mb-2 bg-transparent py-0",
     )
 
 

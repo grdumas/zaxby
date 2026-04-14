@@ -885,10 +885,14 @@ def create_investigation_layout(
     test_name,
     baseline_version,
     comparison_version,
+    benchmark_category,
     os_distribution='rhel',
-    benchmark_category='Other',
 ):
-    """Create the investigation drill-down layout (category → benchmark per P1-C)."""
+    """Create the investigation drill-down layout (category → benchmark per P1-C).
+
+    ``benchmark_category`` is required so call sites cannot omit category resolution
+    and accidentally show a misleading default in the breadcrumb.
+    """
     return html.Div([
         # Breadcrumb / Back button
         dbc.Row([

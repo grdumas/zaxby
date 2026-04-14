@@ -114,9 +114,9 @@ The existing `is_regression` checks use **`pct_change < regression_threshold`** 
 
 | Kind | Examples (`test.name` or family) | Better direction | Regression when (using pct_change as in §1.2) |
 |------|-----------------------------------|------------------|-----------------------------------------------|
-| Throughput / score | `streams`, `coremark`, `pyperf`, `uperf`, `sysbench`, `specjbb`, `auto_hpl`, `passmark` | Higher | `pct_change < -T` |
+| Throughput / score | `streams`, `coremark`, `uperf`, `sysbench`, `specjbb`, `auto_hpl`, `passmark` | Higher | `pct_change < -T` |
 | Storage IOPS / BW | `fio` (read/write iops/bw) | Higher | `pct_change < -T` |
-| Latency / time | *(if primary is latency)* | Lower | `pct_change > +T` (invert) |
+| Latency / time | `pyperf` (`mean` time), *(other cases if primary is latency)* | Lower | `pct_change > +T` (invert) |
 
 **Action:** maintain a **metric registry** (P1-E) mapping `test.name` + `primary_metric.name` → `{higher_better: bool}` and apply in one place before labeling.
 

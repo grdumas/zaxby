@@ -13,6 +13,7 @@ snapshot.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -394,7 +395,7 @@ def _epoch_ms_to_utc_date_str(value: Any) -> Optional[str]:
         ms = float(value)
     except (TypeError, ValueError):
         return None
-    if ms != ms:  # NaN
+    if math.isnan(ms):
         return None
     try:
         sec = ms / 1000.0
@@ -411,7 +412,6 @@ def build_results_run_timestamp_stats_body() -> Dict[str, Any]:
     """
     return {
         "size": 0,
-        "track_total_hits": True,
         "query": {"match_all": {}},
         "aggs": {
             "run_time_stats": {
@@ -458,7 +458,14 @@ class PulseScopeFootnote:
 
 
 def aggregate_pulse_scope_footnote_from_dataframe(df: pd.DataFrame) -> PulseScopeFootnote:
-    """Derive scope footnote from the benchmark DataFrame (synthetic / loaded sample)."""
+    """
+    Derive scope footnote from the benchmark DataFrame (synthetic / loaded sample).
+
+    ``document_count`` matches OpenSearch ``stats.count``: rows with a non-null,
+    parseable ``timestamp`` (from ``metadata.test_timestamp`` in
+    :meth:`~src.data_processing.BenchmarkDataProcessor.documents_to_dataframe`), not
+    ``len(df)`` when some rows lack timestamps.
+    """
     if df is None or df.empty:
         return PulseScopeFootnote(
             document_count=0,
@@ -467,10 +474,9 @@ def aggregate_pulse_scope_footnote_from_dataframe(df: pd.DataFrame) -> PulseScop
             source="synthetic",
             error=None,
         )
-    n = len(df)
     if "timestamp" not in df.columns:
         return PulseScopeFootnote(
-            document_count=n,
+            document_count=0,
             run_date_min_utc=None,
             run_date_max_utc=None,
             source="synthetic",
@@ -478,9 +484,10 @@ def aggregate_pulse_scope_footnote_from_dataframe(df: pd.DataFrame) -> PulseScop
         )
     t = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
     valid = t.notna()
-    if not valid.any():
+    n_with_ts = int(valid.sum())
+    if n_with_ts == 0:
         return PulseScopeFootnote(
-            document_count=n,
+            document_count=0,
             run_date_min_utc=None,
             run_date_max_utc=None,
             source="synthetic",
@@ -490,12 +497,42 @@ def aggregate_pulse_scope_footnote_from_dataframe(df: pd.DataFrame) -> PulseScop
     dmin = ts.min().date().isoformat()
     dmax = ts.max().date().isoformat()
     return PulseScopeFootnote(
-        document_count=n,
+        document_count=n_with_ts,
         run_date_min_utc=dmin,
         run_date_max_utc=dmax,
         source="synthetic",
         error=None,
     )
+
+
+def format_pulse_scope_footnote(foot: PulseScopeFootnote, *, data_mode: str) -> Optional[str]:
+    """Single line of scope metadata for Pulse snapshot copy (Phase 2 P2-C). Unit-tested."""
+    if foot.error:
+        return None
+    dm = (data_mode or "").lower()
+    segments: list[str] = []
+    if foot.document_count is not None:
+        if dm == "opensearch":
+            segments.append(
+                f"{foot.document_count:,} documents with run timestamps "
+                f"(OpenSearch stats on metadata.test_timestamp)"
+            )
+        else:
+            segments.append(
+                f"{foot.document_count:,} documents with run timestamps in loaded sample"
+            )
+    if foot.run_date_min_utc and foot.run_date_max_utc:
+        if foot.run_date_min_utc == foot.run_date_max_utc:
+            segments.append(f"runs on {foot.run_date_min_utc} (UTC)")
+        else:
+            segments.append(
+                f"run dates from {foot.run_date_min_utc} to {foot.run_date_max_utc} (UTC)"
+            )
+    elif foot.run_date_min_utc:
+        segments.append(f"earliest run {foot.run_date_min_utc} (UTC)")
+    if not segments:
+        return None
+    return "Scope: " + " · ".join(segments)
 
 
 def fetch_pulse_scope_footnote(client: Any) -> PulseScopeFootnote:

@@ -26,10 +26,13 @@ from src.data_bootstrap import load_initial_benchmark_documents
 from src.query_service import (
     ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
+    PulseScopeFootnote,
     ResultsOverviewSnapshot,
     aggregate_activity_timeline_from_dataframe,
     aggregate_category_kpis_from_dataframe,
+    aggregate_pulse_scope_footnote_from_dataframe,
     aggregate_results_overview_from_dataframe,
+    fetch_pulse_scope_footnote,
     fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
@@ -246,6 +249,34 @@ def refresh_bootstrap_state() -> None:
 
 
 refresh_bootstrap_state()
+
+
+def _format_pulse_scope_footnote(foot: PulseScopeFootnote, *, data_mode: str) -> str | None:
+    """Single line of scope metadata for Pulse snapshot copy (Phase 2 P2-C)."""
+    if foot.error:
+        return None
+    dm = (data_mode or "").lower()
+    segments: list[str] = []
+    if foot.document_count is not None:
+        if dm == "opensearch":
+            segments.append(
+                f"{foot.document_count:,} documents with run timestamps "
+                f"(OpenSearch stats on metadata.test_timestamp)"
+            )
+        else:
+            segments.append(f"{foot.document_count:,} documents in loaded sample")
+    if foot.run_date_min_utc and foot.run_date_max_utc:
+        if foot.run_date_min_utc == foot.run_date_max_utc:
+            segments.append(f"runs on {foot.run_date_min_utc} (UTC)")
+        else:
+            segments.append(
+                f"run dates from {foot.run_date_min_utc} to {foot.run_date_max_utc} (UTC)"
+            )
+    elif foot.run_date_min_utc:
+        segments.append(f"earliest run {foot.run_date_min_utc} (UTC)")
+    if not segments:
+        return None
+    return "Scope: " + " · ".join(segments)
 
 
 def _opensearch_alert_banners() -> list:
@@ -538,9 +569,9 @@ def create_overview_layout():
                     dbc.Col([
                         html.H5("Results index snapshot", className="mb-2"),
                         html.P(
-                            "Run counts, benchmark mix, and monthly activity from server-side aggregations "
-                            "(OpenSearch size=0) or, in synthetic mode, from the loaded sample. "
-                            "Does not use the full scroll payload.",
+                            "Run counts, benchmark mix, monthly activity, and scope metadata (P2-C) from "
+                            "server-side aggregations (OpenSearch size=0) or, in synthetic mode, from the "
+                            "loaded sample. Does not use the full scroll payload.",
                             className="text-muted small mb-2",
                         ),
                         html.Div(id="server-snapshot-content", children=dbc.Spinner(size="sm")),
@@ -973,6 +1004,13 @@ def update_server_snapshot(_n_intervals, _n_clicks):
             )
             cat_snap = CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
             timeline_snap = ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
+            scope_snap = PulseScopeFootnote(
+                document_count=None,
+                run_date_min_utc=None,
+                run_date_max_utc=None,
+                source="opensearch",
+                error=str(exc),
+            )
         else:
             try:
                 snap = fetch_results_overview_aggregates(client)
@@ -991,6 +1029,16 @@ def update_server_snapshot(_n_intervals, _n_clicks):
                 timeline_snap = fetch_results_activity_timeline(client)
             except Exception as exc:  # noqa: BLE001
                 timeline_snap = ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
+            try:
+                scope_snap = fetch_pulse_scope_footnote(client)
+            except Exception as exc:  # noqa: BLE001
+                scope_snap = PulseScopeFootnote(
+                    document_count=None,
+                    run_date_min_utc=None,
+                    run_date_max_utc=None,
+                    source="opensearch",
+                    error=str(exc),
+                )
     else:
         try:
             snap = aggregate_results_overview_from_dataframe(df)
@@ -1009,6 +1057,16 @@ def update_server_snapshot(_n_intervals, _n_clicks):
             timeline_snap = aggregate_activity_timeline_from_dataframe(df)
         except Exception as exc:  # noqa: BLE001
             timeline_snap = ActivityTimelineSnapshot(by_month=[], source="synthetic", error=str(exc))
+        try:
+            scope_snap = aggregate_pulse_scope_footnote_from_dataframe(df)
+        except Exception as exc:  # noqa: BLE001
+            scope_snap = PulseScopeFootnote(
+                document_count=None,
+                run_date_min_utc=None,
+                run_date_max_utc=None,
+                source="synthetic",
+                error=str(exc),
+            )
 
     parts: list = []
     if snap.error:
@@ -1049,6 +1107,19 @@ def update_server_snapshot(_n_intervals, _n_clicks):
             )
         else:
             parts.append(html.P("No cloud provider buckets in snapshot.", className="text-muted small mb-0"))
+
+    if scope_snap.error:
+        parts.append(
+            dbc.Alert(
+                ["Scope metadata failed: ", html.Code(scope_snap.error)],
+                color="warning",
+                className="mb-2 small",
+            )
+        )
+    else:
+        scope_line = _format_pulse_scope_footnote(scope_snap, data_mode=DATA_MODE)
+        if scope_line:
+            parts.append(html.P(scope_line, className="text-muted small mb-2"))
 
     parts.append(html.Hr(className="my-3"))
     parts.append(html.H6("Benchmark mix by category", className="mb-2"))

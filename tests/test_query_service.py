@@ -1,4 +1,4 @@
-"""Tests for server-side aggregation helpers (P0-C, P2-A Pulse KPIs)."""
+"""Tests for server-side aggregation helpers (P0-C, P2-A Pulse KPIs, P2-C scope)."""
 
 import pandas as pd
 from unittest.mock import MagicMock, patch
@@ -12,18 +12,23 @@ from src.query_service import (
     RESULTS_ACTIVITY_TIMESTAMP_FIELD,
     ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
+    PulseScopeFootnote,
     ResultsOverviewSnapshot,
     aggregate_activity_timeline_from_dataframe,
     aggregate_category_kpis_from_dataframe,
+    aggregate_pulse_scope_footnote_from_dataframe,
     aggregate_results_overview_from_dataframe,
     build_results_monthly_activity_histogram_body,
     build_results_overview_aggregation_body,
+    build_results_run_timestamp_stats_body,
     build_results_test_name_terms_aggregation_body,
+    fetch_pulse_scope_footnote,
     fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
     parse_monthly_activity_histogram_response,
     parse_overview_aggregation_response,
+    parse_run_timestamp_stats_response,
     parse_test_name_buckets_to_category_counts,
 )
 
@@ -325,4 +330,70 @@ def test_fetch_results_activity_timeline_skips_search_when_pulse_policy_fails():
         snap = fetch_results_activity_timeline(mock_client)
     assert snap.source == "opensearch"
     assert "Pulse policy" in (snap.error or "")
+    mock_client.search_results.assert_not_called()
+
+
+def test_build_results_run_timestamp_stats_body():
+    body = build_results_run_timestamp_stats_body()
+    assert body["size"] == 0
+    assert body["aggs"]["run_time_stats"]["stats"]["field"] == RESULTS_ACTIVITY_TIMESTAMP_FIELD
+
+
+def test_parse_run_timestamp_stats_response():
+    resp = {
+        "aggregations": {
+            "run_time_stats": {
+                "count": 100,
+                "min": 1704067200000.0,
+                "max": 1735689600000.0,
+            }
+        }
+    }
+    cnt, dmin, dmax = parse_run_timestamp_stats_response(resp)
+    assert cnt == 100
+    assert dmin == "2024-01-01"
+    assert dmax == "2025-01-01"
+
+
+def test_aggregate_pulse_scope_footnote_from_dataframe():
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2025-03-01", "2025-03-15"]),
+            "test_name": ["a", "b"],
+        }
+    )
+    foot = aggregate_pulse_scope_footnote_from_dataframe(df)
+    assert isinstance(foot, PulseScopeFootnote)
+    assert foot.document_count == 2
+    assert foot.run_date_min_utc == "2025-03-01"
+    assert foot.run_date_max_utc == "2025-03-15"
+    assert foot.error is None
+
+
+def test_fetch_pulse_scope_footnote_success():
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {
+            "run_time_stats": {
+                "count": 42,
+                "min": 1704067200000.0,
+                "max": 1704067200000.0,
+            }
+        }
+    }
+    foot = fetch_pulse_scope_footnote(mock_client)
+    assert foot.source == "opensearch"
+    assert foot.error is None
+    assert foot.document_count == 42
+    assert foot.run_date_min_utc == "2024-01-01"
+    assert foot.run_date_max_utc == "2024-01-01"
+
+
+def test_fetch_pulse_scope_footnote_skips_search_when_pulse_policy_fails():
+    mock_client = MagicMock()
+    with patch("src.query_service.validate_pulse_request") as vp:
+        vp.return_value = ValidationResult(False, ("policy block",))
+        foot = fetch_pulse_scope_footnote(mock_client)
+    assert foot.source == "opensearch"
+    assert "Pulse policy" in (foot.error or "")
     mock_client.search_results.assert_not_called()

@@ -24,10 +24,13 @@ from src.opensearch_client import BenchmarkDataSource
 from src.data_processing import BenchmarkDataProcessor
 from src.data_bootstrap import load_initial_benchmark_documents
 from src.query_service import (
+    ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
     ResultsOverviewSnapshot,
+    aggregate_activity_timeline_from_dataframe,
     aggregate_category_kpis_from_dataframe,
     aggregate_results_overview_from_dataframe,
+    fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
 )
@@ -535,8 +538,9 @@ def create_overview_layout():
                     dbc.Col([
                         html.H5("Results index snapshot", className="mb-2"),
                         html.P(
-                            "Run counts and benchmark mix from server-side aggregations (OpenSearch size=0) or, "
-                            "in synthetic mode, from the loaded sample. Does not use the full scroll payload.",
+                            "Run counts, benchmark mix, and monthly activity from server-side aggregations "
+                            "(OpenSearch size=0) or, in synthetic mode, from the loaded sample. "
+                            "Does not use the full scroll payload.",
                             className="text-muted small mb-2",
                         ),
                         html.Div(id="server-snapshot-content", children=dbc.Spinner(size="sm")),
@@ -968,6 +972,7 @@ def update_server_snapshot(_n_intervals, _n_clicks):
                 error=str(exc),
             )
             cat_snap = CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
+            timeline_snap = ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
         else:
             try:
                 snap = fetch_results_overview_aggregates(client)
@@ -982,6 +987,10 @@ def update_server_snapshot(_n_intervals, _n_clicks):
                 cat_snap = fetch_results_category_kpis(client)
             except Exception as exc:  # noqa: BLE001
                 cat_snap = CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
+            try:
+                timeline_snap = fetch_results_activity_timeline(client)
+            except Exception as exc:  # noqa: BLE001
+                timeline_snap = ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
     else:
         try:
             snap = aggregate_results_overview_from_dataframe(df)
@@ -996,6 +1005,10 @@ def update_server_snapshot(_n_intervals, _n_clicks):
             cat_snap = aggregate_category_kpis_from_dataframe(df)
         except Exception as exc:  # noqa: BLE001
             cat_snap = CategoryKpiSnapshot(by_category=[], source="synthetic", error=str(exc))
+        try:
+            timeline_snap = aggregate_activity_timeline_from_dataframe(df)
+        except Exception as exc:  # noqa: BLE001
+            timeline_snap = ActivityTimelineSnapshot(by_month=[], source="synthetic", error=str(exc))
 
     parts: list = []
     if snap.error:
@@ -1074,6 +1087,43 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         )
     else:
         parts.append(html.P("No category breakdown available.", className="text-muted small mb-0"))
+
+    parts.append(html.Hr(className="my-3"))
+    parts.append(html.H6("Activity by month", className="mb-2"))
+    if timeline_snap.error:
+        parts.append(
+            dbc.Alert(
+                ["Activity timeline failed: ", html.Code(timeline_snap.error)],
+                color="warning",
+                className="mb-0",
+            )
+        )
+    elif timeline_snap.by_month:
+        parts.append(
+            html.P(
+                "Document counts per calendar month (metadata.test_timestamp).",
+                className="text-muted small mb-2",
+            )
+        )
+        parts.append(
+            html.P(
+                [
+                    html.Strong("Runs: "),
+                    *[
+                        dbc.Badge(
+                            f"{label}: {count:,}",
+                            color="light",
+                            text_color="dark",
+                            className="me-1 mb-1",
+                        )
+                        for label, count in timeline_snap.by_month[-36:]
+                    ],
+                ],
+                className="mb-0",
+            )
+        )
+    else:
+        parts.append(html.P("No monthly activity buckets available.", className="text-muted small mb-0"))
 
     return html.Div(parts)
 

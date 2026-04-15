@@ -33,6 +33,7 @@ from src.query_service import (
     aggregate_pulse_scope_footnote_from_dataframe,
     aggregate_results_overview_from_dataframe,
     fetch_pulse_scope_footnote,
+    format_pulse_scope_footnote,
     fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
@@ -249,34 +250,6 @@ def refresh_bootstrap_state() -> None:
 
 
 refresh_bootstrap_state()
-
-
-def _format_pulse_scope_footnote(foot: PulseScopeFootnote, *, data_mode: str) -> str | None:
-    """Single line of scope metadata for Pulse snapshot copy (Phase 2 P2-C)."""
-    if foot.error:
-        return None
-    dm = (data_mode or "").lower()
-    segments: list[str] = []
-    if foot.document_count is not None:
-        if dm == "opensearch":
-            segments.append(
-                f"{foot.document_count:,} documents with run timestamps "
-                f"(OpenSearch stats on metadata.test_timestamp)"
-            )
-        else:
-            segments.append(f"{foot.document_count:,} documents in loaded sample")
-    if foot.run_date_min_utc and foot.run_date_max_utc:
-        if foot.run_date_min_utc == foot.run_date_max_utc:
-            segments.append(f"runs on {foot.run_date_min_utc} (UTC)")
-        else:
-            segments.append(
-                f"run dates from {foot.run_date_min_utc} to {foot.run_date_max_utc} (UTC)"
-            )
-    elif foot.run_date_min_utc:
-        segments.append(f"earliest run {foot.run_date_min_utc} (UTC)")
-    if not segments:
-        return None
-    return "Scope: " + " · ".join(segments)
 
 
 def _opensearch_alert_banners() -> list:
@@ -1117,7 +1090,7 @@ def update_server_snapshot(_n_intervals, _n_clicks):
             )
         )
     else:
-        scope_line = _format_pulse_scope_footnote(scope_snap, data_mode=DATA_MODE)
+        scope_line = format_pulse_scope_footnote(scope_snap, data_mode=DATA_MODE)
         if scope_line:
             parts.append(html.P(scope_line, className="text-muted small mb-2"))
 

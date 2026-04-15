@@ -5,17 +5,18 @@ Investigate / large pulls use explicit pagination limits; this module documents
 the contract and implements small aggregation paths that do not scale with
 full-index scroll size in the browser.
 
-Phase 2 (P2-A): Pulse KPIs — category rollup (``test.name`` terms → dashboard
-categories), and activity-over-time (monthly ``date_histogram`` on
-``metadata.test_timestamp``). Both reuse the same Pulse policy anchor as the
-cloud overview snapshot.
+Phase 2 (P2-A / P2-C): Pulse KPIs — category rollup, monthly activity timeline,
+and :class:`PulseScopeFootnote` (document count + run date range for exec-safe
+copy). Aggregations reuse the same Pulse policy anchor as the cloud overview
+snapshot.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -380,3 +381,155 @@ def fetch_results_activity_timeline(client: Any) -> ActivityTimelineSnapshot:
     except Exception as exc:  # noqa: BLE001
         return ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
     return ActivityTimelineSnapshot(by_month=pairs, source="opensearch", error=None)
+
+
+# --- Phase 2 P2-C: scope footnote (soundbite metadata) ----------------------------
+
+
+def _epoch_ms_to_utc_date_str(value: Any) -> Optional[str]:
+    """Format OpenSearch ``stats`` min/max epoch millis as ``YYYY-MM-DD`` (UTC)."""
+    if value is None:
+        return None
+    try:
+        ms = float(value)
+    except (TypeError, ValueError):
+        return None
+    if ms != ms:  # NaN
+        return None
+    try:
+        sec = ms / 1000.0
+        return datetime.fromtimestamp(sec, tz=timezone.utc).date().isoformat()
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def build_results_run_timestamp_stats_body() -> Dict[str, Any]:
+    """
+    OpenSearch body: ``size: 0``, ``stats`` on run timestamp for index scope metadata.
+
+    Used for Pulse copy that cites document count and date range (P2-C).
+    """
+    return {
+        "size": 0,
+        "track_total_hits": True,
+        "query": {"match_all": {}},
+        "aggs": {
+            "run_time_stats": {
+                "stats": {"field": RESULTS_ACTIVITY_TIMESTAMP_FIELD},
+            }
+        },
+    }
+
+
+def parse_run_timestamp_stats_response(response: Dict[str, Any]) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    """
+    Return ``(count_with_field, min_date_utc, max_date_utc)`` from ``run_time_stats``.
+
+    ``count`` is the number of documents that have a value for the field (may differ
+    from total index size if some documents lack ``metadata.test_timestamp``).
+    """
+    raw = response.get("aggregations", {}).get("run_time_stats", {})
+    if not isinstance(raw, dict):
+        return None, None, None
+    cnt = raw.get("count")
+    doc_count: Optional[int]
+    try:
+        doc_count = int(cnt) if cnt is not None else None
+    except (TypeError, ValueError):
+        doc_count = None
+    dmin = _epoch_ms_to_utc_date_str(raw.get("min"))
+    dmax = _epoch_ms_to_utc_date_str(raw.get("max"))
+    return doc_count, dmin, dmax
+
+
+@dataclass
+class PulseScopeFootnote:
+    """
+    Bounded metadata for Pulse narrative copy: how many documents and which run dates.
+
+    Aligns with IMPLEMENTATION_PLAN P2-C (soundbite metadata).
+    """
+
+    document_count: Optional[int]
+    run_date_min_utc: Optional[str]
+    run_date_max_utc: Optional[str]
+    source: str
+    error: str | None = None
+
+
+def aggregate_pulse_scope_footnote_from_dataframe(df: pd.DataFrame) -> PulseScopeFootnote:
+    """Derive scope footnote from the benchmark DataFrame (synthetic / loaded sample)."""
+    if df is None or df.empty:
+        return PulseScopeFootnote(
+            document_count=0,
+            run_date_min_utc=None,
+            run_date_max_utc=None,
+            source="synthetic",
+            error=None,
+        )
+    n = len(df)
+    if "timestamp" not in df.columns:
+        return PulseScopeFootnote(
+            document_count=n,
+            run_date_min_utc=None,
+            run_date_max_utc=None,
+            source="synthetic",
+            error=None,
+        )
+    t = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    valid = t.notna()
+    if not valid.any():
+        return PulseScopeFootnote(
+            document_count=n,
+            run_date_min_utc=None,
+            run_date_max_utc=None,
+            source="synthetic",
+            error=None,
+        )
+    ts = t[valid]
+    dmin = ts.min().date().isoformat()
+    dmax = ts.max().date().isoformat()
+    return PulseScopeFootnote(
+        document_count=n,
+        run_date_min_utc=dmin,
+        run_date_max_utc=dmax,
+        source="synthetic",
+        error=None,
+    )
+
+
+def fetch_pulse_scope_footnote(client: Any) -> PulseScopeFootnote:
+    """
+    Run ``stats`` on ``metadata.test_timestamp`` for Pulse scope lines (P2-C).
+
+    Args:
+        client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
+    """
+    vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
+    if not vr.ok:
+        return PulseScopeFootnote(
+            document_count=None,
+            run_date_min_utc=None,
+            run_date_max_utc=None,
+            source="opensearch",
+            error="Pulse policy: " + "; ".join(vr.errors),
+        )
+    body = build_results_run_timestamp_stats_body()
+    try:
+        resp = client.search_results(body)
+        doc_count, dmin, dmax = parse_run_timestamp_stats_response(resp)
+    except Exception as exc:  # noqa: BLE001
+        return PulseScopeFootnote(
+            document_count=None,
+            run_date_min_utc=None,
+            run_date_max_utc=None,
+            source="opensearch",
+            error=str(exc),
+        )
+    return PulseScopeFootnote(
+        document_count=doc_count,
+        run_date_min_utc=dmin,
+        run_date_max_utc=dmax,
+        source="opensearch",
+        error=None,
+    )

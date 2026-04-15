@@ -23,6 +23,7 @@ from src.query_service import (
     build_results_run_timestamp_stats_body,
     build_results_test_name_terms_aggregation_body,
     fetch_pulse_scope_footnote,
+    format_pulse_scope_footnote,
     fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
@@ -336,6 +337,7 @@ def test_fetch_results_activity_timeline_skips_search_when_pulse_policy_fails():
 def test_build_results_run_timestamp_stats_body():
     body = build_results_run_timestamp_stats_body()
     assert body["size"] == 0
+    assert "track_total_hits" not in body
     assert body["aggs"]["run_time_stats"]["stats"]["field"] == RESULTS_ACTIVITY_TIMESTAMP_FIELD
 
 
@@ -355,6 +357,21 @@ def test_parse_run_timestamp_stats_response():
     assert dmax == "2025-01-01"
 
 
+def test_parse_run_timestamp_stats_response_nan_min_ignored():
+    resp = {
+        "aggregations": {
+            "run_time_stats": {
+                "count": 1,
+                "min": float("nan"),
+                "max": 1704067200000.0,
+            }
+        }
+    }
+    _, dmin, dmax = parse_run_timestamp_stats_response(resp)
+    assert dmin is None
+    assert dmax == "2024-01-01"
+
+
 def test_aggregate_pulse_scope_footnote_from_dataframe():
     df = pd.DataFrame(
         {
@@ -368,6 +385,32 @@ def test_aggregate_pulse_scope_footnote_from_dataframe():
     assert foot.run_date_min_utc == "2025-03-01"
     assert foot.run_date_max_utc == "2025-03-15"
     assert foot.error is None
+
+
+def test_aggregate_pulse_scope_footnote_excludes_rows_without_timestamp():
+    df = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2025-03-01", tz="UTC"), float("nan"), pd.Timestamp("2025-03-15", tz="UTC")],
+            "test_name": ["a", "b", "c"],
+        }
+    )
+    foot = aggregate_pulse_scope_footnote_from_dataframe(df)
+    assert foot.document_count == 2
+    assert foot.run_date_min_utc == "2025-03-01"
+    assert foot.run_date_max_utc == "2025-03-15"
+
+
+def test_aggregate_pulse_scope_footnote_no_timestamp_column():
+    df = pd.DataFrame({"test_name": ["a", "b"]})
+    foot = aggregate_pulse_scope_footnote_from_dataframe(df)
+    assert foot.document_count == 0
+    assert foot.run_date_min_utc is None
+
+
+def test_aggregate_pulse_scope_footnote_all_timestamps_invalid():
+    df = pd.DataFrame({"timestamp": [float("nan"), None], "test_name": ["a", "b"]})
+    foot = aggregate_pulse_scope_footnote_from_dataframe(df)
+    assert foot.document_count == 0
 
 
 def test_fetch_pulse_scope_footnote_success():
@@ -397,3 +440,80 @@ def test_fetch_pulse_scope_footnote_skips_search_when_pulse_policy_fails():
     assert foot.source == "opensearch"
     assert "Pulse policy" in (foot.error or "")
     mock_client.search_results.assert_not_called()
+
+
+def test_format_pulse_scope_footnote_returns_none_on_error():
+    foot = PulseScopeFootnote(
+        document_count=1,
+        run_date_min_utc="2025-01-01",
+        run_date_max_utc="2025-01-01",
+        source="opensearch",
+        error="failed",
+    )
+    assert format_pulse_scope_footnote(foot, data_mode="opensearch") is None
+
+
+def test_format_pulse_scope_footnote_opensearch_range():
+    foot = PulseScopeFootnote(
+        document_count=100,
+        run_date_min_utc="2024-06-01",
+        run_date_max_utc="2025-01-01",
+        source="opensearch",
+        error=None,
+    )
+    s = format_pulse_scope_footnote(foot, data_mode="opensearch")
+    assert s is not None
+    assert "100" in s
+    assert "OpenSearch stats" in s
+    assert "2024-06-01" in s and "2025-01-01" in s
+
+
+def test_format_pulse_scope_footnote_opensearch_single_day():
+    foot = PulseScopeFootnote(
+        document_count=3,
+        run_date_min_utc="2025-03-01",
+        run_date_max_utc="2025-03-01",
+        source="opensearch",
+        error=None,
+    )
+    s = format_pulse_scope_footnote(foot, data_mode="opensearch")
+    assert s is not None
+    assert "runs on 2025-03-01" in s
+
+
+def test_format_pulse_scope_footnote_synthetic_copy():
+    foot = PulseScopeFootnote(
+        document_count=50,
+        run_date_min_utc="2025-01-01",
+        run_date_max_utc="2025-02-01",
+        source="synthetic",
+        error=None,
+    )
+    s = format_pulse_scope_footnote(foot, data_mode="synthetic")
+    assert s is not None
+    assert "loaded sample" in s
+    assert "50" in s
+
+
+def test_format_pulse_scope_footnote_earliest_only():
+    foot = PulseScopeFootnote(
+        document_count=None,
+        run_date_min_utc="2024-01-01",
+        run_date_max_utc=None,
+        source="opensearch",
+        error=None,
+    )
+    s = format_pulse_scope_footnote(foot, data_mode="opensearch")
+    assert s is not None
+    assert "earliest run" in s
+
+
+def test_format_pulse_scope_footnote_empty_returns_none():
+    foot = PulseScopeFootnote(
+        document_count=None,
+        run_date_min_utc=None,
+        run_date_max_utc=None,
+        source="synthetic",
+        error=None,
+    )
+    assert format_pulse_scope_footnote(foot, data_mode="synthetic") is None

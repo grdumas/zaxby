@@ -99,6 +99,11 @@ zaxby/
 ## Git & Commits
 - AI-assisted commits must never use only a Co-authored-by or editor footer; every commit must have a meaningful first line describing the change.
 
+### Atomic / logical commits
+- **One coherent story per commit**: each commit should represent a single, reviewable unit of work (one feature slice, one fix, one refactor, or one docs update—not several unrelated edits squashed together).
+- **Split when separable**: if part of the work could be committed on its own and still make sense (its own message, its own revert/cherry-pick, and ideally still builds/tests), make it a **separate commit** rather than bundling it with unrelated changes.
+- Use **focused staging** (`git add -p`, partial commits) when a branch mixes concerns; prefer multiple small commits over one large “everything” commit before push.
+
 ### Commit Messages
 - Use descriptive commit messages
 - Reference issue numbers if applicable

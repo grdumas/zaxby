@@ -90,6 +90,46 @@ def test_normalize_time_window_rejects_inverted_range():
         )
 
 
+@pytest.mark.parametrize(
+    "omit_key",
+    [
+        "test_name",
+        "cloud_provider",
+        "instance_type",
+        "os_distribution",
+        "os_version",
+        "baseline_window_start",
+        "baseline_window_end",
+        "candidate_window_start",
+        "candidate_window_end",
+    ],
+)
+def test_normalize_time_window_missing_required_field_raises(omit_key):
+    params = dict(_time_window_ui_params())
+    del params[omit_key]
+    with pytest.raises(InvestigationTemplateError, match=omit_key):
+        normalize_time_window_params(params)
+
+
+def test_normalize_time_window_invalid_iso_raises():
+    with pytest.raises(InvestigationTemplateError, match="Invalid ISO 8601"):
+        normalize_time_window_params(_time_window_ui_params(baseline_window_start="not-a-date"))
+
+
+def test_time_window_window_order_uses_datetimes_not_lexicographic_strings():
+    """Mixed naive vs +00:00 same instant must not fail ordering (PR #30 review)."""
+    p = normalize_time_window_params(
+        _time_window_ui_params(
+            baseline_window_start="2025-01-15T12:00:00",
+            baseline_window_end="2025-01-15T12:00:00+00:00",
+            candidate_window_start="2025-03-01",
+            candidate_window_end="2025-03-31",
+        )
+    )
+    assert "baseline_window_start" in p
+    assert "candidate_window_end" in p
+
+
 def test_resolve_time_window_template_and_body():
     tid, params = resolve_ui_investigation_to_template(_time_window_ui_params())
     assert tid == "TPL_TIME_WINDOW"

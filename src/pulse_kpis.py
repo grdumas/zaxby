@@ -58,13 +58,44 @@ def fetch_pulse_kpi_bundle(client: Any) -> PulseKpiBundle:
     """
     Load all Pulse KPI snapshots from OpenSearch via :mod:`src.query_service`.
 
-    Individual fetch helpers surface errors per-snapshot (no cross-KPI failure).
+    Each KPI is loaded in its own try/except so an unexpected exception in one path
+    (including parse logic after ``search_results`` inside a helper) cannot abort
+    the others; failed slots get ``error`` set on the snapshot, matching
+    :func:`aggregate_pulse_kpi_bundle_from_dataframe` resilience.
     """
+    try:
+        overview = fetch_results_overview_aggregates(client)
+    except Exception as exc:  # noqa: BLE001 — surface per-KPI; helpers may not catch all parse paths
+        overview = ResultsOverviewSnapshot(
+            total=None, by_cloud=[], source="opensearch", error=str(exc)
+        )
+    try:
+        category_mix = fetch_results_category_kpis(client)
+    except Exception as exc:  # noqa: BLE001
+        category_mix = CategoryKpiSnapshot(
+            by_category=[], source="opensearch", error=str(exc)
+        )
+    try:
+        activity_timeline = fetch_results_activity_timeline(client)
+    except Exception as exc:  # noqa: BLE001
+        activity_timeline = ActivityTimelineSnapshot(
+            by_month=[], source="opensearch", error=str(exc)
+        )
+    try:
+        scope = fetch_pulse_scope_footnote(client)
+    except Exception as exc:  # noqa: BLE001
+        scope = PulseScopeFootnote(
+            document_count=None,
+            run_date_min_utc=None,
+            run_date_max_utc=None,
+            source="opensearch",
+            error=str(exc),
+        )
     return PulseKpiBundle(
-        overview=fetch_results_overview_aggregates(client),
-        category_mix=fetch_results_category_kpis(client),
-        activity_timeline=fetch_results_activity_timeline(client),
-        scope=fetch_pulse_scope_footnote(client),
+        overview=overview,
+        category_mix=category_mix,
+        activity_timeline=activity_timeline,
+        scope=scope,
         policy_template_id=PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
         definition_version=PULSE_KPI_DEFINITION_VERSION,
     )

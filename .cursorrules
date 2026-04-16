@@ -97,6 +97,7 @@ zaxby/
 - Always use virtual environment (venv)
 
 ## Git & Commits
+- AI-assisted commits must never use only a Co-authored-by or editor footer; every commit must have a meaningful first line describing the change.
 
 ### Commit Messages
 - Use descriptive commit messages

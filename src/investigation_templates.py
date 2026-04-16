@@ -6,17 +6,24 @@ Maps UI ``investigation_params`` (see ``app.py`` ``navigation_state``) to a
 :func:`src.comparison_policy.validate_comparison_request`, and builds OpenSearch
 ``search`` bodies for ``zathras-results`` (bounded hit size).
 
-This module starts with the RHEL regression chart drill-down
-(``TPL_RHEL_MINOR_SAME_HW``). Other templates can add builders alongside
-:data:`TEMPLATE_BUILDERS`.
+Supported templates:
+
+- ``TPL_RHEL_MINOR_SAME_HW`` (default): RHEL regression chart drill-down when
+  ``template_id`` is omitted.
+- ``TPL_TIME_WINDOW``: same hardware/OS scope, two ``metadata.test_timestamp``
+  cohorts (CPT / drift). Set ``template_id`` to this value and supply the time
+  window fields documented in :func:`normalize_time_window_params`.
+
+Other templates can add builders alongside :data:`TEMPLATE_BUILDERS`.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 from src.comparison_policy import validate_comparison_request
-from src.query_service import MAX_PAGE_SIZE, MAX_SEARCH_HITS
+from src.query_service import MAX_PAGE_SIZE, MAX_SEARCH_HITS, RESULTS_ACTIVITY_TIMESTAMP_FIELD
 
 
 class _SearchResultsClient(Protocol):
@@ -33,6 +40,31 @@ FIELD_OS_VERSION = "system_under_test.operating_system.version.keyword"
 FIELD_CLOUD_PROVIDER = "metadata.cloud_provider.keyword"
 FIELD_INSTANCE_TYPE = "metadata.instance_type.keyword"
 FIELD_SCENARIO_NAME = "metadata.scenario_name.keyword"
+
+
+def _parse_iso_timestamp(value: object, *, field_label: str) -> str:
+    """Parse a date or datetime string to an ISO-8601 string for OpenSearch ``range`` queries."""
+    if value is None:
+        raise InvestigationTemplateError(f"Missing or empty investigation parameter: {field_label!r}")
+    raw = str(value).strip()
+    if not raw:
+        raise InvestigationTemplateError(f"Missing or empty investigation parameter: {field_label!r}")
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise InvestigationTemplateError(
+            f"Invalid ISO 8601 datetime for {field_label!r}: {value!r}"
+        ) from exc
+    return dt.isoformat()
+
+
+def _ensure_window_order(start_iso: str, end_iso: str, *, label: str) -> None:
+    if start_iso > end_iso:
+        raise InvestigationTemplateError(
+            f"Time window {label}: start ({start_iso!r}) must be <= end ({end_iso!r})"
+        )
 
 
 class InvestigationTemplateError(ValueError):
@@ -82,11 +114,55 @@ def normalize_investigation_params(ui_params: Mapping[str, Any]) -> Dict[str, An
     return out
 
 
+def normalize_time_window_params(ui_params: Mapping[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize ``investigation_params`` for ``TPL_TIME_WINDOW`` (COMPARISON_POLICY.md §5).
+
+    Required: ``test_name``, ``cloud_provider``, ``instance_type``, ``os_distribution``,
+    ``os_version``, ``baseline_window_start``, ``baseline_window_end``,
+    ``candidate_window_start``, ``candidate_window_end`` (ISO 8601 date or datetime).
+
+    Optional: ``scenario_name`` (same grain as other templates when present).
+    """
+    test_name = _req_str(ui_params, "test_name")
+    cloud_provider = _req_str(ui_params, "cloud_provider")
+    instance_type = _req_str(ui_params, "instance_type")
+    os_distribution = _req_str(ui_params, "os_distribution").lower()
+    os_version = _req_str(ui_params, "os_version")
+
+    bs = _parse_iso_timestamp(ui_params.get("baseline_window_start"), field_label="baseline_window_start")
+    be = _parse_iso_timestamp(ui_params.get("baseline_window_end"), field_label="baseline_window_end")
+    cs = _parse_iso_timestamp(ui_params.get("candidate_window_start"), field_label="candidate_window_start")
+    ce = _parse_iso_timestamp(ui_params.get("candidate_window_end"), field_label="candidate_window_end")
+
+    _ensure_window_order(bs, be, label="baseline")
+    _ensure_window_order(cs, ce, label="candidate")
+
+    out: Dict[str, Any] = {
+        "test_name": test_name,
+        "cloud_provider": cloud_provider,
+        "instance_type": instance_type,
+        "os_distribution": os_distribution,
+        "os_version": os_version,
+        "baseline_window_start": bs,
+        "baseline_window_end": be,
+        "candidate_window_start": cs,
+        "candidate_window_end": ce,
+    }
+    v = _opt_str(ui_params, "scenario_name")
+    if v is not None:
+        out["scenario_name"] = v
+    return out
+
+
 def resolve_ui_investigation_to_template(
     ui_params: Mapping[str, Any],
 ) -> tuple[str, Dict[str, Any]]:
     """
     Map UI investigation payload to a comparison template id and normalized params.
+
+    If ``template_id`` is ``TPL_TIME_WINDOW``, uses :func:`normalize_time_window_params`.
+    Otherwise defaults to ``TPL_RHEL_MINOR_SAME_HW`` and :func:`normalize_investigation_params`.
 
     Returns:
         ``(template_id, params)`` suitable for :func:`build_zathras_results_search_body`
@@ -95,6 +171,20 @@ def resolve_ui_investigation_to_template(
     Raises:
         InvestigationTemplateError: If required keys are missing or validation fails.
     """
+    requested = (ui_params.get("template_id") or "").strip()
+    if requested == "TPL_TIME_WINDOW":
+        normalized = normalize_time_window_params(ui_params)
+        vr = validate_comparison_request("TPL_TIME_WINDOW", normalized, mode="investigate")
+        if not vr.ok:
+            raise InvestigationTemplateError("; ".join(vr.errors))
+        return "TPL_TIME_WINDOW", normalized
+
+    if requested and requested not in ("TPL_RHEL_MINOR_SAME_HW", ""):
+        raise InvestigationTemplateError(
+            f"Unsupported template_id for UI resolution: {requested!r} "
+            "(supported: default / TPL_RHEL_MINOR_SAME_HW, TPL_TIME_WINDOW)"
+        )
+
     normalized = normalize_investigation_params(ui_params)
     template_id = "TPL_RHEL_MINOR_SAME_HW"
 
@@ -139,10 +229,59 @@ def _build_rhel_minor_same_hw_body(params: Mapping[str, Any], *, size: int) -> D
     }
 
 
+def _build_time_window_body(params: Mapping[str, Any], *, size: int) -> Dict[str, Any]:
+    """OpenSearch body: fixed scope + two optional timestamp cohorts (bool ``should``)."""
+    filters: list[Dict[str, Any]] = [
+        {"term": {FIELD_TEST_NAME: params["test_name"]}},
+        {"term": {FIELD_OS_DISTRIBUTION: params["os_distribution"]}},
+        {"term": {FIELD_OS_VERSION: params["os_version"]}},
+        {"term": {FIELD_CLOUD_PROVIDER: params["cloud_provider"]}},
+        {"term": {FIELD_INSTANCE_TYPE: params["instance_type"]}},
+    ]
+    if "scenario_name" in params:
+        filters.append({"term": {FIELD_SCENARIO_NAME: params["scenario_name"]}})
+
+    should = [
+        {
+            "range": {
+                RESULTS_ACTIVITY_TIMESTAMP_FIELD: {
+                    "gte": params["baseline_window_start"],
+                    "lte": params["baseline_window_end"],
+                }
+            }
+        },
+        {
+            "range": {
+                RESULTS_ACTIVITY_TIMESTAMP_FIELD: {
+                    "gte": params["candidate_window_start"],
+                    "lte": params["candidate_window_end"],
+                }
+            }
+        },
+    ]
+
+    return {
+        "size": size,
+        "track_total_hits": True,
+        "query": {
+            "bool": {
+                "filter": filters,
+                "should": should,
+                "minimum_should_match": 1,
+            }
+        },
+        "sort": [
+            {"metadata.test_timestamp": {"order": "desc"}},
+            {"metadata.document_id.keyword": {"order": "asc"}},
+        ],
+    }
+
+
 # Builders have signature ``(params: Mapping, *, size: int) -> dict`` and are always
 # called as ``builder(params, size=…)`` (keyword-only size — not positional ``int``).
 TEMPLATE_BUILDERS: Dict[str, Callable[..., Dict[str, Any]]] = {
     "TPL_RHEL_MINOR_SAME_HW": _build_rhel_minor_same_hw_body,
+    "TPL_TIME_WINDOW": _build_time_window_body,
 }
 
 

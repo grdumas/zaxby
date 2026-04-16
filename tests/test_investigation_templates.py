@@ -12,10 +12,11 @@ from src.investigation_templates import (
     build_zathras_results_search_body,
     fetch_investigation_documents,
     normalize_investigation_params,
+    normalize_time_window_params,
     resolve_and_build_opensearch_query,
     resolve_ui_investigation_to_template,
 )
-from src.query_service import MAX_SEARCH_HITS, MAX_PAGE_SIZE
+from src.query_service import MAX_SEARCH_HITS, MAX_PAGE_SIZE, RESULTS_ACTIVITY_TIMESTAMP_FIELD
 
 
 def _minimal_ui_params(**kwargs):
@@ -45,6 +46,124 @@ def test_resolve_ui_maps_to_rhel_minor_template():
     assert params["test_name"] == "coremark"
     assert params["baseline_version"] == "9.4"
     assert params["comparison_version"] == "9.5"
+
+
+def _time_window_ui_params(**kwargs):
+    base = {
+        "template_id": "TPL_TIME_WINDOW",
+        "test_name": "coremark",
+        "cloud_provider": "aws",
+        "instance_type": "m5.large",
+        "os_distribution": "rhel",
+        "os_version": "9.4",
+        "baseline_window_start": "2025-01-01T00:00:00",
+        "baseline_window_end": "2025-01-15T23:59:59",
+        "candidate_window_start": "2025-02-01T00:00:00",
+        "candidate_window_end": "2025-02-15T23:59:59",
+    }
+    base.update(kwargs)
+    return base
+
+
+def test_normalize_time_window_parses_z_suffix():
+    p = normalize_time_window_params(
+        _time_window_ui_params(
+            baseline_window_start="2025-01-01T12:00:00Z",
+            baseline_window_end="2025-01-02T12:00:00Z",
+            candidate_window_start="2025-02-01T12:00:00Z",
+            candidate_window_end="2025-02-02T12:00:00Z",
+        )
+    )
+    assert p["baseline_window_start"].endswith("+00:00")
+    assert "2025-01-01T12:00:00" in p["baseline_window_start"]
+
+
+def test_normalize_time_window_rejects_inverted_range():
+    with pytest.raises(InvestigationTemplateError, match="baseline"):
+        normalize_time_window_params(
+            _time_window_ui_params(
+                baseline_window_start="2025-02-01",
+                baseline_window_end="2025-01-01",
+                candidate_window_start="2025-03-01",
+                candidate_window_end="2025-04-01",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "omit_key",
+    [
+        "test_name",
+        "cloud_provider",
+        "instance_type",
+        "os_distribution",
+        "os_version",
+        "baseline_window_start",
+        "baseline_window_end",
+        "candidate_window_start",
+        "candidate_window_end",
+    ],
+)
+def test_normalize_time_window_missing_required_field_raises(omit_key):
+    params = dict(_time_window_ui_params())
+    del params[omit_key]
+    with pytest.raises(InvestigationTemplateError, match=omit_key):
+        normalize_time_window_params(params)
+
+
+def test_normalize_time_window_invalid_iso_raises():
+    with pytest.raises(InvestigationTemplateError, match="Invalid ISO 8601"):
+        normalize_time_window_params(_time_window_ui_params(baseline_window_start="not-a-date"))
+
+
+def test_time_window_window_order_uses_datetimes_not_lexicographic_strings():
+    """Mixed naive vs +00:00 same instant must not fail ordering (PR #30 review)."""
+    p = normalize_time_window_params(
+        _time_window_ui_params(
+            baseline_window_start="2025-01-15T12:00:00",
+            baseline_window_end="2025-01-15T12:00:00+00:00",
+            candidate_window_start="2025-03-01",
+            candidate_window_end="2025-03-31",
+        )
+    )
+    assert "baseline_window_start" in p
+    assert "candidate_window_end" in p
+
+
+def test_resolve_time_window_template_and_body():
+    tid, params = resolve_ui_investigation_to_template(_time_window_ui_params())
+    assert tid == "TPL_TIME_WINDOW"
+    body = build_zathras_results_search_body("TPL_TIME_WINDOW", params)
+    q = body["query"]["bool"]
+    assert q["minimum_should_match"] == 1
+    assert len(q["should"]) == 2
+    assert all("range" in s and RESULTS_ACTIVITY_TIMESTAMP_FIELD in s["range"] for s in q["should"])
+    flat = _flatten_term_filters(q["filter"])
+    assert flat[FIELD_TEST_NAME] == "coremark"
+    assert flat["metadata.cloud_provider.keyword"] == "aws"
+
+
+def test_resolve_time_window_optional_scenario():
+    tid, params = resolve_ui_investigation_to_template(
+        _time_window_ui_params(scenario_name="rhel_95_smoke")
+    )
+    assert tid == "TPL_TIME_WINDOW"
+    body = build_zathras_results_search_body("TPL_TIME_WINDOW", params)
+    flat = _flatten_term_filters(body["query"]["bool"]["filter"])
+    assert flat["metadata.scenario_name.keyword"] == "rhel_95_smoke"
+
+
+def test_resolve_unsupported_template_id_raises():
+    with pytest.raises(InvestigationTemplateError, match="Unsupported template_id"):
+        resolve_ui_investigation_to_template(_minimal_ui_params(template_id="TPL_PEER_OS"))
+
+
+def test_explicit_rhel_minor_template_id_still_resolves():
+    tid, params = resolve_ui_investigation_to_template(
+        _minimal_ui_params(template_id="TPL_RHEL_MINOR_SAME_HW")
+    )
+    assert tid == "TPL_RHEL_MINOR_SAME_HW"
+    assert params["test_name"] == "coremark"
 
 
 def test_build_body_omits_optional_filters_when_absent():

@@ -19,7 +19,7 @@ Other templates can add builders alongside :data:`TEMPLATE_BUILDERS`.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 from src.comparison_policy import validate_comparison_request
@@ -42,8 +42,8 @@ FIELD_INSTANCE_TYPE = "metadata.instance_type.keyword"
 FIELD_SCENARIO_NAME = "metadata.scenario_name.keyword"
 
 
-def _parse_iso_timestamp(value: object, *, field_label: str) -> str:
-    """Parse a date or datetime string to an ISO-8601 string for OpenSearch ``range`` queries."""
+def _parse_iso_timestamp_to_datetime(value: object, *, field_label: str) -> datetime:
+    """Parse a date or datetime string to a :class:`~datetime.datetime` (for ordering and ISO export)."""
     if value is None:
         raise InvestigationTemplateError(f"Missing or empty investigation parameter: {field_label!r}")
     raw = str(value).strip()
@@ -52,18 +52,25 @@ def _parse_iso_timestamp(value: object, *, field_label: str) -> str:
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
     try:
-        dt = datetime.fromisoformat(raw)
+        return datetime.fromisoformat(raw)
     except ValueError as exc:
         raise InvestigationTemplateError(
             f"Invalid ISO 8601 datetime for {field_label!r}: {value!r}"
         ) from exc
-    return dt.isoformat()
 
 
-def _ensure_window_order(start_iso: str, end_iso: str, *, label: str) -> None:
-    if start_iso > end_iso:
+def _instant_for_ordering(dt: datetime) -> datetime:
+    """Map naive or aware datetimes to UTC for consistent start/end comparison."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=timezone.utc)
+
+
+def _ensure_window_order(start: datetime, end: datetime, *, label: str) -> None:
+    """Reject start > end using instants, not lexicographic ISO strings (mixed tz formats)."""
+    if _instant_for_ordering(start) > _instant_for_ordering(end):
         raise InvestigationTemplateError(
-            f"Time window {label}: start ({start_iso!r}) must be <= end ({end_iso!r})"
+            f"Time window {label}: start ({start.isoformat()!r}) must be <= end ({end.isoformat()!r})"
         )
 
 
@@ -123,6 +130,10 @@ def normalize_time_window_params(ui_params: Mapping[str, Any]) -> Dict[str, Any]
     ``candidate_window_start``, ``candidate_window_end`` (ISO 8601 date or datetime).
 
     Optional: ``scenario_name`` (same grain as other templates when present).
+
+    **Overlapping windows:** Baseline and candidate intervals may overlap in time; documents
+    in the overlap match both ``should`` range clauses. Splitting rows into cohorts is a
+    downstream concern; this helper does not reject overlap.
     """
     test_name = _req_str(ui_params, "test_name")
     cloud_provider = _req_str(ui_params, "cloud_provider")
@@ -130,10 +141,18 @@ def normalize_time_window_params(ui_params: Mapping[str, Any]) -> Dict[str, Any]
     os_distribution = _req_str(ui_params, "os_distribution").lower()
     os_version = _req_str(ui_params, "os_version")
 
-    bs = _parse_iso_timestamp(ui_params.get("baseline_window_start"), field_label="baseline_window_start")
-    be = _parse_iso_timestamp(ui_params.get("baseline_window_end"), field_label="baseline_window_end")
-    cs = _parse_iso_timestamp(ui_params.get("candidate_window_start"), field_label="candidate_window_start")
-    ce = _parse_iso_timestamp(ui_params.get("candidate_window_end"), field_label="candidate_window_end")
+    bs = _parse_iso_timestamp_to_datetime(
+        _req_str(ui_params, "baseline_window_start"), field_label="baseline_window_start"
+    )
+    be = _parse_iso_timestamp_to_datetime(
+        _req_str(ui_params, "baseline_window_end"), field_label="baseline_window_end"
+    )
+    cs = _parse_iso_timestamp_to_datetime(
+        _req_str(ui_params, "candidate_window_start"), field_label="candidate_window_start"
+    )
+    ce = _parse_iso_timestamp_to_datetime(
+        _req_str(ui_params, "candidate_window_end"), field_label="candidate_window_end"
+    )
 
     _ensure_window_order(bs, be, label="baseline")
     _ensure_window_order(cs, ce, label="candidate")
@@ -144,10 +163,10 @@ def normalize_time_window_params(ui_params: Mapping[str, Any]) -> Dict[str, Any]
         "instance_type": instance_type,
         "os_distribution": os_distribution,
         "os_version": os_version,
-        "baseline_window_start": bs,
-        "baseline_window_end": be,
-        "candidate_window_start": cs,
-        "candidate_window_end": ce,
+        "baseline_window_start": bs.isoformat(),
+        "baseline_window_end": be.isoformat(),
+        "candidate_window_start": cs.isoformat(),
+        "candidate_window_end": ce.isoformat(),
     }
     v = _opt_str(ui_params, "scenario_name")
     if v is not None:
@@ -179,10 +198,10 @@ def resolve_ui_investigation_to_template(
             raise InvestigationTemplateError("; ".join(vr.errors))
         return "TPL_TIME_WINDOW", normalized
 
-    if requested and requested not in ("TPL_RHEL_MINOR_SAME_HW", ""):
+    if requested and requested not in TEMPLATE_BUILDERS:
         raise InvestigationTemplateError(
             f"Unsupported template_id for UI resolution: {requested!r} "
-            "(supported: default / TPL_RHEL_MINOR_SAME_HW, TPL_TIME_WINDOW)"
+            f"(no resolver/query builder; implemented: {', '.join(sorted(TEMPLATE_BUILDERS))})"
         )
 
     normalized = normalize_investigation_params(ui_params)

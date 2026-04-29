@@ -33,12 +33,12 @@ from src.query_service import (
     aggregate_pulse_scope_footnote_from_dataframe,
     aggregate_results_overview_from_dataframe,
     fetch_pulse_scope_footnote,
-    format_pulse_scope_footnote,
     fetch_results_activity_timeline,
     fetch_results_category_kpis,
     fetch_results_overview_aggregates,
 )
 from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
+from src.pulse_ui import render_pulse_v1_panel
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
 from src.components import filters, visualizations
@@ -535,16 +535,16 @@ def create_overview_layout():
     3. Cloud Scaling - performance across instance sizes
     """
     return html.Div([
-        # Server-side snapshot (P0-C): aggregation on OpenSearch or in-memory sample; bounded UI payload.
+        # Pulse v1: bounded server-side aggregations (not the full scroll payload).
         dbc.Card([
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
-                        html.H5("Results index snapshot", className="mb-2"),
+                        html.H4("Pulse", className="mb-1"),
                         html.P(
-                            "Run counts, benchmark mix, monthly activity, and scope metadata (P2-C) from "
-                            "server-side aggregations (OpenSearch size=0) or, in synthetic mode, from the "
-                            "loaded sample. Does not use the full scroll payload.",
+                            "Coverage and activity: total runs, reporting window, monthly trend, and "
+                            "benchmark category mix. Uses server-side aggregations in OpenSearch mode or "
+                            "the loaded sample in synthetic mode.",
                             className="text-muted small mb-2",
                         ),
                         html.Div(id="server-snapshot-content", children=dbc.Spinner(size="sm")),
@@ -561,7 +561,7 @@ def create_overview_layout():
                     ], width=2),
                 ]),
             ]),
-        ], className="mb-4"),
+        ], className="mb-4 border-primary", style={"borderWidth": "2px"}),
         dcc.Interval(id="server-snapshot-init", interval=400, max_intervals=1, n_intervals=0),
         # Section 1: RHEL Regression Analysis (Collapsible)
         dbc.Card([
@@ -1041,135 +1041,14 @@ def update_server_snapshot(_n_intervals, _n_clicks):
                 error=str(exc),
             )
 
-    parts: list = []
-    if snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Results index snapshot failed: ", html.Code(snap.error)],
-                color="warning",
-                className="mb-2",
-            )
-        )
-    else:
-        if snap.total is not None:
-            parts.append(html.P([html.Strong("Total documents (index): "), f"{snap.total:,}"], className="mb-2"))
-        parts.append(
-            html.P(
-                [
-                    dbc.Badge(
-                        f"Source: {snap.source}",
-                        color="info" if snap.source == "opensearch" else "secondary",
-                        className="me-2",
-                    ),
-                ],
-                className="mb-2",
-            )
-        )
-        if snap.by_cloud:
-            parts.append(
-                html.P(
-                    [
-                        html.Strong("By cloud provider: "),
-                        *[
-                            dbc.Badge(f"{name}: {count:,}", color="light", text_color="dark", className="me-1 mb-1")
-                            for name, count in snap.by_cloud[:20]
-                        ],
-                    ],
-                    className="mb-0",
-                )
-            )
-        else:
-            parts.append(html.P("No cloud provider buckets in snapshot.", className="text-muted small mb-0"))
-
-    if scope_snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Scope metadata failed: ", html.Code(scope_snap.error)],
-                color="warning",
-                className="mb-2 small",
-            )
-        )
-    else:
-        scope_line = format_pulse_scope_footnote(scope_snap, data_mode=DATA_MODE)
-        if scope_line:
-            parts.append(html.P(scope_line, className="text-muted small mb-2"))
-
-    parts.append(html.Hr(className="my-3"))
-    parts.append(html.H6("Benchmark mix by category", className="mb-2"))
-    if cat_snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Category KPI failed: ", html.Code(cat_snap.error)],
-                color="warning",
-                className="mb-0",
-            )
-        )
-    elif cat_snap.by_category:
-        parts.append(
-            html.P(
-                "Documents per dashboard category (from test.name). OpenSearch uses a bounded "
-                "terms aggregation; counts for rare tests may be folded into the tail.",
-                className="text-muted small mb-2",
-            )
-        )
-        parts.append(
-            html.P(
-                [
-                    html.Strong("By category: "),
-                    *[
-                        dbc.Badge(
-                            f"{name}: {count:,}",
-                            color="light",
-                            text_color="dark",
-                            className="me-1 mb-1",
-                        )
-                        for name, count in cat_snap.by_category[:24]
-                    ],
-                ],
-                className="mb-0",
-            )
-        )
-    else:
-        parts.append(html.P("No category breakdown available.", className="text-muted small mb-0"))
-
-    parts.append(html.Hr(className="my-3"))
-    parts.append(html.H6("Activity by month", className="mb-2"))
-    if timeline_snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Activity timeline failed: ", html.Code(timeline_snap.error)],
-                color="warning",
-                className="mb-0",
-            )
-        )
-    elif timeline_snap.by_month:
-        parts.append(
-            html.P(
-                "Document counts per calendar month (metadata.test_timestamp).",
-                className="text-muted small mb-2",
-            )
-        )
-        parts.append(
-            html.P(
-                [
-                    html.Strong("Runs: "),
-                    *[
-                        dbc.Badge(
-                            f"{label}: {count:,}",
-                            color="light",
-                            text_color="dark",
-                            className="me-1 mb-1",
-                        )
-                        for label, count in timeline_snap.by_month[-36:]
-                    ],
-                ],
-                className="mb-0",
-            )
-        )
-    else:
-        parts.append(html.P("No monthly activity buckets available.", className="text-muted small mb-0"))
-
-    return html.Div(parts)
+    return render_pulse_v1_panel(
+        snap=snap,
+        scope_snap=scope_snap,
+        cat_snap=cat_snap,
+        timeline_snap=timeline_snap,
+        data_mode=DATA_MODE,
+        results_index_label=results_index_name(),
+    )
 
 
 @app.callback(

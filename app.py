@@ -529,10 +529,8 @@ def create_comparison_collapse(comparison_id, title, graph_id, summary_id):
 
 def create_overview_layout():
     """
-    Create the main dashboard overview with three analysis sections:
-    1. RHEL Regression Analysis - version-to-version comparisons
-    2. Competitive Performance - RHEL vs peer operating systems
-    3. Cloud Scaling - performance across instance sizes
+    Pulse v1 KPI strip first; detailed analyses (three sections plus quick links)
+    are in a collapse closed by default (expand via the detailed-analyses button).
     """
     return html.Div([
         # Pulse v1: bounded server-side aggregations (not the full scroll payload).
@@ -563,14 +561,26 @@ def create_overview_layout():
             ]),
         ], className="mb-4 border-primary", style={"borderWidth": "2px"}),
         dcc.Interval(id="server-snapshot-init", interval=400, max_intervals=1, n_intervals=0),
-        # Section 1: RHEL Regression Analysis (Collapsible)
-        dbc.Card([
-            dbc.CardHeader([
-                dbc.Button(
-                    [
-                        html.I(id="icon-section-rhel", className="bi bi-chevron-down me-2"),
-                        html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
-                        html.Span("RHEL Regression Analysis", style={"fontSize": "1.25rem", "fontWeight": "500"})
+        dbc.Button(
+            [
+                html.I(className="bi bi-chevron-down me-2"),
+                "Show detailed benchmark analyses",
+            ],
+            id="btn-toggle-detailed-analyses",
+            color="secondary",
+            outline=True,
+            className="mb-3",
+        ),
+        dbc.Collapse(
+            [
+                # Section 1: RHEL Regression Analysis (Collapsible)
+                dbc.Card([
+                    dbc.CardHeader([
+                        dbc.Button(
+                            [
+                                html.I(id="icon-section-rhel", className="bi bi-chevron-down me-2"),
+                                html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                                html.Span("RHEL Regression Analysis", style={"fontSize": "1.25rem", "fontWeight": "500"})
                     ],
                     id="btn-toggle-section-rhel",
                     color="link",
@@ -890,6 +900,10 @@ def create_overview_layout():
                 ])
             ])
         ])
+        ],
+            id="collapse-detailed-analyses",
+            is_open=False,
+        ),
     ])
 
 
@@ -1059,6 +1073,17 @@ def update_server_snapshot(_n_intervals, _n_clicks):
 )
 def toggle_filters(n_clicks, is_open):
     """Toggle advanced filters panel."""
+    return not is_open
+
+
+@app.callback(
+    Output("collapse-detailed-analyses", "is_open"),
+    Input("btn-toggle-detailed-analyses", "n_clicks"),
+    State("collapse-detailed-analyses", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_detailed_analyses(_n_clicks, is_open):
+    """Expand or collapse RHEL / Competitive / Cloud sections and quick links below Pulse."""
     return not is_open
 
 

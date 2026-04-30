@@ -95,8 +95,8 @@ def figure_pulse_category_mix(
     if not cat.by_category:
         return _empty_figure(title, "No category breakdown", height=height)
 
-    pairs: List[Tuple[str, int]] = list(cat.by_category[: max(1, int(max_categories))])
-    pairs.sort(key=lambda x: (-x[1], x[0]))
+    cap = max(1, int(max_categories))
+    pairs = sorted(cat.by_category, key=lambda x: (-x[1], x[0]))[:cap]
     labels = [p[0] for p in pairs]
     counts = [p[1] for p in pairs]
 

@@ -36,10 +36,12 @@ def test_activity_figure_with_points():
 
 
 def test_category_figure_top_slice():
+    # Deliberately unsorted input: top 5 by count must be cat19..cat15, not cat0..cat4.
     pairs = [(f"cat{i}", i) for i in range(20)]
     snap = CategoryKpiSnapshot(by_category=pairs, source="opensearch", error=None)
     fig = figure_pulse_category_mix(snap, max_categories=5)
-    assert len(fig.data[0].y) == 5
+    assert list(fig.data[0].y) == ["cat19", "cat18", "cat17", "cat16", "cat15"]
+    assert list(fig.data[0].x) == [19, 18, 17, 16, 15]
 
 
 def test_render_panel_produces_div():

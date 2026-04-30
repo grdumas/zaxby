@@ -23,15 +23,13 @@ import pandas as pd
 from src.opensearch_client import BenchmarkDataSource
 from src.data_processing import BenchmarkDataProcessor
 from src.data_bootstrap import load_initial_benchmark_documents
-from src.query_service import (
-    format_pulse_scope_footnote,
-)
 from src.pulse_kpis import (
     aggregate_pulse_kpi_bundle_from_dataframe,
     fetch_pulse_kpi_bundle,
     pulse_kpi_bundle_from_connection_error,
 )
 from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
+from src.pulse_ui import render_pulse_v1_panel
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
 from src.components import filters, visualizations
@@ -522,22 +520,20 @@ def create_comparison_collapse(comparison_id, title, graph_id, summary_id):
 
 def create_overview_layout():
     """
-    Create the main dashboard overview with three analysis sections:
-    1. RHEL Regression Analysis - version-to-version comparisons
-    2. Competitive Performance - RHEL vs peer operating systems
-    3. Cloud Scaling - performance across instance sizes
+    Pulse v1 KPI strip first; detailed analyses (three sections plus quick links)
+    are in a collapse closed by default (expand via the detailed-analyses button).
     """
     return html.Div([
-        # Server-side snapshot (P0-C): aggregation on OpenSearch or in-memory sample; bounded UI payload.
+        # Pulse v1: bounded server-side aggregations (not the full scroll payload).
         dbc.Card([
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
-                        html.H5("Results index snapshot", className="mb-2"),
+                        html.H4("Pulse", className="mb-1"),
                         html.P(
-                            "Run counts, benchmark mix, monthly activity, and scope metadata (P2-C) from "
-                            "server-side aggregations (OpenSearch size=0) or, in synthetic mode, from the "
-                            "loaded sample. Does not use the full scroll payload.",
+                            "Coverage and activity: total runs, reporting window, monthly trend, and "
+                            "benchmark category mix. Uses server-side aggregations in OpenSearch mode or "
+                            "the loaded sample in synthetic mode.",
                             className="text-muted small mb-2",
                         ),
                         html.Div(id="server-snapshot-content", children=dbc.Spinner(size="sm")),
@@ -554,16 +550,28 @@ def create_overview_layout():
                     ], width=2),
                 ]),
             ]),
-        ], className="mb-4"),
+        ], className="mb-4 border-primary", style={"borderWidth": "2px"}),
         dcc.Interval(id="server-snapshot-init", interval=400, max_intervals=1, n_intervals=0),
-        # Section 1: RHEL Regression Analysis (Collapsible)
-        dbc.Card([
-            dbc.CardHeader([
-                dbc.Button(
-                    [
-                        html.I(id="icon-section-rhel", className="bi bi-chevron-down me-2"),
-                        html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
-                        html.Span("RHEL Regression Analysis", style={"fontSize": "1.25rem", "fontWeight": "500"})
+        dbc.Button(
+            [
+                html.I(className="bi bi-chevron-down me-2"),
+                "Show detailed benchmark analyses",
+            ],
+            id="btn-toggle-detailed-analyses",
+            color="secondary",
+            outline=True,
+            className="mb-3",
+        ),
+        dbc.Collapse(
+            [
+                # Section 1: RHEL Regression Analysis (Collapsible)
+                dbc.Card([
+                    dbc.CardHeader([
+                        dbc.Button(
+                            [
+                                html.I(id="icon-section-rhel", className="bi bi-chevron-down me-2"),
+                                html.Span("📊", style={"fontSize": "1.5rem", "marginRight": "0.75rem"}),
+                                html.Span("RHEL Regression Analysis", style={"fontSize": "1.25rem", "fontWeight": "500"})
                     ],
                     id="btn-toggle-section-rhel",
                     color="link",
@@ -883,6 +891,10 @@ def create_overview_layout():
                 ])
             ])
         ])
+        ],
+            id="collapse-detailed-analyses",
+            is_open=False,
+        ),
     ])
 
 
@@ -973,146 +985,16 @@ def update_server_snapshot(_n_intervals, _n_clicks):
     timeline_snap = bundle.activity_timeline
     scope_snap = bundle.scope
 
-    parts: list = []
-    if snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Results index snapshot failed: ", html.Code(snap.error)],
-                color="warning",
-                className="mb-2",
-            )
-        )
-    else:
-        if snap.total is not None:
-            parts.append(html.P([html.Strong("Total documents (index): "), f"{snap.total:,}"], className="mb-2"))
-        parts.append(
-            html.P(
-                [
-                    dbc.Badge(
-                        f"Source: {snap.source}",
-                        color="info" if snap.source == "opensearch" else "secondary",
-                        className="me-2",
-                    ),
-                ],
-                className="mb-2",
-            )
-        )
-        if snap.by_cloud:
-            parts.append(
-                html.P(
-                    [
-                        html.Strong("By cloud provider: "),
-                        *[
-                            dbc.Badge(f"{name}: {count:,}", color="light", text_color="dark", className="me-1 mb-1")
-                            for name, count in snap.by_cloud[:20]
-                        ],
-                    ],
-                    className="mb-0",
-                )
-            )
-        else:
-            parts.append(html.P("No cloud provider buckets in snapshot.", className="text-muted small mb-0"))
-
-    if scope_snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Scope metadata failed: ", html.Code(scope_snap.error)],
-                color="warning",
-                className="mb-2 small",
-            )
-        )
-    else:
-        scope_line = format_pulse_scope_footnote(scope_snap, data_mode=DATA_MODE)
-        if scope_line:
-            parts.append(html.P(scope_line, className="text-muted small mb-2"))
-
-    parts.append(html.Hr(className="my-3"))
-    parts.append(html.H6("Benchmark mix by category", className="mb-2"))
-    if cat_snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Category KPI failed: ", html.Code(cat_snap.error)],
-                color="warning",
-                className="mb-0",
-            )
-        )
-    elif cat_snap.by_category:
-        parts.append(
-            html.P(
-                "Documents per dashboard category (from test.name). OpenSearch uses a bounded "
-                "terms aggregation; counts for rare tests may be folded into the tail.",
-                className="text-muted small mb-2",
-            )
-        )
-        parts.append(
-            html.P(
-                [
-                    html.Strong("By category: "),
-                    *[
-                        dbc.Badge(
-                            f"{name}: {count:,}",
-                            color="light",
-                            text_color="dark",
-                            className="me-1 mb-1",
-                        )
-                        for name, count in cat_snap.by_category[:24]
-                    ],
-                ],
-                className="mb-0",
-            )
-        )
-    else:
-        parts.append(html.P("No category breakdown available.", className="text-muted small mb-0"))
-
-    parts.append(html.Hr(className="my-3"))
-    parts.append(html.H6("Activity by month", className="mb-2"))
-    if timeline_snap.error:
-        parts.append(
-            dbc.Alert(
-                ["Activity timeline failed: ", html.Code(timeline_snap.error)],
-                color="warning",
-                className="mb-0",
-            )
-        )
-    elif timeline_snap.by_month:
-        parts.append(
-            html.P(
-                "Document counts per calendar month (metadata.test_timestamp).",
-                className="text-muted small mb-2",
-            )
-        )
-        parts.append(
-            html.P(
-                [
-                    html.Strong("Runs: "),
-                    *[
-                        dbc.Badge(
-                            f"{label}: {count:,}",
-                            color="light",
-                            text_color="dark",
-                            className="me-1 mb-1",
-                        )
-                        for label, count in timeline_snap.by_month[-36:]
-                    ],
-                ],
-                className="mb-0",
-            )
-        )
-    else:
-        parts.append(html.P("No monthly activity buckets available.", className="text-muted small mb-0"))
-
-    parts.append(
-        html.P(
-            html.Small(
-                f"Pulse KPI bundle v{bundle.definition_version} · policy anchor {bundle.policy_template_id}. "
-                "Definitions: docs/guides/PULSE_KPIS.md (metric semantics and exec-facing copy are subject to review).",
-                className="text-muted",
-            ),
-            className="mb-0 mt-3 pt-2 border-top small",
-        )
+    return render_pulse_v1_panel(
+        snap=snap,
+        scope_snap=scope_snap,
+        cat_snap=cat_snap,
+        timeline_snap=timeline_snap,
+        data_mode=DATA_MODE,
+        results_index_label=results_index_name(),
+        kpi_definition_version=bundle.definition_version,
+        policy_template_id=bundle.policy_template_id,
     )
-
-    return html.Div(parts)
 
 
 @app.callback(
@@ -1123,6 +1005,17 @@ def update_server_snapshot(_n_intervals, _n_clicks):
 )
 def toggle_filters(n_clicks, is_open):
     """Toggle advanced filters panel."""
+    return not is_open
+
+
+@app.callback(
+    Output("collapse-detailed-analyses", "is_open"),
+    Input("btn-toggle-detailed-analyses", "n_clicks"),
+    State("collapse-detailed-analyses", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_detailed_analyses(_n_clicks, is_open):
+    """Expand or collapse RHEL / Competitive / Cloud sections and quick links below Pulse."""
     return not is_open
 
 

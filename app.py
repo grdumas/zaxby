@@ -23,19 +23,10 @@ import pandas as pd
 from src.opensearch_client import BenchmarkDataSource
 from src.data_processing import BenchmarkDataProcessor
 from src.data_bootstrap import load_initial_benchmark_documents
-from src.query_service import (
-    ActivityTimelineSnapshot,
-    CategoryKpiSnapshot,
-    PulseScopeFootnote,
-    ResultsOverviewSnapshot,
-    aggregate_activity_timeline_from_dataframe,
-    aggregate_category_kpis_from_dataframe,
-    aggregate_pulse_scope_footnote_from_dataframe,
-    aggregate_results_overview_from_dataframe,
-    fetch_pulse_scope_footnote,
-    fetch_results_activity_timeline,
-    fetch_results_category_kpis,
-    fetch_results_overview_aggregates,
+from src.pulse_kpis import (
+    aggregate_pulse_kpi_bundle_from_dataframe,
+    fetch_pulse_kpi_bundle,
+    pulse_kpi_bundle_from_connection_error,
 )
 from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
 from src.pulse_ui import render_pulse_v1_panel
@@ -983,77 +974,16 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         try:
             client = BenchmarkDataSource()
         except Exception as exc:  # noqa: BLE001 — client construction
-            snap = ResultsOverviewSnapshot(
-                total=None,
-                by_cloud=[],
-                source="opensearch",
-                error=str(exc),
-            )
-            cat_snap = CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
-            timeline_snap = ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
-            scope_snap = PulseScopeFootnote(
-                document_count=None,
-                run_date_min_utc=None,
-                run_date_max_utc=None,
-                source="opensearch",
-                error=str(exc),
-            )
+            bundle = pulse_kpi_bundle_from_connection_error(str(exc), source="opensearch")
         else:
-            try:
-                snap = fetch_results_overview_aggregates(client)
-            except Exception as exc:  # noqa: BLE001
-                snap = ResultsOverviewSnapshot(
-                    total=None,
-                    by_cloud=[],
-                    source="opensearch",
-                    error=str(exc),
-                )
-            try:
-                cat_snap = fetch_results_category_kpis(client)
-            except Exception as exc:  # noqa: BLE001
-                cat_snap = CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
-            try:
-                timeline_snap = fetch_results_activity_timeline(client)
-            except Exception as exc:  # noqa: BLE001
-                timeline_snap = ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
-            try:
-                scope_snap = fetch_pulse_scope_footnote(client)
-            except Exception as exc:  # noqa: BLE001
-                scope_snap = PulseScopeFootnote(
-                    document_count=None,
-                    run_date_min_utc=None,
-                    run_date_max_utc=None,
-                    source="opensearch",
-                    error=str(exc),
-                )
+            bundle = fetch_pulse_kpi_bundle(client)
     else:
-        try:
-            snap = aggregate_results_overview_from_dataframe(df)
-        except Exception as exc:  # noqa: BLE001
-            snap = ResultsOverviewSnapshot(
-                total=None,
-                by_cloud=[],
-                source="synthetic",
-                error=str(exc),
-            )
-        try:
-            cat_snap = aggregate_category_kpis_from_dataframe(df)
-        except Exception as exc:  # noqa: BLE001
-            cat_snap = CategoryKpiSnapshot(by_category=[], source="synthetic", error=str(exc))
-        try:
-            timeline_snap = aggregate_activity_timeline_from_dataframe(df)
-        except Exception as exc:  # noqa: BLE001
-            timeline_snap = ActivityTimelineSnapshot(by_month=[], source="synthetic", error=str(exc))
-        try:
-            scope_snap = aggregate_pulse_scope_footnote_from_dataframe(df)
-        except Exception as exc:  # noqa: BLE001
-            scope_snap = PulseScopeFootnote(
-                document_count=None,
-                run_date_min_utc=None,
-                run_date_max_utc=None,
-                source="synthetic",
-                error=str(exc),
-            )
+        bundle = aggregate_pulse_kpi_bundle_from_dataframe(df)
+
+    snap = bundle.overview
+    cat_snap = bundle.category_mix
+    timeline_snap = bundle.activity_timeline
+    scope_snap = bundle.scope
 
     return render_pulse_v1_panel(
         snap=snap,
@@ -1062,6 +992,8 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         timeline_snap=timeline_snap,
         data_mode=DATA_MODE,
         results_index_label=results_index_name(),
+        kpi_definition_version=bundle.definition_version,
+        policy_template_id=bundle.policy_template_id,
     )
 
 

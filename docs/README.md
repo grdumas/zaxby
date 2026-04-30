@@ -24,6 +24,9 @@ Essential technical documentation for working with the dashboard:
 - **[SCHEMA.md](guides/SCHEMA.md)**  
   Complete data schema documentation including field types, benchmark types, and data patterns
 
+- **[PULSE_KPIS.md](guides/PULSE_KPIS.md)**  
+  Pulse (executive) KPI bundle: index overview, category mix, monthly activity, scope metadata — definitions and product review checklist (P2-A)
+
 - **[UI_SUMMARY.md](guides/UI_SUMMARY.md)** ⭐ NEW  
   Executive summary of UI modernization proposal - start here! (Dec 2025)
 

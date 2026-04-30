@@ -62,3 +62,27 @@ def test_render_panel_produces_div():
         results_index_label="",
     )
     assert isinstance(panel, html.Div)
+
+
+def test_render_panel_includes_kpi_catalog_footer_when_metadata_passed():
+    panel = render_pulse_v1_panel(
+        snap=ResultsOverviewSnapshot(total=1, by_cloud=[], source="synthetic", error=None),
+        scope_snap=PulseScopeFootnote(
+            document_count=1,
+            run_date_min_utc="2025-01-01",
+            run_date_max_utc="2025-01-02",
+            source="synthetic",
+            error=None,
+        ),
+        cat_snap=CategoryKpiSnapshot(by_category=[], source="synthetic", error=None),
+        timeline_snap=ActivityTimelineSnapshot(by_month=[], source="synthetic", error=None),
+        data_mode="synthetic",
+        results_index_label="idx",
+        kpi_definition_version="1.0-test",
+        policy_template_id="TPL_CATEGORY_ROLLUP",
+    )
+    inner = getattr(panel, "children", None)
+    assert inner
+    flat = str(inner)
+    assert "PULSE_KPIS.md" in flat
+    assert "TPL_CATEGORY_ROLLUP" in flat

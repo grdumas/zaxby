@@ -8,7 +8,7 @@ only (no cross-cohort performance comparisons).
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import plotly.graph_objects as go
 from dash import dcc, html
@@ -140,12 +140,16 @@ def render_pulse_v1_panel(
     timeline_snap: ActivityTimelineSnapshot,
     data_mode: str,
     results_index_label: str,
+    kpi_definition_version: Optional[str] = None,
+    policy_template_id: Optional[str] = None,
 ) -> html.Div:
     """
     Build the Pulse v1 panel: KPI cards, two charts, footnote and disclaimer.
 
     Args:
         results_index_label: Human-readable index name for the footnote (may be empty).
+        kpi_definition_version: When set with ``policy_template_id``, appends the PULSE_KPIS.md catalog line.
+        policy_template_id: Comparison-policy anchor used for the KPI bundle (e.g. TPL_CATEGORY_ROLLUP).
     """
     def _warn(msg: str, err: str) -> html.Div:
         return html.Div(
@@ -210,68 +214,78 @@ def render_pulse_v1_panel(
     )
 
     badge_cls = "bg-info" if mode_label == "opensearch" else "bg-secondary"
-    return html.Div(
-        [
-            *alerts,
-            html.Div(
-                [
+    children: List = [
+        *alerts,
+        html.Div(
+            [
+                html.Div(
                     html.Div(
                         html.Div(
-                            html.Div(
-                                [
-                                    html.P("Total benchmark runs", className="text-muted small mb-1"),
-                                    html.H3(total_display, className="mb-0 text-primary"),
-                                    html.P(
-                                        html.Span(
-                                            f"Source: {snap.source}",
-                                            className=f"badge {badge_cls} mt-2",
-                                        ),
-                                        className="mb-0",
+                            [
+                                html.P("Total benchmark runs", className="text-muted small mb-1"),
+                                html.H3(total_display, className="mb-0 text-primary"),
+                                html.P(
+                                    html.Span(
+                                        f"Source: {snap.source}",
+                                        className=f"badge {badge_cls} mt-2",
                                     ),
-                                ],
-                                className="card-body",
-                            ),
-                            className="card h-100 border-primary",
+                                    className="mb-0",
+                                ),
+                            ],
+                            className="card-body",
                         ),
-                        className="col-md-6",
+                        className="card h-100 border-primary",
                     ),
+                    className="col-md-6",
+                ),
+                html.Div(
                     html.Div(
                         html.Div(
-                            html.Div(
-                                [
-                                    html.P("Reporting window", className="text-muted small mb-1"),
-                                    html.H5(window_primary, className="mb-1"),
-                                    *(
-                                        [html.P(window_sub, className="small text-muted mb-0")]
-                                        if window_sub
-                                        else []
-                                    ),
-                                ],
-                                className="card-body",
-                            ),
-                            className="card h-100",
+                            [
+                                html.P("Reporting window", className="text-muted small mb-1"),
+                                html.H5(window_primary, className="mb-1"),
+                                *(
+                                    [html.P(window_sub, className="small text-muted mb-0")]
+                                    if window_sub
+                                    else []
+                                ),
+                            ],
+                            className="card-body",
                         ),
-                        className="col-md-6",
+                        className="card h-100",
                     ),
-                ],
-                className="row g-3 mb-3",
-            ),
-            html.Div(
-                [
-                    html.Div(
-                        dcc.Graph(figure=fig_timeline, config={"displayModeBar": False}),
-                        className="col-md-6",
-                    ),
-                    html.Div(
-                        dcc.Graph(figure=fig_category, config={"displayModeBar": False}),
-                        className="col-md-6",
-                    ),
-                ],
-                className="row g-3 mb-2",
-            ),
-            html.Hr(className="my-2"),
-            source_line,
-            scope_el,
-            _pulse_disclaimer(),
-        ]
-    )
+                    className="col-md-6",
+                ),
+            ],
+            className="row g-3 mb-3",
+        ),
+        html.Div(
+            [
+                html.Div(
+                    dcc.Graph(figure=fig_timeline, config={"displayModeBar": False}),
+                    className="col-md-6",
+                ),
+                html.Div(
+                    dcc.Graph(figure=fig_category, config={"displayModeBar": False}),
+                    className="col-md-6",
+                ),
+            ],
+            className="row g-3 mb-2",
+        ),
+        html.Hr(className="my-2"),
+        source_line,
+        scope_el,
+        _pulse_disclaimer(),
+    ]
+    if kpi_definition_version is not None and policy_template_id is not None:
+        children.append(
+            html.P(
+                html.Small(
+                    f"Pulse KPI bundle v{kpi_definition_version} · policy anchor {policy_template_id}. "
+                    "Definitions: docs/guides/PULSE_KPIS.md (metric semantics and exec-facing copy are subject to review).",
+                    className="text-muted",
+                ),
+                className="mb-0 mt-3 pt-2 border-top small",
+            )
+        )
+    return html.Div(children)

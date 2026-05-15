@@ -5,8 +5,11 @@ from typing import Any, Dict, Optional
 import pytest
 
 from src.investigation_templates import (
+    FIELD_CLOUD_PROVIDER,
+    FIELD_INSTANCE_TYPE,
     FIELD_OS_DISTRIBUTION,
     FIELD_OS_VERSION,
+    FIELD_SCENARIO_NAME,
     FIELD_TEST_NAME,
     InvestigationTemplateError,
     build_zathras_results_search_body,
@@ -155,7 +158,7 @@ def test_resolve_time_window_optional_scenario():
 
 def test_resolve_unsupported_template_id_raises():
     with pytest.raises(InvestigationTemplateError, match="Unsupported template_id"):
-        resolve_ui_investigation_to_template(_minimal_ui_params(template_id="TPL_PEER_OS"))
+        resolve_ui_investigation_to_template(_minimal_ui_params(template_id="TPL_GEN_UPLIFT"))
 
 
 def test_explicit_rhel_minor_template_id_still_resolves():
@@ -238,7 +241,110 @@ def test_resolve_and_build_opensearch_query_default_size_none_uses_max_page():
 
 def test_build_unknown_template_raises():
     with pytest.raises(InvestigationTemplateError, match="No OpenSearch query builder"):
-        build_zathras_results_search_body("TPL_PEER_OS", {}, size=10)
+        build_zathras_results_search_body("TPL_GEN_UPLIFT", {}, size=10)
+
+
+def _peer_os_ui_params(**kwargs):
+    base = {
+        "template_id": "TPL_PEER_OS",
+        "test_name": "coremark",
+        "cloud_provider": "aws",
+        "instance_type": "m5.large",
+        "baseline_os_distribution": "rhel",
+        "baseline_os_version": "9.4",
+        "candidate_os_distribution": "sles",
+        "candidate_os_version": "15.5",
+    }
+    base.update(kwargs)
+    return base
+
+
+def test_resolve_peer_os_template_and_body():
+    tid, params = resolve_ui_investigation_to_template(_peer_os_ui_params())
+    assert tid == "TPL_PEER_OS"
+    body = build_zathras_results_search_body("TPL_PEER_OS", params)
+    q = body["query"]["bool"]
+    assert q["minimum_should_match"] == 1
+    assert len(q["should"]) == 2
+    flat = _flatten_term_filters(q["filter"])
+    assert flat[FIELD_TEST_NAME] == "coremark"
+    assert flat[FIELD_CLOUD_PROVIDER] == "aws"
+
+
+def test_resolve_peer_os_optional_scenario():
+    tid, params = resolve_ui_investigation_to_template(
+        _peer_os_ui_params(scenario_name="rhel_95_smoke")
+    )
+    body = build_zathras_results_search_body("TPL_PEER_OS", params)
+    flat = _flatten_term_filters(body["query"]["bool"]["filter"])
+    assert flat[FIELD_SCENARIO_NAME] == "rhel_95_smoke"
+
+
+def test_single_run_lookup_body():
+    ui = {"template_id": "TPL_SINGLE_RUN_LOOKUP", "document_id": "coremark_abc123"}
+    tid, params = resolve_ui_investigation_to_template(ui)
+    assert tid == "TPL_SINGLE_RUN_LOOKUP"
+    body = build_zathras_results_search_body(tid, params, size=50)
+    assert body["size"] == 1
+    assert body["query"] == {"term": {"metadata.document_id.keyword": "coremark_abc123"}}
+
+
+def test_cloud_scale_same_os_terms_filter():
+    ui = {
+        "template_id": "TPL_CLOUD_SCALE_SAME_OS",
+        "test_name": "streams",
+        "os_distribution": "rhel",
+        "os_version": "9.4",
+        "cloud_provider": "aws",
+        "instance_types": ["m5.large", "m5.xlarge"],
+    }
+    tid, params = resolve_ui_investigation_to_template(ui)
+    assert tid == "TPL_CLOUD_SCALE_SAME_OS"
+    body = build_zathras_results_search_body(tid, params)
+    filters = body["query"]["bool"]["filter"]
+    terms_f = next(f for f in filters if "terms" in f)
+    assert terms_f["terms"][FIELD_INSTANCE_TYPE] == ["m5.large", "m5.xlarge"]
+
+
+def test_scenario_ablation_requires_distinct_scenarios():
+    ui = {
+        "template_id": "TPL_SCENARIO_ABLATION",
+        "test_name": "pyperf",
+        "cloud_provider": "aws",
+        "instance_type": "m5.large",
+        "os_distribution": "rhel",
+        "os_version": "9.5",
+        "baseline_scenario_name": "same",
+        "candidate_scenario_name": "same",
+    }
+    with pytest.raises(InvestigationTemplateError, match="must differ"):
+        resolve_ui_investigation_to_template(ui)
+
+
+def test_scenario_ablation_body_should_clauses():
+    ui = {
+        "template_id": "TPL_SCENARIO_ABLATION",
+        "test_name": "pyperf",
+        "cloud_provider": "aws",
+        "instance_type": "m5.large",
+        "os_distribution": "rhel",
+        "os_version": "9.5",
+        "baseline_scenario_name": "rhel_95_a",
+        "candidate_scenario_name": "rhel_95_b",
+    }
+    tid, params = resolve_ui_investigation_to_template(ui)
+    body = build_zathras_results_search_body(tid, params)
+    q = body["query"]["bool"]
+    assert {s["term"][FIELD_SCENARIO_NAME] for s in q["should"]} == {"rhel_95_a", "rhel_95_b"}
+
+
+def test_rhel_major_and_os_sequential_share_minor_builder():
+    for tpl in ("TPL_RHEL_MAJOR_SAME_HW", "TPL_OS_SEQUENTIAL_MINOR"):
+        tid, params = resolve_ui_investigation_to_template(_minimal_ui_params(template_id=tpl))
+        assert tid == tpl
+        body_minor = build_zathras_results_search_body("TPL_RHEL_MINOR_SAME_HW", params)
+        body = build_zathras_results_search_body(tid, params)
+        assert body["query"] == body_minor["query"]
 
 
 class _FakeSearchClient:

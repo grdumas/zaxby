@@ -83,20 +83,31 @@ performance-dashboard/
 │       ├── README.md       # Data generation docs
 │       └── *.json         # Generated datasets
 ├── src/
-│   ├── opensearch_client.py    # OpenSearch connection
-│   ├── data_bootstrap.py       # Startup load (OpenSearch vs synthetic; P1-F failure UX)
-│   ├── data_processing.py      # Data transformation
-│   ├── metric_registry.py      # Primary metric fallbacks per test.name (P1-E)
-│   ├── synthetic_data.py       # Synthetic data generator
+│   ├── opensearch_client.py       # OpenSearch connection
+│   ├── data_bootstrap.py          # Startup load (OpenSearch vs synthetic; P1-F failure UX)
+│   ├── data_processing.py         # Data transformation
+│   ├── metric_registry.py         # Primary metric fallbacks per test.name (P1-E)
+│   ├── synthetic_data.py          # Synthetic data generator
+│   ├── benchmark_categories.py    # Benchmark categorization
+│   ├── comparison_policy.py       # Comparison validation
+│   ├── investigation_templates.py # Investigation templates
+│   ├── opensearch_links.py        # OpenSearch Discover link generation
+│   ├── pulse_kpis.py             # Pulse KPI calculations
+│   ├── pulse_policy.py           # Pulse policy rules
+│   ├── pulse_ui.py               # Pulse UI components
+│   ├── query_service.py          # Query service layer
+│   ├── regression_detection.py   # Regression detection logic
 │   └── components/
-│       ├── filters.py          # Filter components
-│       ├── summaries.py        # Summary generation
-│       └── visualizations.py   # Visualization components
-├── tests/
-│   ├── test_data_processing.py
-│   └── test_opensearch_client.py
+│       ├── filters.py            # Filter components
+│       ├── summaries.py          # Summary generation
+│       └── visualizations.py     # Visualization components
+├── tests/                        # Test suite (pytest)
+│   ├── test_query_service.py
+│   ├── test_regression_detection.py
+│   ├── test_investigation_templates.py
+│   └── ...                       # 17 test files total
 └── assets/
-    └── style.css              # Custom styling
+    └── style.css                 # Custom styling
 ```
 
 ## Data Sources
@@ -140,14 +151,14 @@ python src/synthetic_data.py
 
 ## Development
 
-### Running Tests
+### Hot Reload
+The dashboard runs with `debug=True` by default, enabling hot reload during development.
 
+### Testing
+The project includes a comprehensive test suite using pytest. To run the tests:
 ```bash
 pytest tests/
 ```
-
-### Hot Reload
-The dashboard runs with `debug=True` by default, enabling hot reload during development.
 
 ## Documentation
 

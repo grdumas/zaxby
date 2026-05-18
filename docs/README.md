@@ -39,14 +39,23 @@ Essential technical documentation for working with the dashboard:
 - **[UI_IMPLEMENTATION_GUIDE.md](guides/UI_IMPLEMENTATION_GUIDE.md)** 🛠️ NEW  
   Step-by-step implementation guide with code examples and testing checklist (Dec 2025)
 
-- **[DARK_MODE_GUIDE.md](guides/DARK_MODE_GUIDE.md)** 🌓 NEW  
+- **[DARK_MODE_GUIDE.md](guides/DARK_MODE_GUIDE.md)** 🌓  
   Dark mode implementation guide with toggle button and theme persistence (Dec 2025)
 
-- **[JIRA_BREAKDOWN.md](guides/JIRA_BREAKDOWN.md)** 📋 NEW  
-  Complete JIRA work breakdown with Features, Stories, and Tasks for remaining dashboard work (Dec 2025)
-
-- **[CATEGORY_DRILLDOWN_GUIDE.md](guides/CATEGORY_DRILLDOWN_GUIDE.md)** 🔍 NEW  
+- **[CATEGORY_DRILLDOWN_GUIDE.md](guides/CATEGORY_DRILLDOWN_GUIDE.md)** 🔍  
   Interactive drill-down functionality for Competitive Performance section - click categories to explore benchmarks (Dec 2025)
+
+- **[COMPARISON_POLICY.md](guides/COMPARISON_POLICY.md)**  
+  Comparison templates and Pulse mode guardrails - defines allowed comparison patterns and validation rules
+
+- **[REGRESSION_DETECTION.md](guides/REGRESSION_DETECTION.md)**  
+  Regression detection thresholds, directionality, and status handling specification
+
+- **[DASHBOARD_REDESIGN_AND_DATA_PLAN.md](guides/DASHBOARD_REDESIGN_AND_DATA_PLAN.md)**  
+  Dashboard redesign strategy, product context, and data plan (Phase 0)
+
+- **[IMPLEMENTATION_PLAN.md](guides/IMPLEMENTATION_PLAN.md)**  
+  Phased implementation roadmap with work packages and exit criteria
 
 ### Bug Fixes & Issues (`fixes/`)
 
@@ -84,6 +93,9 @@ Older documentation kept for reference but superseded by current docs:
 - **IMPLEMENTATION_SUMMARY.md** - Original implementation notes (see PROJECT_SUMMARY.md for current)
 - **DASHBOARD_REDESIGN.md** - Dashboard redesign documentation
 - **BEFORE_AFTER_COMPARISON.md** - Before/after comparison of changes
+- **DARK_MODE_ADDED.md** - Dark mode implementation summary (Dec 2025)
+- **UI_CHANGES_APPLIED.md** - UI modernization implementation summary (Dec 2025)
+- **DOCUMENTATION_ORGANIZATION.md** - Documentation organization notes
 
 #### Feature Development
 - **SYNTHETIC_DATA_ENHANCEMENTS.md** - Synthetic data v2.0 enhancements
@@ -108,7 +120,19 @@ docs/
 ├── guides/                      # Technical guides
 │   ├── OPENSEARCH_CONNECTION_GUIDE.md
 │   ├── SCHEMA.md
-│   └── CATEGORY_DRILLDOWN_GUIDE.md
+│   ├── PHASE_1_AGENT_HANDOFF.md
+│   ├── PULSE_KPIS.md
+│   ├── UI_SUMMARY.md
+│   ├── UI_MODERNIZATION_PROPOSAL.md
+│   ├── UI_QUICK_WINS.md
+│   ├── UI_IMPLEMENTATION_GUIDE.md
+│   ├── UI_COLOR_REFERENCE.md
+│   ├── DARK_MODE_GUIDE.md
+│   ├── CATEGORY_DRILLDOWN_GUIDE.md
+│   ├── COMPARISON_POLICY.md
+│   ├── REGRESSION_DETECTION.md
+│   ├── DASHBOARD_REDESIGN_AND_DATA_PLAN.md
+│   └── IMPLEMENTATION_PLAN.md
 ├── fixes/                       # Bug fix documentation
 │   ├── COLLAPSIBLE_SECTIONS_UPDATE.md
 │   ├── STATUS_BOX_MISLEADING_UX_FIX.md
@@ -122,6 +146,9 @@ docs/
     ├── IMPLEMENTATION_SUMMARY.md
     ├── DASHBOARD_REDESIGN.md
     ├── BEFORE_AFTER_COMPARISON.md
+    ├── DARK_MODE_ADDED.md
+    ├── UI_CHANGES_APPLIED.md
+    ├── DOCUMENTATION_ORGANIZATION.md
     ├── SYNTHETIC_DATA_ENHANCEMENTS.md
     ├── SYNTHETIC_DATA_IMPROVEMENT.md
     ├── DETERMINISTIC_DATA_GENERATION_UPDATE.md
@@ -194,7 +221,7 @@ When adding new documentation:
 
 ---
 
-**Last Updated**: December 4, 2025  
+**Last Updated**: May 18, 2026  
 **Project Status**: Active Development  
 **Version**: v2.0
 

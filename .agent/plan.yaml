@@ -1,0 +1,450 @@
+project:
+  key: RPOPC
+  name: Zaxby - CPT Dashboard
+  repo: git@github.com:grdumas/zaxby.git
+  default_branch: main
+tasks:
+- id: RPOPC-712
+  jira_created: true
+  type: epic
+  title: Create Multi-Arch Team Performance Engineering Dashboard
+  description: '# Summary
+
+
+    A Python Dash dashboard for visualizing software performance benchmark results
+    from OpenSearch. Track performance regressions across OS versions, compare against
+    peer operating systems, and analyze cloud scaling behavior.
+
+
+    # Project Context
+
+
+    Broadly speaking, the ongoing efforts to realize Continuous Performance Testing
+    (CPT) for Public Cloud and RHEL Multi-Arch are broken up into the following segments:
+
+
+    1. Provision systems for test runs
+
+    2. Run tests
+
+    3. Process test results for d...'
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-712
+  status: in_progress
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-1041
+  jira_created: true
+  type: story
+  title: Fix Installation & Setup Instructions in Chronicler README
+  description: '## Problem
+
+
+    The Installation & Setup section in the Chronicler README is missing critical
+    steps that prevent users from successfully installing and running Chronicler.
+
+
+    ## GitHub Issue
+
+
+    This issue tracks the work for: https://github.com/redhat-performance/chronicler/issues/17
+
+
+    ## Key Issues
+
+
+    ### 1. Package Installation Never Mentioned
+
+
+    The README shows how to create a venv and install dependencies, but **never tells
+    users to install the chronicler package itself**. Users are never shown to ru...'
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-1041
+  status: done
+  priority: critical
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-1047
+  jira_created: true
+  type: story
+  title: Enable colleagues to use Chronicler and OpenSearch in CPT workflows
+  description: See Jira issue RPOPC-1047 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-1047
+  status: todo
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-713
+  jira_created: true
+  type: story
+  title: Add Chart Legends/Keys
+  description: "Add clear legends and keys to help users understand chart elements,\
+    \ color coding, and data representation.\n\n   \n\\***Acceptance Criteria**\\\
+    *:  \n\\-All charts have visible legends explaining color meanings  \n\\-Legends\
+    \ are positioned consistently (bottom or right of chart)  \n\\-Help tooltips provide\
+    \ context for non-expert users  \n\\-Legends don't obscure chart data"
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-713
+  status: in_progress
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-714
+  jira_created: true
+  type: story
+  title: Implement Colorblind Mode
+  description: "Add colorblind-friendly color palettes and visual patterns to ensure\
+    \ charts are accessible to users with color vision deficiencies.  \n   \n\\***Acceptance\
+    \ Criteria**\\*:  \n\\-Toggle available in header (near dark mode toggle)  \n\\\
+    -All charts readable with deuteranopia, protanopia simulations  \n\\-Preference\
+    \ persists in localStorage  \n\\-Patterns/shapes provide redundant encoding beyond\
+    \ color  \n\\-Passes WCAG 2.1 AA color contrast requirements"
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-714
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-726
+  jira_created: true
+  type: story
+  title: Implement Engineer Mode Toggle & Infrastructure
+  description: "Create the toggle mechanism and infrastructure for switching between\
+    \ standard and engineer dashboard modes.\n\n   \n\\***Acceptance Criteria**\\\
+    *:  \n\\-Clear toggle mechanism in header  \n\\-Mode persists across sessions\
+    \  \n\\-Visual indicator when engineer mode is active"
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-726
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-730
+  jira_created: true
+  type: story
+  title: Add Advanced Filtering & Query Builder
+  description: "Provide advanced filtering capabilities including custom queries and\
+    \ saved filter presets.  \n   \n\\***Acceptance Criteria**\\*:  \n\\-Advanced\
+    \ filters only visible in engineer mode  \n\\-Presets persist across sessions\
+    \  \n\\-Complex filter combinations supported  \n\\-Clear indication of active\
+    \ filters"
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-730
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-736
+  jira_created: true
+  type: story
+  title: Cloud Scaling Analysis Improvements
+  description: "Enhance the cloud scaling analysis logic and data processing.  \n\
+       \n\\***Acceptance Criteria**\\*:  \n\\-Instance sizes correctly ordered  \n\
+    \\-Scaling efficiency calculated and displayed  \n\\-Multiple scaling dimensions\
+    \ (CPU, memory)"
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-736
+  status: in_progress
+  priority: critical
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-1051
+  jira_created: true
+  type: subtask
+  title: Fix FIO processor exceeding OpenSearch 5000 field limit on baremetal testbed
+  description: '## Reported By
+
+
+    Matt Lucius (Slack)
+
+
+    ## Problem
+
+
+    FIO results from nightly protoCPT runs on baremetal testbed are failing to upload
+    to OpenSearch with a "5000 field limit exceeded" error.
+
+
+    ## Root Cause
+
+
+    Chronicler''s FIO processor is ingesting ALL result files instead of just the
+    final aggregated results:
+
+
+    * **48 per-knob-combination results files** (soon to be 96)
+
+    * **Per-second "in flight" logs** (typically only used for troubleshooting)
+
+
+    This causes the document to balloon beyond OpenSearch...'
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-1051
+  status: todo
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+  parent: RPOPC-1047
+- id: RPOPC-716
+  jira_created: true
+  type: task
+  title: Implement alternative color scales for regression charts
+  description: See Jira issue RPOPC-716 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-716
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-717
+  jira_created: true
+  type: task
+  title: Update heatmap color scales for colorblind accessibility
+  description: See Jira issue RPOPC-717 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-717
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-718
+  jira_created: true
+  type: task
+  title: Add shape markers to line charts (circle, square, triangle)
+  description: See Jira issue RPOPC-718 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-718
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-719
+  jira_created: true
+  type: task
+  title: Update CSS for colorblind-safe status indicators
+  description: See Jira issue RPOPC-719 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-719
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-720
+  jira_created: true
+  type: task
+  title: Add colorblind mode documentation
+  description: See Jira issue RPOPC-720 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-720
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-721
+  jira_created: true
+  type: task
+  title: Add legend to regression bar charts explaining color coding
+  description: See Jira issue RPOPC-721 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-721
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-722
+  jira_created: true
+  type: task
+  title: Add legend to peer OS comparison chart explaining relative performance scale
+  description: See Jira issue RPOPC-722 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-722
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-723
+  jira_created: true
+  type: task
+  title: Add legend to cloud scaling chart explaining ideal linear scaling line
+  description: See Jira issue RPOPC-723 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-723
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-724
+  jira_created: true
+  type: task
+  title: Add legend to heatmaps explaining color scale interpretation
+  description: See Jira issue RPOPC-724 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-724
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-725
+  jira_created: true
+  type: task
+  title: Add help tooltips (?) next to chart titles with interpretation guidance
+  description: See Jira issue RPOPC-725 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-725
+  status: todo
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-727
+  jira_created: true
+  type: task
+  title: Add Engineer Mode toggle to header (gear icon or switch)
+  description: See Jira issue RPOPC-727 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-727
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-728
+  jira_created: true
+  type: task
+  title: Add conditional rendering logic for mode-specific components
+  description: See Jira issue RPOPC-728 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-728
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-729
+  jira_created: true
+  type: task
+  title: Create engineer mode indicator badge in header
+  description: See Jira issue RPOPC-729 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-729
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-731
+  jira_created: true
+  type: task
+  title: Add regex filter support for test names
+  description: See Jira issue RPOPC-731 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-731
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-732
+  jira_created: true
+  type: task
+  title: Implement metric threshold filters (e.g., "show only >10% regression")
+  description: See Jira issue RPOPC-732 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-732
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-733
+  jira_created: true
+  type: task
+  title: Create saved filter presets functionality
+  description: See Jira issue RPOPC-733 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-733
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-734
+  jira_created: true
+  type: task
+  title: Add "exclude" option for filters (e.g., exclude specific tests)
+  description: See Jira issue RPOPC-734 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-734
+  status: done
+  priority: high
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-735
+  jira_created: true
+  type: task
+  title: Implement filter history (recent filters)
+  description: See Jira issue RPOPC-735 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-735
+  status: done
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-737
+  jira_created: true
+  type: task
+  title: Implement cross-cloud comparison for same workload
+  description: See Jira issue RPOPC-737 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-737
+  status: done
+  priority: critical
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-738
+  jira_created: true
+  type: task
+  title: Add CPU core extraction from instance metadata (for scaling calculations)
+  description: See Jira issue RPOPC-738 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-738
+  status: done
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null
+- id: RPOPC-739
+  jira_created: true
+  type: task
+  title: Add memory-based scaling analysis
+  description: See Jira issue RPOPC-739 for details
+  source: jira
+  source_ref: https://redhat.atlassian.net/browse/RPOPC-739
+  status: done
+  priority: medium
+  depends_on: []
+  branch: null
+  pr: null

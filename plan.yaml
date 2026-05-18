@@ -1,0 +1,796 @@
+project:
+  key: RPOPC
+  name: Zaxby - CPT Dashboard
+  repo: git@github.com:grdumas/zaxby.git
+  default_branch: main
+tasks:
+  - id: RPOPC-712
+    jira_created: true
+    type: epic
+    title: Create Multi-Arch Team Performance Engineering Dashboard
+    description: '# Summary
+
+
+      A Python Dash dashboard for visualizing software performance benchmark results from OpenSearch. Track performance regressions across OS versions, compare against peer operating systems, and analyze cloud scaling behavior.
+
+
+      # Project Context
+
+
+      Broadly speaking, the ongoing efforts to realize Continuous Performance Testing (CPT) for Public Cloud and RHEL Multi-Arch are broken up into the following segments:
+
+
+      1. Provision systems for test runs
+
+      2. Run tests
+
+      3. Process test results for d...'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-712
+    status: in_progress
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-1041
+    jira_created: true
+    type: story
+    title: Fix Installation & Setup Instructions in Chronicler README
+    description: '## Problem
+
+
+      The Installation & Setup section in the Chronicler README is missing critical steps that prevent users from successfully installing and running Chronicler.
+
+
+      ## GitHub Issue
+
+
+      This issue tracks the work for: https://github.com/redhat-performance/chronicler/issues/17
+
+
+      ## Key Issues
+
+
+      ### 1. Package Installation Never Mentioned
+
+
+      The README shows how to create a venv and install dependencies, but **never tells users to install the chronicler package itself**. Users are never shown to ru...'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1041
+    status: done
+    priority: critical
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-1047
+    jira_created: true
+    type: story
+    title: Enable colleagues to use Chronicler and OpenSearch in CPT workflows
+    description: See Jira issue RPOPC-1047 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1047
+    status: blocked
+    priority: high
+    depends_on: []
+    branch: feat/rpopc-1047-enable-colleagues-to-use-chronicler-and-opensearc
+    pr: null
+    notes: Agent exited without AGENT_DONE signal
+  - id: RPOPC-713
+    jira_created: true
+    type: story
+    title: Add Chart Legends/Keys
+    description: "Add clear legends and keys to help users understand chart elements, color coding, and data representation.\n\n   \n\\***Acceptance Criteria**\\*:  \n\\-All charts have visible legends explaining color meanings  \n\\-Legends are positioned consistently (bottom or right of chart)  \n\\-Help tooltips provide context for non-expert users  \n\\-Legends don't obscure chart data"
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-713
+    status: in_progress
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-714
+    jira_created: true
+    type: story
+    title: Implement Colorblind Mode
+    description: "Add colorblind-friendly color palettes and visual patterns to ensure charts are accessible to users with color vision deficiencies.  \n   \n\\***Acceptance Criteria**\\*:  \n\\-Toggle available in header (near dark mode toggle)  \n\\-All charts readable with deuteranopia, protanopia simulations  \n\\-Preference persists in localStorage  \n\\-Patterns/shapes provide redundant encoding beyond color  \n\\-Passes WCAG 2.1 AA color contrast requirements"
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-714
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-726
+    jira_created: true
+    type: story
+    title: Implement Engineer Mode Toggle & Infrastructure
+    description: "Create the toggle mechanism and infrastructure for switching between standard and engineer dashboard modes.\n\n   \n\\***Acceptance Criteria**\\*:  \n\\-Clear toggle mechanism in header  \n\\-Mode persists across sessions  \n\\-Visual indicator when engineer mode is active"
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-726
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-730
+    jira_created: true
+    type: story
+    title: Add Advanced Filtering & Query Builder
+    description: "Provide advanced filtering capabilities including custom queries and saved filter presets.  \n   \n\\***Acceptance Criteria**\\*:  \n\\-Advanced filters only visible in engineer mode  \n\\-Presets persist across sessions  \n\\-Complex filter combinations supported  \n\\-Clear indication of active filters"
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-730
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-736
+    jira_created: true
+    type: story
+    title: Cloud Scaling Analysis Improvements
+    description: "Enhance the cloud scaling analysis logic and data processing.  \n   \n\\***Acceptance Criteria**\\*:  \n\\-Instance sizes correctly ordered  \n\\-Scaling efficiency calculated and displayed  \n\\-Multiple scaling dimensions (CPU, memory)"
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-736
+    status: in_progress
+    priority: critical
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-1051
+    jira_created: true
+    type: subtask
+    title: Fix FIO processor exceeding OpenSearch 5000 field limit on baremetal testbed
+    description: '## Reported By
+
+
+      Matt Lucius (Slack)
+
+
+      ## Problem
+
+
+      FIO results from nightly protoCPT runs on baremetal testbed are failing to upload to OpenSearch with a "5000 field limit exceeded" error.
+
+
+      ## Root Cause
+
+
+      Chronicler''s FIO processor is ingesting ALL result files instead of just the final aggregated results:
+
+
+      * **48 per-knob-combination results files** (soon to be 96)
+
+      * **Per-second "in flight" logs** (typically only used for troubleshooting)
+
+
+      This causes the document to balloon beyond OpenSearch...'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1051
+    status: blocked
+    priority: high
+    depends_on: []
+    branch: feat/rpopc-1051-fix-fio-processor-exceeding-opensearch-5000-field
+    pr: null
+    parent: RPOPC-1047
+    notes: Agent exited without AGENT_DONE signal
+  - id: RPOPC-716
+    jira_created: true
+    type: task
+    title: Implement alternative color scales for regression charts
+    description: See Jira issue RPOPC-716 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-716
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-717
+    jira_created: true
+    type: task
+    title: Update heatmap color scales for colorblind accessibility
+    description: See Jira issue RPOPC-717 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-717
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-718
+    jira_created: true
+    type: task
+    title: Add shape markers to line charts (circle, square, triangle)
+    description: See Jira issue RPOPC-718 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-718
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-719
+    jira_created: true
+    type: task
+    title: Update CSS for colorblind-safe status indicators
+    description: See Jira issue RPOPC-719 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-719
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-720
+    jira_created: true
+    type: task
+    title: Add colorblind mode documentation
+    description: See Jira issue RPOPC-720 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-720
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-721
+    jira_created: true
+    type: task
+    title: Add legend to regression bar charts explaining color coding
+    description: See Jira issue RPOPC-721 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-721
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-722
+    jira_created: true
+    type: task
+    title: Add legend to peer OS comparison chart explaining relative performance scale
+    description: See Jira issue RPOPC-722 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-722
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-723
+    jira_created: true
+    type: task
+    title: Add legend to cloud scaling chart explaining ideal linear scaling line
+    description: See Jira issue RPOPC-723 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-723
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-724
+    jira_created: true
+    type: task
+    title: Add legend to heatmaps explaining color scale interpretation
+    description: See Jira issue RPOPC-724 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-724
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-725
+    jira_created: true
+    type: task
+    title: Add help tooltips (?) next to chart titles with interpretation guidance
+    description: See Jira issue RPOPC-725 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-725
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-727
+    jira_created: true
+    type: task
+    title: Add Engineer Mode toggle to header (gear icon or switch)
+    description: See Jira issue RPOPC-727 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-727
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-728
+    jira_created: true
+    type: task
+    title: Add conditional rendering logic for mode-specific components
+    description: See Jira issue RPOPC-728 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-728
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-729
+    jira_created: true
+    type: task
+    title: Create engineer mode indicator badge in header
+    description: See Jira issue RPOPC-729 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-729
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-731
+    jira_created: true
+    type: task
+    title: Add regex filter support for test names
+    description: See Jira issue RPOPC-731 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-731
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-732
+    jira_created: true
+    type: task
+    title: Implement metric threshold filters (e.g., "show only >10% regression")
+    description: See Jira issue RPOPC-732 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-732
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-733
+    jira_created: true
+    type: task
+    title: Create saved filter presets functionality
+    description: See Jira issue RPOPC-733 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-733
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-734
+    jira_created: true
+    type: task
+    title: Add "exclude" option for filters (e.g., exclude specific tests)
+    description: See Jira issue RPOPC-734 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-734
+    status: done
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-735
+    jira_created: true
+    type: task
+    title: Implement filter history (recent filters)
+    description: See Jira issue RPOPC-735 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-735
+    status: done
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-737
+    jira_created: true
+    type: task
+    title: Implement cross-cloud comparison for same workload
+    description: See Jira issue RPOPC-737 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-737
+    status: done
+    priority: critical
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-738
+    jira_created: true
+    type: task
+    title: Add CPU core extraction from instance metadata (for scaling calculations)
+    description: See Jira issue RPOPC-738 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-738
+    status: done
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-739
+    jira_created: true
+    type: task
+    title: Add memory-based scaling analysis
+    description: See Jira issue RPOPC-739 for details
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-739
+    status: done
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-1014
+    jira_created: true
+    type: story
+    title: Build AI Widget in Dashboard
+    description: 'Integrate AI analysis into the Zaxby CPT Dashboard. Make AI aware of current filters, benchmark type, system + test configuration, selected dataset. Ensure full end-to-end flow.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1014
+    status: todo
+    priority: low
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-705
+    component: CPT-AI
+  - id: RPOPC-1015
+    jira_created: true
+    type: subtask
+    title: Integrate Zaxby dashboard with Regression Analyzer tab
+    description: 'Add Regression Analyzer tab to the Zaxby dashboard connecting the AI analysis layer to the visual dashboard interface.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1015
+    status: in_progress
+    priority: low
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1014
+    component: CPT-AI
+  - id: GH-35
+    jira_created: false
+    type: task
+    title: Investigation templates - OpenSearch builders for remaining policy IDs
+    description: 'Add normalizers and TEMPLATE_BUILDERS entries for policy template IDs lacking Investigate query implementations: TPL_ITERATION_REPEATABILITY, TPL_ARCH_EXPLICIT, TPL_PROVIDER_INTERNAL_REGION, TPL_GEN_UPLIFT. Resolver must dispatch each ID, validation must run in investigate mode, pytest coverage needed.'
+    source: github
+    source_ref: https://github.com/grdumas/zaxby/issues/35
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: GH-34
+    jira_created: false
+    type: task
+    title: Investigate UI - wire extended comparison templates (P1-A follow-up)
+    description: 'Enable exposure of template_id and template-specific investigation_params from Dash application. Create entry points for selecting templates and required fields. Update update_investigation_view for template-specific summaries where baseline/candidate semantics differ.'
+    source: github
+    source_ref: https://github.com/grdumas/zaxby/issues/34
+    status: todo
+    priority: high
+    depends_on: [GH-35]
+    branch: null
+    pr: null
+  - id: GH-25
+    jira_created: false
+    type: task
+    title: Support target-based metrics (e.g. pig scheduling efficiency ~1.0)
+    description: 'pig benchmark measures CPU scheduling efficiency with ideal value 1.0, deviations in either direction indicate worse performance. Need to support target-based metrics in metric registry and regression logic. Update metric_registry.py, regression_detection.py, docs, and synthetic_data.py.'
+    source: github
+    source_ref: https://github.com/grdumas/zaxby/issues/25
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+  - id: GH-17
+    jira_created: false
+    type: task
+    title: P1-D follow-ups - directionality merge, lower-is-better registry, Discover links, Pulse
+    description: 'Post-Phase 1 regression detection tasks: 1) Merge regression directionality PR, 2) Populate LOWER_IS_BETTER_TEST_NAMES with verified test names, 3) Add OpenSearch evidence links for regressions, 4) Phase 2 Pulse planning (separate issues).'
+    source: github
+    source_ref: https://github.com/grdumas/zaxby/issues/17
+    status: todo
+    priority: high
+    depends_on: [GH-25]
+    branch: null
+    pr: null
+  - id: RPOPC-1097
+    jira_created: true
+    type: epic
+    title: Phase 0 - Platform Prerequisites
+    description: 'Platform prerequisites for dashboard redesign. Establishes two-index awareness, bounded payloads, policy artifacts, and deep linking capability. Goal: Two-index awareness, bounded payloads, policy artifacts started, one vertical slice (deep link) proven.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1097
+    status: todo
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+  - id: RPOPC-1098
+    jira_created: true
+    type: epic
+    title: Phase 1 - Trust, Scope, and Investigation Mode
+    description: 'Template-driven investigations, category-to-leaf navigation, regression labels per spec, and partner guardrails in code. Goal: Template-driven investigations, category-to-leaf navigation, regression labels per spec, and partner guardrails in code.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1098
+    status: todo
+    priority: high
+    depends_on: [RPOPC-1097]
+    branch: null
+    pr: null
+  - id: RPOPC-1099
+    jira_created: true
+    type: epic
+    title: Phase 2 - Pulse Mode (Executive View)
+    description: 'KPI surfaces using aggregation contracts from Phase 0-1; executive-safe copy and disclaimers. Goal: KPI surfaces using only aggregation contracts from Phase 0-1; exec-safe copy and disclaimers.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1099
+    status: todo
+    priority: medium
+    depends_on: [RPOPC-1098]
+    branch: null
+    pr: null
+  - id: RPOPC-1100
+    jira_created: true
+    type: epic
+    title: Phase 3 - Track Mode and Scale
+    description: 'Exception-oriented views, performance and operational hardening. Goal: Exception-oriented views (CPT / nightly baseline comparisons), performance and operational hardening.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1100
+    status: todo
+    priority: medium
+    depends_on: [RPOPC-1099]
+    branch: null
+    pr: null
+  - id: RPOPC-1101
+    jira_created: true
+    type: story
+    title: P0-A - Configuration and Documentation
+    description: 'Add OPENSEARCH_INDEX_RESULTS and OPENSEARCH_INDEX_TIMESERIES to .env.example. Keep legacy OPENSEARCH_INDEX as optional alias for results during migration.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1101
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1097
+  - id: RPOPC-1102
+    jira_created: true
+    type: story
+    title: P0-B - OpenSearch Client Refactor
+    description: 'Named index resolution: resolve results vs timeseries from env. search_results() / search_timeseries() wrappers that apply correct index name. Deprecate or alias old OPENSEARCH_INDEX.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1102
+    status: todo
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1097
+  - id: RPOPC-1103
+    jira_created: true
+    type: story
+    title: P0-C - Server-Side Data Path (Prototype)
+    description: 'One server-side aggregation or filtered query (e.g., small KPI for Pulse prototype). OpenSearch search with size: 0 + aggs, or filtered query returning bounded results.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1103
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1097
+  - id: RPOPC-1104
+    jira_created: true
+    type: story
+    title: P0-D - Deep Links to OpenSearch
+    description: 'opensearch_discover_url(index, document_id) or query-string builder. Use base URL from env (OPENSEARCH_DASHBOARDS_BASE_URL). Wire one chart/table row: "View in OpenSearch".'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1104
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1097
+  - id: RPOPC-1105
+    jira_created: true
+    type: story
+    title: P0-E - Policy Artifacts (Minimal)
+    description: 'docs/guides/COMPARISON_POLICY.md: 10-15 templates with fixed dimensions per template, baseline/candidate language, explicit Pulse forbidden axes (e.g., no cross-cloud comparisons in Pulse mode).'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1105
+    status: todo
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1097
+  - id: RPOPC-1106
+    jira_created: true
+    type: story
+    title: P1-A - Template Engine
+    description: 'Map UI "investigation" to a template_id + parameters. Backend builds OpenSearch query from template. Reject invalid combinations. Support templates: TPL_RHEL_MINOR, TPL_PEER_OS, TPL_CLOUD_SCALE, etc.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1106
+    status: todo
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1098
+  - id: RPOPC-1107
+    jira_created: true
+    type: story
+    title: P1-B - Policy Enforcement
+    description: 'Central module: Pulse vs Investigate allowed templates. Pulse cannot request cross-cloud comparisons (validated in tests). validate_comparison_request() enforces policy in code.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1107
+    status: todo
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1098
+  - id: RPOPC-1108
+    jira_created: true
+    type: story
+    title: P1-C - Category to Leaf Navigation
+    description: 'Data: test-name to category mapping (config or small JSON). UI: breadcrumb or nested navigation pattern. Charts drill from category aggregates to leaf benchmarks.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1108
+    status: in_progress
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1098
+  - id: RPOPC-1109
+    jira_created: true
+    type: story
+    title: P1-D - Regression Surfacing
+    description: 'Implement REGRESSION_DETECTION.md spec in BenchmarkDataProcessor (or dedicated module). Wire regression labels only when criteria met. Each regression label includes direction and magnitude.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1109
+    status: todo
+    priority: high
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1098
+  - id: RPOPC-1110
+    jira_created: true
+    type: story
+    title: P1-E - Metric Registry
+    description: 'Formalize what _resolve_primary_metric() does per test.name. Document in REGRESSION_DETECTION or SCHEMA.md appendices. Canonical metric field per test.name in code.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1110
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1098
+  - id: RPOPC-1111
+    jira_created: true
+    type: story
+    title: P1-F - OpenSearch Load Failure UX
+    description: 'Replace silent fallback to synthetic data when DATA_MODE=opensearch but connection/scroll fails. Show clear error state when OpenSearch load fails.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1111
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1098
+  - id: RPOPC-1112
+    jira_created: true
+    type: story
+    title: P2-A - KPI Definitions
+    description: 'Small set of aggregations (by category, by trend window). All aggregations from zathras-results initially. Define KPIs: test coverage by category, RHEL performance vs peers, cloud scaling efficiency.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1112
+    status: in_progress
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1099
+  - id: RPOPC-1113
+    jira_created: true
+    type: story
+    title: P2-B - Pulse Layout
+    description: 'Default landing: KPI cards + trend sparklines. No raw filter combinatorics exposed in Pulse mode. Executive-friendly navigation (limited, high-level controls only).'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1113
+    status: in_progress
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1099
+  - id: RPOPC-1114
+    jira_created: true
+    type: story
+    title: P2-C - Soundbite Metadata
+    description: 'Store baseline id, date range, benchmark count on any narrative snippet. Prevent overclaiming by attaching scope metadata to KPI summaries. Display metadata in UI tooltips or footnotes.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1114
+    status: todo
+    priority: low
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1099
+  - id: RPOPC-1115
+    jira_created: true
+    type: story
+    title: P3-A - Baseline vs Last Night (Track Mode)
+    description: 'Scheduled or on-demand aggregation queries comparing nightly results to baseline. Exception-oriented view: show only deltas/regressions. Optional rollup by benchmark category.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1115
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1100
+  - id: RPOPC-1116
+    jira_created: true
+    type: story
+    title: P3-B - Caching
+    description: 'TTL-based caching for expensive aggregations. Cache invalidation on date range change. Server-side cache layer (Redis, in-memory, or Dash cache). Performance testing before/after caching.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1116
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1100
+  - id: RPOPC-1117
+    jira_created: true
+    type: story
+    title: P3-C - Load and Performance Tests
+    description: 'Scripted queries against timeseries volume (zathras-timeseries scale). Define P95 latency targets for Pulse, Investigate, Track modes. Load test harness with realistic query patterns.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1117
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1100
+  - id: RPOPC-1118
+    jira_created: true
+    type: story
+    title: P3-D - Synthetic Data Timeseries Extension
+    description: 'Extend src/synthetic_data.py to generate zathras-timeseries-shaped documents. Match timeseries grain (metadata.timeseries_id, metadata.sequence, results.timestamps, results.values arrays).'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1118
+    status: todo
+    priority: medium
+    depends_on: []
+    branch: null
+    pr: null
+    parent: RPOPC-1100
+  - id: RPOPC-1119
+    jira_created: true
+    type: story
+    title: Clean up old and stale documentation
+    description: 'Review and clean up docs/guides/ for outdated guides or information that no longer matches current implementation. Archive or remove docs/fixes/ content that has been incorporated into main docs or is no longer relevant.'
+    source: jira
+    source_ref: https://redhat.atlassian.net/browse/RPOPC-1119
+    status: in_progress
+    priority: high
+    depends_on: []
+    branch: feat/rpopc-1119-clean-up-old-and-stale-documentation
+    pr: null

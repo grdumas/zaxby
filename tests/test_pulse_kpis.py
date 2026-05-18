@@ -1,8 +1,10 @@
 """Tests for Pulse KPI bundle (P2-A)."""
 
 import pandas as pd
+import pytest
 from unittest.mock import MagicMock, patch
 
+from src.cache_service import get_cache_service
 from src.pulse_kpis import (
     PULSE_KPI_DEFINITION_VERSION,
     aggregate_pulse_kpi_bundle_from_dataframe,
@@ -10,6 +12,18 @@ from src.pulse_kpis import (
     pulse_kpi_bundle_from_connection_error,
 )
 from src.query_service import PULSE_RESULTS_OVERVIEW_TEMPLATE_ID
+
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """Clear cache before each test to ensure isolation."""
+    cache_service = get_cache_service()
+    cache_service.clear()
+    cache_service.reset_metrics()
+    yield
+    # Optionally clear after test as well
+    cache_service.clear()
+    cache_service.reset_metrics()
 
 
 def test_pulse_kpi_bundle_from_connection_error_sets_all_slots():

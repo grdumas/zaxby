@@ -706,11 +706,11 @@ def test_calculate_exception_deltas_regressions():
         "test_name": ["coremark", "streams"],
         "test_timestamp": pd.to_datetime(["2025-05-18", "2025-05-18"], utc=True),
         "status": ["PASS", "PASS"],
-        "primary_metric_value": [90.0, 180.0],  # Both dropped >5%
+        "primary_metric_value": [90.0, 160.0],  # coremark: -10%, streams: -20%
     })
 
     result = _calculate_exception_deltas(
-        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10
+        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10, max_added=10
     )
 
     assert result["nightly_date"] == "2025-05-18"
@@ -720,9 +720,11 @@ def test_calculate_exception_deltas_regressions():
     assert len(result["missing"]) == 0
     assert result["exception_count"] == 2
 
-    # Check regressions are sorted worst-first
-    assert result["regressions"][0][1] == -10.0  # coremark: -10%
-    assert result["regressions"][1][1] == -10.0  # streams: -10%
+    # Check regressions are sorted worst-first (streams -20% should come before coremark -10%)
+    assert result["regressions"][0][0] == "streams"  # streams: -20%
+    assert result["regressions"][0][1] == -20.0
+    assert result["regressions"][1][0] == "coremark"  # coremark: -10%
+    assert result["regressions"][1][1] == -10.0
 
 
 def test_calculate_exception_deltas_improvements():
@@ -744,12 +746,43 @@ def test_calculate_exception_deltas_improvements():
     })
 
     result = _calculate_exception_deltas(
-        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10
+        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10, max_added=10
     )
 
     assert len(result["improvements"]) == 1
     assert result["improvements"][0] == ("coremark", 20.0)
     assert len(result["regressions"]) == 0
+
+
+def test_calculate_exception_deltas_improvements_sorting():
+    """Test exception delta calculation sorts improvements best-first."""
+    from src.query_service import _calculate_exception_deltas
+
+    # Higher-is-better metric (throughput): +50% is better than +10%
+    baseline_df = pd.DataFrame({
+        "test_name": ["coremark", "streams"],
+        "test_timestamp": pd.to_datetime(["2025-05-01", "2025-05-01"], utc=True),
+        "status": ["PASS", "PASS"],
+        "primary_metric_value": [100.0, 200.0],
+    })
+
+    nightly_df = pd.DataFrame({
+        "test_name": ["coremark", "streams"],
+        "test_timestamp": pd.to_datetime(["2025-05-18", "2025-05-18"], utc=True),
+        "status": ["PASS", "PASS"],
+        "primary_metric_value": [110.0, 300.0],  # coremark: +10%, streams: +50%
+    })
+
+    result = _calculate_exception_deltas(
+        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10, max_added=10
+    )
+
+    assert len(result["improvements"]) == 2
+    # Check improvements are sorted best-first (streams +50% should come before coremark +10%)
+    assert result["improvements"][0][0] == "streams"
+    assert result["improvements"][0][1] == 50.0
+    assert result["improvements"][1][0] == "coremark"
+    assert result["improvements"][1][1] == 10.0
 
 
 def test_calculate_exception_deltas_missing_and_added():
@@ -771,7 +804,7 @@ def test_calculate_exception_deltas_missing_and_added():
     })
 
     result = _calculate_exception_deltas(
-        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10
+        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10, max_added=10
     )
 
     assert len(result["missing"]) == 1
@@ -779,6 +812,7 @@ def test_calculate_exception_deltas_missing_and_added():
     assert len(result["added"]) == 1
     assert "pyperf" in result["added"]
     assert result["delta_count"] == 1  # Only coremark compared
+    assert result["exception_count"] == 2  # missing + added (no regressions/improvements)
 
 
 def test_calculate_exception_deltas_bounded_results():
@@ -806,6 +840,7 @@ def test_calculate_exception_deltas_bounded_results():
         max_regressions=5,  # Limit to 5
         max_improvements=3,
         max_missing=2,
+        max_added=2,
     )
 
     assert len(result["regressions"]) == 5  # Bounded
@@ -830,7 +865,7 @@ def test_calculate_exception_deltas_stable_changes_excluded():
     })
 
     result = _calculate_exception_deltas(
-        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10
+        baseline_df, nightly_df, "test", max_regressions=10, max_improvements=10, max_missing=10, max_added=10
     )
 
     # Should not be in regressions or improvements

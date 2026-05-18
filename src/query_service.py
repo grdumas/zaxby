@@ -772,7 +772,7 @@ class BaselineComparisonSnapshot:
     missing: List[str]  # benchmark names present in baseline but not nightly
     added: List[str]  # benchmark names present in nightly but not baseline
     delta_count: int  # total deltas calculated (before exception filtering)
-    exception_count: int  # count of exceptions (regressions + improvements + missing)
+    exception_count: int  # count of exceptions (regressions + improvements + missing + added)
     source: str  # "opensearch" | "synthetic"
     error: str | None = None
 
@@ -786,6 +786,7 @@ def fetch_baseline_comparison_aggregates(
     max_regressions: int = 50,
     max_improvements: int = 20,
     max_missing: int = 10,
+    max_added: int = 10,
 ) -> BaselineComparisonSnapshot:
     """
     Exception-oriented baseline comparison: fetch baseline and nightly data,
@@ -794,6 +795,8 @@ def fetch_baseline_comparison_aggregates(
     Implementation: client-side join. Fetch baseline documents by filter, fetch
     nightly by date range, group by benchmark name, calculate percent_change,
     filter to only exceptions (regression threshold or missing benchmarks).
+
+    This function uses caching to avoid expensive OpenSearch queries.
 
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
@@ -808,6 +811,24 @@ def fetch_baseline_comparison_aggregates(
     Returns:
         BaselineComparisonSnapshot with exception-filtered deltas and metadata.
     """
+    # Generate cache key from query parameters
+    cache_params = {
+        'query_type': 'baseline_comparison',
+        'baseline_filter': baseline_filter,
+        'nightly_date_range': nightly_date_range,
+        'baseline_id': baseline_id,
+        'max_regressions': max_regressions,
+        'max_improvements': max_improvements,
+        'max_missing': max_missing,
+        'max_added': max_added,
+    }
+
+    # Check cache first
+    from src.cache_service import cache_service
+    cached_result = cache_service.get(cache_params)
+    if cached_result is not None:
+        return cached_result
+
     try:
         # Fetch baseline documents
         baseline_body = _build_baseline_query(baseline_filter)
@@ -831,9 +852,10 @@ def fetch_baseline_comparison_aggregates(
             max_regressions=max_regressions,
             max_improvements=max_improvements,
             max_missing=max_missing,
+            max_added=max_added,
         )
 
-        return BaselineComparisonSnapshot(
+        snapshot = BaselineComparisonSnapshot(
             baseline_id=baseline_id,
             nightly_date=result["nightly_date"],
             regressions=result["regressions"],
@@ -844,7 +866,14 @@ def fetch_baseline_comparison_aggregates(
             exception_count=result["exception_count"],
             source="opensearch",
             error=None,
+            from_cache=False,
+            cache_timestamp=time.time(),
         )
+
+        # Cache the result
+        cache_service.set(cache_params, snapshot)
+
+        return snapshot
 
     except Exception as exc:  # noqa: BLE001
         return BaselineComparisonSnapshot(
@@ -940,6 +969,7 @@ def _calculate_exception_deltas(
     max_regressions: int,
     max_improvements: int,
     max_missing: int,
+    max_added: int,
 ) -> Dict[str, Any]:
     """
     Calculate deltas and filter to exceptions only.
@@ -1007,9 +1037,10 @@ def _calculate_exception_deltas(
     regressions = [(name, pct) for name, pct, _ in regressions_scored[:max_regressions]]
 
     # Improvements: best first (most positive for higher-is-better, most negative for lower-is-better)
-    # Invert the severity score logic for improvements
+    # For higher-is-better: +50% > +10%, so use pct directly
+    # For lower-is-better: -50% > -10%, so negate to get +50 > +10
     improvements_scored = [
-        (name, pct, -pct if higher_is_better_for_test(name) else pct)
+        (name, pct, pct if higher_is_better_for_test(name) else -pct)
         for name, pct in improvements_list
     ]
     improvements_scored.sort(key=lambda x: x[2], reverse=True)
@@ -1019,9 +1050,9 @@ def _calculate_exception_deltas(
     missing = sorted(missing_list)[:max_missing]
 
     # Added: alphabetical, bounded
-    added = sorted(added_list)[:max_missing]
+    added = sorted(added_list)[:max_added]
 
-    exception_count = len(regressions) + len(improvements) + len(missing)
+    exception_count = len(regressions) + len(improvements) + len(missing) + len(added)
 
     return {
         "nightly_date": nightly_date,
@@ -1081,6 +1112,7 @@ def aggregate_baseline_comparison_from_dataframe(
             max_regressions=max_regressions,
             max_improvements=max_improvements,
             max_missing=max_missing,
+            max_added=max_added,
         )
 
         return BaselineComparisonSnapshot(

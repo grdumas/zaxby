@@ -159,7 +159,7 @@ def fetch_nightly_results(
     query_body = {
         "query": {"match_all": {}},
         "sort": [{"metadata.test_timestamp": {"order": "desc"}}],
-        "size": 1000,
+        "size": 10000,
     }
 
     # Apply filters if provided

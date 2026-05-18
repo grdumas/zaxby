@@ -775,6 +775,8 @@ class BaselineComparisonSnapshot:
     exception_count: int  # count of exceptions (regressions + improvements + missing + added)
     source: str  # "opensearch" | "synthetic"
     error: str | None = None
+    from_cache: bool = False
+    cache_timestamp: Optional[float] = None
 
 
 def fetch_baseline_comparison_aggregates(

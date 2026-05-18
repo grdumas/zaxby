@@ -831,8 +831,10 @@ def fetch_baseline_comparison_aggregates(
     if cached_result is not None:
         cached_result.from_cache = True
         logger.info(
-            f"Cache hit for baseline_comparison | baseline={baseline_id} "
-            f"nightly_range={nightly_date_range}"
+            f"Cache HIT for baseline_comparison | baseline={baseline_id} "
+            f"nightly_range={nightly_date_range} | "
+            f"cache_age_seconds={time.time() - (cached_result.cache_timestamp or 0):.1f} | "
+            f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
         )
         return cached_result
 
@@ -1051,9 +1053,10 @@ def _calculate_exception_deltas(
     regressions = [(name, pct) for name, pct, _ in regressions_scored[:max_regressions]]
 
     # Improvements: best first (most positive for higher-is-better, most negative for lower-is-better)
-    # Invert the severity score logic for improvements
+    # For higher-is-better: larger positive pct is better (use pct as score)
+    # For lower-is-better: larger negative pct is better (use -pct as score to invert)
     improvements_scored = [
-        (name, pct, -pct if higher_is_better_for_test(name) else pct)
+        (name, pct, pct if higher_is_better_for_test(name) else -pct)
         for name, pct in improvements_list
     ]
     improvements_scored.sort(key=lambda x: x[2], reverse=True)

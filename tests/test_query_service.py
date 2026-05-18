@@ -745,7 +745,8 @@ def test_calculate_exception_deltas_improvements_sorting():
     """Test exception delta calculation sorts improvements best-first."""
     from src.query_service import _calculate_exception_deltas
 
-    # Higher-is-better metric (throughput): +50% is better than +10%
+    # Higher-is-better metric (throughput): +50% is better than +15%
+    # Note: improvements require > 10% change (STABILITY_BAND_PCT threshold)
     baseline_df = pd.DataFrame({
         "test_name": ["coremark", "streams"],
         "test_timestamp": pd.to_datetime(["2025-05-01", "2025-05-01"], utc=True),
@@ -757,7 +758,7 @@ def test_calculate_exception_deltas_improvements_sorting():
         "test_name": ["coremark", "streams"],
         "test_timestamp": pd.to_datetime(["2025-05-18", "2025-05-18"], utc=True),
         "status": ["PASS", "PASS"],
-        "primary_metric_value": [110.0, 300.0],  # coremark: +10%, streams: +50%
+        "primary_metric_value": [115.0, 300.0],  # coremark: +15%, streams: +50%
     })
 
     result = _calculate_exception_deltas(
@@ -765,15 +766,13 @@ def test_calculate_exception_deltas_improvements_sorting():
     )
 
     assert len(result["improvements"]) == 2
-    # Check improvements are sorted best-first (streams +50% should come before coremark +10%)
+    # Check improvements are sorted best-first (streams +50% should come before coremark +15%)
     assert result["improvements"][0][0] == "streams"
     assert result["improvements"][0][1] == 50.0
     assert result["improvements"][1][0] == "coremark"
-    assert result["improvements"][1][1] == 10.0
+    assert result["improvements"][1][1] == 15.0
 
 
-=======
->>>>>>> zaxby/main
 def test_calculate_exception_deltas_missing_and_added():
     """Test exception delta calculation identifies missing and added benchmarks."""
     from src.query_service import _calculate_exception_deltas

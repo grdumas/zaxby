@@ -2,7 +2,7 @@
 Cache service for query results.
 
 Provides a configurable caching layer with support for multiple backends
-(in-memory, Redis, Flask-Caching) and graceful fallback when cache is unavailable.
+(in-memory, Redis) and graceful fallback when cache is unavailable.
 
 Supports:
 - Deterministic cache key generation from query parameters
@@ -15,7 +15,10 @@ import hashlib
 import json
 import logging
 import os
+import pickle
 import time
+from collections import OrderedDict
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -72,13 +75,17 @@ class CacheService:
         'default': 300,              # 5 minutes
     }
 
+    # Maximum size for simple in-memory cache (LRU eviction)
+    SIMPLE_CACHE_MAX_SIZE = 1000
+
     def __init__(self):
         """Initialize cache service with configured backend."""
         self.cache_type = os.getenv('CACHE_TYPE', 'simple').lower()
         self.default_ttl = int(os.getenv('CACHE_DEFAULT_TTL', '300'))
         self.metrics = CacheMetrics()
         self._backend: Optional[Any] = None
-        self._simple_cache: Dict[str, tuple[Any, float]] = {}  # key -> (value, expiry_time)
+        # LRU cache: OrderedDict maintains insertion order, key -> (value, expiry_time)
+        self._simple_cache: OrderedDict[str, tuple[Any, float]] = OrderedDict()
 
         # Load query-type-specific TTLs from environment
         self._ttls = self.DEFAULT_TTLS.copy()
@@ -111,7 +118,8 @@ class CacheService:
                     self.cache_type = 'simple'
                     return
 
-                self._backend = redis.from_url(redis_url, decode_responses=True)
+                # Don't decode responses - we'll use pickle for serialization
+                self._backend = redis.from_url(redis_url, decode_responses=False)
                 # Test connection
                 self._backend.ping()
                 logger.info(f"Connected to Redis cache at {redis_url}")
@@ -137,7 +145,7 @@ class CacheService:
         sorted_params = json.dumps(query_params, sort_keys=True, default=str)
         # Use SHA256 for robust hashing
         hash_obj = hashlib.sha256(sorted_params.encode('utf-8'))
-        key_hash = hash_obj.hexdigest()[:16]  # First 16 chars sufficient for uniqueness
+        key_hash = hash_obj.hexdigest()[:32]  # Use 32 chars for better collision resistance
 
         # Include a prefix and query type for readability
         query_type = query_params.get('query_type', 'unknown')
@@ -170,9 +178,12 @@ class CacheService:
                 if cache_key in self._simple_cache:
                     value, expiry = self._simple_cache[cache_key]
                     if time.time() < expiry:
+                        # Move to end to mark as recently used (LRU)
+                        self._simple_cache.move_to_end(cache_key)
                         self.metrics.hits += 1
                         logger.debug(f"Cache HIT: {cache_key}")
-                        return value
+                        # Return deep copy to prevent cache pollution from mutations
+                        return deepcopy(value)
                     else:
                         # Expired, remove it
                         del self._simple_cache[cache_key]
@@ -185,8 +196,8 @@ class CacheService:
                 if value is not None:
                     self.metrics.hits += 1
                     logger.debug(f"Cache HIT: {cache_key}")
-                    # Deserialize from JSON
-                    return json.loads(value)
+                    # Deserialize from pickle
+                    return pickle.loads(value)
                 self.metrics.misses += 1
                 logger.debug(f"Cache MISS: {cache_key}")
                 return None
@@ -225,14 +236,21 @@ class CacheService:
                 ttl = self._get_ttl_for_query_type(query_type)
 
             if self.cache_type == 'simple':
+                # Evict oldest entry if cache is full (LRU eviction)
+                if len(self._simple_cache) >= self.SIMPLE_CACHE_MAX_SIZE:
+                    # Remove first (oldest) item
+                    self._simple_cache.popitem(last=False)
+                    logger.debug(f"Cache LRU eviction, size was {self.SIMPLE_CACHE_MAX_SIZE}")
+
                 expiry_time = time.time() + ttl
-                self._simple_cache[cache_key] = (value, expiry_time)
+                # Store deep copy to prevent cache pollution from mutations
+                self._simple_cache[cache_key] = (deepcopy(value), expiry_time)
                 logger.debug(f"Cache SET: {cache_key} (TTL: {ttl}s)")
                 return True
 
             elif self.cache_type == 'redis' and self._backend:
-                # Serialize to JSON
-                serialized = json.dumps(value, default=str)
+                # Serialize to pickle (preserves Python object types)
+                serialized = pickle.dumps(value)
                 self._backend.setex(cache_key, ttl, serialized)
                 logger.debug(f"Cache SET: {cache_key} (TTL: {ttl}s)")
                 return True
@@ -296,11 +314,25 @@ class CacheService:
                 return True
 
             elif self.cache_type == 'redis' and self._backend:
+                # Use scan_iter to avoid blocking O(N) operation
                 # Only clear keys with our prefix to avoid clearing unrelated data
-                keys = self._backend.keys('cache:*')
-                if keys:
-                    self._backend.delete(*keys)
-                logger.info(f"Cache cleared (redis, {len(keys)} keys)")
+                keys_deleted = 0
+                batch = []
+                batch_size = 1000  # Delete in batches to avoid exceeding max args
+
+                for key in self._backend.scan_iter(match='cache:*', count=100):
+                    batch.append(key)
+                    if len(batch) >= batch_size:
+                        self._backend.delete(*batch)
+                        keys_deleted += len(batch)
+                        batch = []
+
+                # Delete remaining keys in final batch
+                if batch:
+                    self._backend.delete(*batch)
+                    keys_deleted += len(batch)
+
+                logger.info(f"Cache cleared (redis, {keys_deleted} keys)")
                 return True
 
         except Exception as e:

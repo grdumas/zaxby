@@ -2,12 +2,24 @@
 
 import json
 import os
+import pickle
 import time
+from dataclasses import dataclass
+from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.cache_service import CacheMetrics, CacheService, get_cache_service
+
+
+@dataclass
+class ResultsOverviewSnapshot:
+    """Test dataclass matching the structure used in query_service.py."""
+    total: int | None
+    by_cloud: List[Tuple[str, int]]
+    source: str
+    error: str | None = None
 
 
 class TestCacheMetrics:
@@ -290,8 +302,8 @@ class TestRedisCache:
                 assert success is True
                 mock_client.setex.assert_called_once()
 
-                # Get
-                mock_client.get.return_value = json.dumps(data)
+                # Get - Redis returns pickled bytes
+                mock_client.get.return_value = pickle.dumps(data)
                 result = cache.get(params)
                 assert result == data
 
@@ -348,13 +360,16 @@ class TestRedisCache:
             }):
                 cache = CacheService()
 
-                mock_client.keys.return_value = ['cache:test1', 'cache:test2']
+                # Mock scan_iter to return keys
+                mock_client.scan_iter.return_value = iter([b'cache:test1', b'cache:test2'])
                 mock_client.delete.return_value = 2
 
                 success = cache.clear()
                 assert success is True
-                mock_client.keys.assert_called_once_with('cache:*')
-                mock_client.delete.assert_called_once_with('cache:test1', 'cache:test2')
+                # Verify scan_iter was called with correct pattern
+                mock_client.scan_iter.assert_called_once_with(match='cache:*', count=100)
+                # Verify delete was called with the keys
+                mock_client.delete.assert_called_once_with(b'cache:test1', b'cache:test2')
 
 
 class TestCacheErrorHandling:
@@ -444,3 +459,141 @@ class TestCacheServiceSingleton:
             metrics = cache.get_metrics()
             assert metrics.hits == 0
             assert metrics.misses == 0
+
+
+class TestDataclassSerialization:
+    """Test serialization of dataclass objects (RPOPC-1168 review feedback)."""
+
+    def test_simple_cache_with_dataclass(self):
+        """Simple cache can store and retrieve dataclass objects."""
+        with patch.dict(os.environ, {'CACHE_TYPE': 'simple'}):
+            cache = CacheService()
+            params = {'query_type': 'test', 'key': 'dataclass_test'}
+
+            # Create a dataclass instance matching query_service types
+            snapshot = ResultsOverviewSnapshot(
+                total=100,
+                by_cloud=[('aws', 60), ('gcp', 40)],
+                source='opensearch',
+                error=None
+            )
+
+            # Cache it
+            success = cache.set(params, snapshot, ttl=60)
+            assert success is True
+
+            # Retrieve it
+            result = cache.get(params)
+            assert result is not None
+            assert isinstance(result, ResultsOverviewSnapshot)
+            assert result.total == 100
+            assert result.by_cloud == [('aws', 60), ('gcp', 40)]
+            assert result.source == 'opensearch'
+            assert result.error is None
+
+    def test_simple_cache_isolation_via_deepcopy(self):
+        """Simple cache returns deep copies to prevent cache pollution."""
+        with patch.dict(os.environ, {'CACHE_TYPE': 'simple'}):
+            cache = CacheService()
+            params = {'query_type': 'test', 'key': 'mutation_test'}
+
+            # Create mutable data
+            original_data = {'counts': [1, 2, 3], 'metadata': {'version': 1}}
+
+            # Cache it
+            cache.set(params, original_data, ttl=60)
+
+            # Get it and mutate the returned copy
+            result1 = cache.get(params)
+            result1['counts'].append(4)
+            result1['metadata']['version'] = 2
+
+            # Get it again - should be unchanged
+            result2 = cache.get(params)
+            assert result2['counts'] == [1, 2, 3]
+            assert result2['metadata']['version'] == 1
+
+    def test_redis_cache_with_dataclass(self):
+        """Redis cache can serialize/deserialize dataclass objects with pickle."""
+        mock_redis_module = MagicMock()
+        mock_client = MagicMock()
+        mock_redis_module.from_url.return_value = mock_client
+
+        with patch.dict('sys.modules', {'redis': mock_redis_module}):
+            with patch.dict(os.environ, {
+                'CACHE_TYPE': 'redis',
+                'CACHE_REDIS_URL': 'redis://localhost:6379/0'
+            }):
+                cache = CacheService()
+                params = {'query_type': 'test', 'key': 'dataclass_redis'}
+
+                # Create a dataclass instance
+                snapshot = ResultsOverviewSnapshot(
+                    total=200,
+                    by_cloud=[('azure', 120), ('aws', 80)],
+                    source='synthetic',
+                    error='test error'
+                )
+
+                # Set - verify pickle.dumps is used
+                mock_client.setex.return_value = True
+                success = cache.set(params, snapshot, ttl=60)
+                assert success is True
+
+                # Verify setex was called with pickled data
+                call_args = mock_client.setex.call_args
+                assert call_args is not None
+                _, ttl_arg, serialized_arg = call_args[0]
+                assert ttl_arg == 60
+                # Verify it's pickled (can be deserialized)
+                deserialized = pickle.loads(serialized_arg)
+                assert isinstance(deserialized, ResultsOverviewSnapshot)
+                assert deserialized.total == 200
+
+                # Get - verify pickle.loads is used
+                mock_client.get.return_value = pickle.dumps(snapshot)
+                result = cache.get(params)
+
+                assert result is not None
+                assert isinstance(result, ResultsOverviewSnapshot)
+                assert result.total == 200
+                assert result.by_cloud == [('azure', 120), ('aws', 80)]
+                assert result.source == 'synthetic'
+                assert result.error == 'test error'
+
+    def test_simple_cache_lru_eviction(self):
+        """Simple cache evicts oldest entries when size limit is reached."""
+        with patch.dict(os.environ, {'CACHE_TYPE': 'simple'}):
+            cache = CacheService()
+
+            # Set max size to a small value for testing
+            original_max = cache.SIMPLE_CACHE_MAX_SIZE
+            cache.SIMPLE_CACHE_MAX_SIZE = 3
+
+            try:
+                # Add 3 items
+                for i in range(3):
+                    params = {'query_type': 'test', 'key': f'item_{i}'}
+                    cache.set(params, {'value': i}, ttl=60)
+
+                # Verify all 3 are present
+                assert len(cache._simple_cache) == 3
+
+                # Add 4th item - should evict first item
+                params = {'query_type': 'test', 'key': 'item_3'}
+                cache.set(params, {'value': 3}, ttl=60)
+
+                # Cache should still have 3 items
+                assert len(cache._simple_cache) == 3
+
+                # First item should be evicted (cache miss)
+                first_params = {'query_type': 'test', 'key': 'item_0'}
+                result = cache.get(first_params)
+                assert result is None
+
+                # Second item should still be present
+                second_params = {'query_type': 'test', 'key': 'item_1'}
+                result = cache.get(second_params)
+                assert result == {'value': 1}
+            finally:
+                cache.SIMPLE_CACHE_MAX_SIZE = original_max

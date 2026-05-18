@@ -5,7 +5,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.benchmark_categories import category_for_test_name
-from src.cache_service import get_cache_service
 from src.comparison_policy import ValidationResult
 from src.pulse_policy import validate_pulse_request
 from src.query_service import (
@@ -34,18 +33,6 @@ from src.query_service import (
     parse_run_timestamp_stats_response,
     parse_test_name_buckets_to_category_counts,
 )
-
-
-@pytest.fixture(autouse=True)
-def clear_cache():
-    """Clear cache before each test to ensure isolation."""
-    cache_service = get_cache_service()
-    cache_service.clear()
-    cache_service.reset_metrics()
-    yield
-    # Optionally clear after test as well
-    cache_service.clear()
-    cache_service.reset_metrics()
 
 
 def test_build_results_overview_aggregation_body_is_size_zero_with_aggs():

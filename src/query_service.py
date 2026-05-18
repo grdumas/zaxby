@@ -826,10 +826,21 @@ def fetch_baseline_comparison_aggregates(
     }
 
     # Check cache first
-    from src.cache_service import cache_service
+    cache_service = get_cache_service()
     cached_result = cache_service.get(cache_params)
     if cached_result is not None:
+        cached_result.from_cache = True
+        logger.info(
+            f"Cache hit for baseline_comparison | baseline={baseline_id} "
+            f"nightly_range={nightly_date_range}"
+        )
         return cached_result
+
+    # Cache miss
+    logger.info(
+        f"Cache MISS for baseline_comparison | baseline={baseline_id} "
+        f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+    )
 
     try:
         # Fetch baseline documents
@@ -1091,6 +1102,7 @@ def aggregate_baseline_comparison_from_dataframe(
     max_regressions: int = 50,
     max_improvements: int = 20,
     max_missing: int = 10,
+    max_added: int = 10,
 ) -> BaselineComparisonSnapshot:
     """
     Mirror :func:`fetch_baseline_comparison_aggregates` using pre-loaded DataFrames.
@@ -1102,6 +1114,7 @@ def aggregate_baseline_comparison_from_dataframe(
         max_regressions: Bound on regression results.
         max_improvements: Bound on improvement results.
         max_missing: Bound on missing results.
+        max_added: Bound on added benchmark results.
 
     Returns:
         BaselineComparisonSnapshot with synthetic source.
@@ -1128,6 +1141,8 @@ def aggregate_baseline_comparison_from_dataframe(
             exception_count=result["exception_count"],
             source="synthetic",
             error=None,
+            from_cache=False,
+            cache_timestamp=time.time(),
         )
 
     except Exception as exc:  # noqa: BLE001

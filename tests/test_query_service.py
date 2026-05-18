@@ -517,3 +517,231 @@ def test_format_pulse_scope_footnote_empty_returns_none():
         error=None,
     )
     assert format_pulse_scope_footnote(foot, data_mode="synthetic") is None
+
+
+# --- Nightly Runs Tests (Recent Runs Dashboard) ---
+
+
+from datetime import datetime, timezone
+from src.query_service import (
+    NightlyRunSnapshot,
+    aggregate_recent_nightly_runs_from_dataframe,
+    build_nightly_runs_aggregation_body,
+    fetch_recent_nightly_runs,
+    parse_nightly_runs_aggregation_response,
+)
+
+
+def test_nightly_run_snapshot_dataclass():
+    """Test NightlyRunSnapshot dataclass creation."""
+    timestamp = datetime(2026, 5, 18, 3, 15, tzinfo=timezone.utc)
+    snapshot = NightlyRunSnapshot(
+        timestamp=timestamp,
+        test_count=147,
+        pass_count=141,
+        fail_count=6,
+        category_breakdown=[("Storage/IO", 45), ("Networking", 30)],
+        source="opensearch",
+        error=None,
+    )
+    assert snapshot.timestamp == timestamp
+    assert snapshot.test_count == 147
+    assert snapshot.pass_count == 141
+    assert snapshot.fail_count == 6
+    assert len(snapshot.category_breakdown) == 2
+    assert snapshot.source == "opensearch"
+    assert snapshot.error is None
+
+
+def test_build_nightly_runs_aggregation_body_no_date_range():
+    """Test building OpenSearch query body without date range."""
+    body = build_nightly_runs_aggregation_body()
+    assert body["size"] == 0
+    assert body["track_total_hits"] is True
+    assert body["query"] == {"match_all": {}}
+    assert "runs_by_date" in body["aggs"]
+    assert body["aggs"]["runs_by_date"]["date_histogram"]["calendar_interval"] == "1d"
+
+
+def test_build_nightly_runs_aggregation_body_with_date_range():
+    """Test building OpenSearch query body with date range filter."""
+    start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 5, 31, tzinfo=timezone.utc)
+    body = build_nightly_runs_aggregation_body(date_range=(start, end))
+    assert "range" in body["query"]
+    assert RESULTS_ACTIVITY_TIMESTAMP_FIELD in body["query"]["range"]
+    assert "gte" in body["query"]["range"][RESULTS_ACTIVITY_TIMESTAMP_FIELD]
+    assert "lte" in body["query"]["range"][RESULTS_ACTIVITY_TIMESTAMP_FIELD]
+
+
+def test_parse_nightly_runs_aggregation_response_empty():
+    """Test parsing empty aggregation response."""
+    resp = {"aggregations": {"runs_by_date": {"buckets": []}}}
+    snapshots = parse_nightly_runs_aggregation_response(resp)
+    assert snapshots == []
+
+
+def test_parse_nightly_runs_aggregation_response_filters_small_buckets():
+    """Test that buckets with too few tests are filtered out."""
+    resp = {
+        "aggregations": {
+            "runs_by_date": {
+                "buckets": [
+                    {
+                        "key": 1715995200000,  # 2026-05-18
+                        "doc_count": 5,  # Below threshold
+                        "pass_count": {"doc_count": 5},
+                        "fail_count": {"doc_count": 0},
+                        "by_test_name": {"buckets": []},
+                    }
+                ]
+            }
+        }
+    }
+    snapshots = parse_nightly_runs_aggregation_response(resp, min_tests_threshold=10)
+    assert snapshots == []
+
+
+def test_parse_nightly_runs_aggregation_response_valid():
+    """Test parsing valid aggregation response."""
+    resp = {
+        "aggregations": {
+            "runs_by_date": {
+                "buckets": [
+                    {
+                        "key": 1715995200000,  # 2026-05-18 00:00:00 UTC (milliseconds)
+                        "doc_count": 147,
+                        "pass_count": {"doc_count": 141},
+                        "fail_count": {"doc_count": 6},
+                        "by_test_name": {
+                            "buckets": [
+                                {"key": "fio", "doc_count": 45},
+                                {"key": "uperf", "doc_count": 30},
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+    }
+    snapshots = parse_nightly_runs_aggregation_response(resp, n=10)
+    assert len(snapshots) == 1
+    assert snapshots[0].test_count == 147
+    assert snapshots[0].pass_count == 141
+    assert snapshots[0].fail_count == 6
+    assert snapshots[0].source == "opensearch"
+    assert len(snapshots[0].category_breakdown) == 2
+
+
+def test_parse_nightly_runs_aggregation_response_respects_n_limit():
+    """Test that parser respects n limit."""
+    # Create 5 buckets but request only 3
+    buckets = []
+    for i in range(5):
+        buckets.append({
+            "key": 1715995200000 + (i * 86400000),  # Each day
+            "doc_count": 100,
+            "pass_count": {"doc_count": 95},
+            "fail_count": {"doc_count": 5},
+            "by_test_name": {"buckets": []},
+        })
+
+    resp = {"aggregations": {"runs_by_date": {"buckets": buckets}}}
+    snapshots = parse_nightly_runs_aggregation_response(resp, n=3)
+    assert len(snapshots) == 3
+
+
+def test_fetch_recent_nightly_runs_opensearch_error():
+    """Test fetch_recent_nightly_runs handles OpenSearch errors gracefully."""
+    mock_client = MagicMock()
+    mock_client.search_results.side_effect = Exception("Connection error")
+
+    runs = fetch_recent_nightly_runs(mock_client)
+
+    assert len(runs) == 1
+    assert runs[0].test_count == 0
+    assert runs[0].error is not None
+    assert "Connection error" in runs[0].error
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe_empty():
+    """Test DataFrame aggregation with empty DataFrame."""
+    df = pd.DataFrame()
+    runs = aggregate_recent_nightly_runs_from_dataframe(df)
+    assert runs == []
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe_no_timestamp():
+    """Test DataFrame aggregation without timestamp column."""
+    df = pd.DataFrame({"test_name": ["fio", "uperf"]})
+    runs = aggregate_recent_nightly_runs_from_dataframe(df)
+    assert runs == []
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe_filters_small_days():
+    """Test DataFrame aggregation filters days with too few tests."""
+    df = pd.DataFrame({
+        "timestamp": [datetime(2026, 5, 18, 3, 15, tzinfo=timezone.utc)] * 5,
+        "test_name": ["fio"] * 5,
+        "status": ["PASS"] * 5,
+    })
+    runs = aggregate_recent_nightly_runs_from_dataframe(df)
+    # Should be filtered out (< 10 tests threshold)
+    assert runs == []
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe_valid():
+    """Test DataFrame aggregation with valid data."""
+    timestamps = [datetime(2026, 5, 18, 3, i, tzinfo=timezone.utc) for i in range(15)]
+    df = pd.DataFrame({
+        "timestamp": timestamps,
+        "test_name": ["fio"] * 10 + ["uperf"] * 5,
+        "status": ["PASS"] * 12 + ["FAIL"] * 3,
+    })
+    runs = aggregate_recent_nightly_runs_from_dataframe(df)
+
+    assert len(runs) == 1  # One day
+    assert runs[0].test_count == 15
+    assert runs[0].pass_count == 12
+    assert runs[0].fail_count == 3
+    assert runs[0].source == "synthetic"
+    assert len(runs[0].category_breakdown) == 2  # fio and uperf map to different categories
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe_with_date_range():
+    """Test DataFrame aggregation with date range filter."""
+    df = pd.DataFrame({
+        "timestamp": [
+            datetime(2026, 5, 1, 3, 0, tzinfo=timezone.utc),
+            datetime(2026, 5, 15, 3, 0, tzinfo=timezone.utc),
+            datetime(2026, 5, 31, 3, 0, tzinfo=timezone.utc),
+        ] * 10,  # Repeat to get > 10 per day
+        "test_name": ["fio"] * 30,
+        "status": ["PASS"] * 30,
+    })
+
+    start = datetime(2026, 5, 10, tzinfo=timezone.utc)
+    end = datetime(2026, 5, 20, tzinfo=timezone.utc)
+    runs = aggregate_recent_nightly_runs_from_dataframe(df, date_range=(start, end))
+
+    # Should only include May 15
+    assert len(runs) == 1
+    assert runs[0].timestamp.day == 15
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe_respects_n():
+    """Test DataFrame aggregation respects n parameter."""
+    # Create data for 5 different days
+    timestamps = []
+    for day in range(1, 6):
+        timestamps.extend([datetime(2026, 5, day, 3, i, tzinfo=timezone.utc) for i in range(15)])
+
+    df = pd.DataFrame({
+        "timestamp": timestamps,
+        "test_name": ["fio"] * len(timestamps),
+        "status": ["PASS"] * len(timestamps),
+    })
+
+    runs = aggregate_recent_nightly_runs_from_dataframe(df, n=3)
+    # Should return only 3 most recent days (days 5, 4, 3 in desc order)
+    assert len(runs) == 3

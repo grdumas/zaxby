@@ -4,6 +4,7 @@ A Python Dash dashboard for visualizing software performance benchmark results f
 
 ## Features
 
+- **Category Navigation**: Interactive drill-down from benchmark categories to individual tests with breadcrumb navigation
 - **Multi-axis Filtering**: Filter by OS version, hardware, benchmark type, and date range
 - **Performance Comparisons**: Side-by-side comparisons across configurations
 - **Regression Detection**: Visual identification of performance improvements and regressions

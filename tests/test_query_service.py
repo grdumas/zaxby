@@ -772,6 +772,8 @@ def test_calculate_exception_deltas_improvements_sorting():
     assert result["improvements"][1][1] == 10.0
 
 
+=======
+>>>>>>> zaxby/main
 def test_calculate_exception_deltas_missing_and_added():
     """Test exception delta calculation identifies missing and added benchmarks."""
     from src.query_service import _calculate_exception_deltas

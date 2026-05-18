@@ -888,6 +888,7 @@ def fetch_baseline_comparison_aggregates(
 
         return snapshot
 
+
     except Exception as exc:  # noqa: BLE001
         return BaselineComparisonSnapshot(
             baseline_id=baseline_id,
@@ -1050,10 +1051,9 @@ def _calculate_exception_deltas(
     regressions = [(name, pct) for name, pct, _ in regressions_scored[:max_regressions]]
 
     # Improvements: best first (most positive for higher-is-better, most negative for lower-is-better)
-    # For higher-is-better: +50% > +10%, so use pct directly
-    # For lower-is-better: -50% > -10%, so negate to get +50 > +10
+    # Invert the severity score logic for improvements
     improvements_scored = [
-        (name, pct, pct if higher_is_better_for_test(name) else -pct)
+        (name, pct, -pct if higher_is_better_for_test(name) else pct)
         for name, pct in improvements_list
     ]
     improvements_scored.sort(key=lambda x: x[2], reverse=True)

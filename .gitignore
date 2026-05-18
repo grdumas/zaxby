@@ -42,3 +42,4 @@ data/downloaded/
 draft-commit-messages*.txt
 
 docs/guides/JIRA_BREAKDOWN.md
+.reviews/

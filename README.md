@@ -101,6 +101,11 @@ performance-dashboard/
 │       ├── filters.py            # Filter components
 │       ├── summaries.py          # Summary generation
 │       └── visualizations.py     # Visualization components
+├── tests/                        # Test suite (pytest)
+│   ├── test_query_service.py
+│   ├── test_regression_detection.py
+│   ├── test_investigation_templates.py
+│   └── ...                       # 17 test files total
 └── assets/
     └── style.css                 # Custom styling
 ```
@@ -150,7 +155,7 @@ python src/synthetic_data.py
 The dashboard runs with `debug=True` by default, enabling hot reload during development.
 
 ### Testing
-The project includes pytest in its dependencies for future test development. To run tests when available:
+The project includes a comprehensive test suite using pytest. To run the tests:
 ```bash
 pytest tests/
 ```

@@ -1,6 +1,7 @@
 """Tests for Pulse KPI bundle (P2-A)."""
 
 import pandas as pd
+import pytest
 from unittest.mock import MagicMock, patch
 
 from src.pulse_kpis import (

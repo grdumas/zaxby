@@ -14,6 +14,8 @@ snapshot.
 from __future__ import annotations
 
 import math
+import time
+import logging
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,6 +25,18 @@ import pandas as pd
 
 from src.benchmark_categories import category_for_test_name
 from src.pulse_policy import validate_pulse_request
+
+logger = logging.getLogger(__name__)
+
+
+def get_cache_service():
+    """
+    Lazy import cache service to avoid circular dependencies.
+
+    Returns singleton instance of CacheService.
+    """
+    from src.cache_service import get_cache_service as _get_cache_service
+    return _get_cache_service()
 
 # --- Pagination contract (Investigate / bounded search) ----------------------------
 
@@ -122,6 +136,8 @@ class ResultsOverviewSnapshot:
     by_cloud: List[Tuple[str, int]]
     source: str  # "opensearch" | "synthetic"
     error: str | None = None
+    from_cache: bool = False
+    cache_timestamp: Optional[float] = None
 
 
 def aggregate_results_overview_from_dataframe(df: pd.DataFrame) -> ResultsOverviewSnapshot:
@@ -146,9 +162,39 @@ def fetch_results_overview_aggregates(client: Any) -> ResultsOverviewSnapshot:
     empty params before any OpenSearch call (static contract / policy anchor; see
     constant docstring).
 
+    This function uses caching to avoid expensive OpenSearch queries. Cache hits are logged
+    with metadata and include a timestamp for staleness detection.
+
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
     """
+    # Generate cache key from query parameters
+    cache_params = {
+        'query_type': 'category_rollup',
+        'template_id': PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
+        'filters': {},  # No runtime filters for this query
+    }
+
+    # Check cache first
+    cache_service = get_cache_service()
+    cached_result = cache_service.get(cache_params)
+
+    if cached_result is not None:
+        # Cache hit - return cached result with metadata
+        cached_result.from_cache = True
+        logger.info(
+            "Cache HIT for results_overview_aggregates | "
+            f"cache_age_seconds={time.time() - (cached_result.cache_timestamp or 0):.1f} | "
+            f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+        )
+        return cached_result
+
+    # Cache miss - execute OpenSearch query
+    logger.info(
+        "Cache MISS for results_overview_aggregates | "
+        f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+    )
+
     vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
     if not vr.ok:
         return ResultsOverviewSnapshot(
@@ -168,7 +214,19 @@ def fetch_results_overview_aggregates(client: Any) -> ResultsOverviewSnapshot:
             error=str(exc),
         )
     total, pairs = parse_overview_aggregation_response(resp)
-    return ResultsOverviewSnapshot(total=total, by_cloud=pairs, source="opensearch", error=None)
+    result = ResultsOverviewSnapshot(
+        total=total,
+        by_cloud=pairs,
+        source="opensearch",
+        error=None,
+        from_cache=False,
+        cache_timestamp=time.time(),
+    )
+
+    # Cache the result
+    cache_service.set(cache_params, result)
+
+    return result
 
 
 # --- Phase 2 P2-A: benchmark category KPI (rollup counts) ------------------------
@@ -235,6 +293,8 @@ class CategoryKpiSnapshot:
     by_category: List[Tuple[str, int]]
     source: str  # "opensearch" | "synthetic"
     error: str | None = None
+    from_cache: bool = False
+    cache_timestamp: Optional[float] = None
 
 
 def aggregate_category_kpis_from_dataframe(df: pd.DataFrame) -> CategoryKpiSnapshot:
@@ -258,9 +318,38 @@ def fetch_results_category_kpis(client: Any) -> CategoryKpiSnapshot:
     (:data:`PULSE_RESULTS_OVERVIEW_TEMPLATE_ID` / ``TPL_CATEGORY_ROLLUP``): index-wide
     descriptive counts, not baseline-vs-candidate cohort comparisons.
 
+    This function uses caching to avoid expensive OpenSearch queries.
+
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
     """
+    # Generate cache key from query parameters
+    cache_params = {
+        'query_type': 'category_rollup',
+        'template_id': PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
+        'aggregation_type': 'category_kpis',
+        'filters': {},
+    }
+
+    # Check cache first
+    cache_service = get_cache_service()
+    cached_result = cache_service.get(cache_params)
+
+    if cached_result is not None:
+        cached_result.from_cache = True
+        logger.info(
+            "Cache HIT for results_category_kpis | "
+            f"cache_age_seconds={time.time() - (cached_result.cache_timestamp or 0):.1f} | "
+            f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+        )
+        return cached_result
+
+    # Cache miss
+    logger.info(
+        "Cache MISS for results_category_kpis | "
+        f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+    )
+
     vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
     if not vr.ok:
         return CategoryKpiSnapshot(
@@ -274,7 +363,19 @@ def fetch_results_category_kpis(client: Any) -> CategoryKpiSnapshot:
         pairs = parse_test_name_buckets_to_category_counts(resp)
     except Exception as exc:  # noqa: BLE001 — network, malformed responses, parse edge cases
         return CategoryKpiSnapshot(by_category=[], source="opensearch", error=str(exc))
-    return CategoryKpiSnapshot(by_category=pairs, source="opensearch", error=None)
+
+    result = CategoryKpiSnapshot(
+        by_category=pairs,
+        source="opensearch",
+        error=None,
+        from_cache=False,
+        cache_timestamp=time.time(),
+    )
+
+    # Cache the result
+    cache_service.set(cache_params, result)
+
+    return result
 
 
 # --- Phase 2 P2-A: document activity by month (trend window) -----------------------
@@ -339,6 +440,8 @@ class ActivityTimelineSnapshot:
     by_month: List[Tuple[str, int]]  # ("yyyy-MM", count), ascending by month
     source: str
     error: str | None = None
+    from_cache: bool = False
+    cache_timestamp: Optional[float] = None
 
 
 def aggregate_activity_timeline_from_dataframe(df: pd.DataFrame) -> ActivityTimelineSnapshot:
@@ -365,9 +468,37 @@ def fetch_results_activity_timeline(client: Any) -> ActivityTimelineSnapshot:
     """
     Monthly run counts via ``date_histogram`` (non-comparative index view; same Pulse anchor).
 
+    This function uses caching to avoid expensive OpenSearch queries.
+
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
     """
+    # Generate cache key from query parameters
+    cache_params = {
+        'query_type': 'activity_timeline',
+        'template_id': PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
+        'filters': {},
+    }
+
+    # Check cache first
+    cache_service = get_cache_service()
+    cached_result = cache_service.get(cache_params)
+
+    if cached_result is not None:
+        cached_result.from_cache = True
+        logger.info(
+            "Cache HIT for results_activity_timeline | "
+            f"cache_age_seconds={time.time() - (cached_result.cache_timestamp or 0):.1f} | "
+            f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+        )
+        return cached_result
+
+    # Cache miss
+    logger.info(
+        "Cache MISS for results_activity_timeline | "
+        f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+    )
+
     vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
     if not vr.ok:
         return ActivityTimelineSnapshot(
@@ -381,7 +512,19 @@ def fetch_results_activity_timeline(client: Any) -> ActivityTimelineSnapshot:
         pairs = parse_monthly_activity_histogram_response(resp)
     except Exception as exc:  # noqa: BLE001
         return ActivityTimelineSnapshot(by_month=[], source="opensearch", error=str(exc))
-    return ActivityTimelineSnapshot(by_month=pairs, source="opensearch", error=None)
+
+    result = ActivityTimelineSnapshot(
+        by_month=pairs,
+        source="opensearch",
+        error=None,
+        from_cache=False,
+        cache_timestamp=time.time(),
+    )
+
+    # Cache the result
+    cache_service.set(cache_params, result)
+
+    return result
 
 
 # --- Phase 2 P2-C: scope footnote (soundbite metadata) ----------------------------
@@ -455,6 +598,8 @@ class PulseScopeFootnote:
     run_date_max_utc: Optional[str]
     source: str
     error: str | None = None
+    from_cache: bool = False
+    cache_timestamp: Optional[float] = None
 
 
 def aggregate_pulse_scope_footnote_from_dataframe(df: pd.DataFrame) -> PulseScopeFootnote:
@@ -539,9 +684,37 @@ def fetch_pulse_scope_footnote(client: Any) -> PulseScopeFootnote:
     """
     Run ``stats`` on ``metadata.test_timestamp`` for Pulse scope lines (P2-C).
 
+    This function uses caching to avoid expensive OpenSearch queries.
+
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
     """
+    # Generate cache key from query parameters
+    cache_params = {
+        'query_type': 'scope_footnote',
+        'template_id': PULSE_RESULTS_OVERVIEW_TEMPLATE_ID,
+        'filters': {},
+    }
+
+    # Check cache first
+    cache_service = get_cache_service()
+    cached_result = cache_service.get(cache_params)
+
+    if cached_result is not None:
+        cached_result.from_cache = True
+        logger.info(
+            "Cache HIT for pulse_scope_footnote | "
+            f"cache_age_seconds={time.time() - (cached_result.cache_timestamp or 0):.1f} | "
+            f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+        )
+        return cached_result
+
+    # Cache miss
+    logger.info(
+        "Cache MISS for pulse_scope_footnote | "
+        f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+    )
+
     vr = validate_pulse_request(PULSE_RESULTS_OVERVIEW_TEMPLATE_ID, {})
     if not vr.ok:
         return PulseScopeFootnote(
@@ -563,13 +736,23 @@ def fetch_pulse_scope_footnote(client: Any) -> PulseScopeFootnote:
             source="opensearch",
             error=str(exc),
         )
-    return PulseScopeFootnote(
+
+    result = PulseScopeFootnote(
         document_count=doc_count,
         run_date_min_utc=dmin,
         run_date_max_utc=dmax,
         source="opensearch",
         error=None,
+        from_cache=False,
+        cache_timestamp=time.time(),
     )
+
+    # Cache the result
+    cache_service.set(cache_params, result)
+
+    return result
+
+
 # --- Phase 3 P3-C: baseline comparison aggregates (exception-oriented) --------
 
 
@@ -589,9 +772,11 @@ class BaselineComparisonSnapshot:
     missing: List[str]  # benchmark names present in baseline but not nightly
     added: List[str]  # benchmark names present in nightly but not baseline
     delta_count: int  # total deltas calculated (before exception filtering)
-    exception_count: int  # count of exceptions (regressions + improvements + missing)
+    exception_count: int  # count of exceptions (regressions + improvements + missing + added)
     source: str  # "opensearch" | "synthetic"
     error: str | None = None
+    from_cache: bool = False
+    cache_timestamp: Optional[float] = None
 
 
 def fetch_baseline_comparison_aggregates(
@@ -603,6 +788,7 @@ def fetch_baseline_comparison_aggregates(
     max_regressions: int = 50,
     max_improvements: int = 20,
     max_missing: int = 10,
+    max_added: int = 10,
 ) -> BaselineComparisonSnapshot:
     """
     Exception-oriented baseline comparison: fetch baseline and nightly data,
@@ -611,6 +797,8 @@ def fetch_baseline_comparison_aggregates(
     Implementation: client-side join. Fetch baseline documents by filter, fetch
     nightly by date range, group by benchmark name, calculate percent_change,
     filter to only exceptions (regression threshold or missing benchmarks).
+
+    This function uses caching to avoid expensive OpenSearch queries.
 
     Args:
         client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
@@ -625,6 +813,37 @@ def fetch_baseline_comparison_aggregates(
     Returns:
         BaselineComparisonSnapshot with exception-filtered deltas and metadata.
     """
+    # Generate cache key from query parameters
+    cache_params = {
+        'query_type': 'baseline_comparison',
+        'baseline_filter': baseline_filter,
+        'nightly_date_range': nightly_date_range,
+        'baseline_id': baseline_id,
+        'max_regressions': max_regressions,
+        'max_improvements': max_improvements,
+        'max_missing': max_missing,
+        'max_added': max_added,
+    }
+
+    # Check cache first
+    cache_service = get_cache_service()
+    cached_result = cache_service.get(cache_params)
+    if cached_result is not None:
+        cached_result.from_cache = True
+        logger.info(
+            f"Cache HIT for baseline_comparison | baseline={baseline_id} "
+            f"nightly_range={nightly_date_range} | "
+            f"cache_age_seconds={time.time() - (cached_result.cache_timestamp or 0):.1f} | "
+            f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+        )
+        return cached_result
+
+    # Cache miss
+    logger.info(
+        f"Cache MISS for baseline_comparison | baseline={baseline_id} "
+        f"hit_rate={cache_service.metrics.hit_rate:.1f}%"
+    )
+
     try:
         # Fetch baseline documents
         baseline_body = _build_baseline_query(baseline_filter)
@@ -648,9 +867,10 @@ def fetch_baseline_comparison_aggregates(
             max_regressions=max_regressions,
             max_improvements=max_improvements,
             max_missing=max_missing,
+            max_added=max_added,
         )
 
-        return BaselineComparisonSnapshot(
+        snapshot = BaselineComparisonSnapshot(
             baseline_id=baseline_id,
             nightly_date=result["nightly_date"],
             regressions=result["regressions"],
@@ -661,7 +881,15 @@ def fetch_baseline_comparison_aggregates(
             exception_count=result["exception_count"],
             source="opensearch",
             error=None,
+            from_cache=False,
+            cache_timestamp=time.time(),
         )
+
+        # Cache the result
+        cache_service.set(cache_params, snapshot)
+
+        return snapshot
+
 
     except Exception as exc:  # noqa: BLE001
         return BaselineComparisonSnapshot(
@@ -757,6 +985,7 @@ def _calculate_exception_deltas(
     max_regressions: int,
     max_improvements: int,
     max_missing: int,
+    max_added: int,
 ) -> Dict[str, Any]:
     """
     Calculate deltas and filter to exceptions only.
@@ -824,9 +1053,10 @@ def _calculate_exception_deltas(
     regressions = [(name, pct) for name, pct, _ in regressions_scored[:max_regressions]]
 
     # Improvements: best first (most positive for higher-is-better, most negative for lower-is-better)
-    # Invert the severity score logic for improvements
+    # For higher-is-better: larger positive pct is better (use pct as score)
+    # For lower-is-better: larger negative pct is better (use -pct as score to invert)
     improvements_scored = [
-        (name, pct, -pct if higher_is_better_for_test(name) else pct)
+        (name, pct, pct if higher_is_better_for_test(name) else -pct)
         for name, pct in improvements_list
     ]
     improvements_scored.sort(key=lambda x: x[2], reverse=True)
@@ -836,9 +1066,9 @@ def _calculate_exception_deltas(
     missing = sorted(missing_list)[:max_missing]
 
     # Added: alphabetical, bounded
-    added = sorted(added_list)[:max_missing]
+    added = sorted(added_list)[:max_added]
 
-    exception_count = len(regressions) + len(improvements) + len(missing)
+    exception_count = len(regressions) + len(improvements) + len(missing) + len(added)
 
     return {
         "nightly_date": nightly_date,
@@ -875,6 +1105,7 @@ def aggregate_baseline_comparison_from_dataframe(
     max_regressions: int = 50,
     max_improvements: int = 20,
     max_missing: int = 10,
+    max_added: int = 10,
 ) -> BaselineComparisonSnapshot:
     """
     Mirror :func:`fetch_baseline_comparison_aggregates` using pre-loaded DataFrames.
@@ -886,6 +1117,7 @@ def aggregate_baseline_comparison_from_dataframe(
         max_regressions: Bound on regression results.
         max_improvements: Bound on improvement results.
         max_missing: Bound on missing results.
+        max_added: Bound on added benchmark results.
 
     Returns:
         BaselineComparisonSnapshot with synthetic source.
@@ -898,6 +1130,7 @@ def aggregate_baseline_comparison_from_dataframe(
             max_regressions=max_regressions,
             max_improvements=max_improvements,
             max_missing=max_missing,
+            max_added=max_added,
         )
 
         return BaselineComparisonSnapshot(
@@ -911,6 +1144,8 @@ def aggregate_baseline_comparison_from_dataframe(
             exception_count=result["exception_count"],
             source="synthetic",
             error=None,
+            from_cache=False,
+            cache_timestamp=time.time(),
         )
 
     except Exception as exc:  # noqa: BLE001
@@ -928,3 +1163,158 @@ def aggregate_baseline_comparison_from_dataframe(
         )
 
 
+# --- Cache warming strategy (optional, configurable via env) ----------------------
+
+
+def warm_query_cache(client: Any) -> Dict[str, Any]:
+    """
+    Pre-cache common queries on application startup.
+
+    This is an optional optimization that can be enabled via the ENABLE_CACHE_WARMING
+    environment variable. When enabled, it executes all standard Pulse aggregation
+    queries once to populate the cache, reducing initial load times for dashboard users.
+
+    Performance impact: Cache warming executes 4 OpenSearch queries in sequence.
+    On typical indexes, this completes in 1-3 seconds. Recommended for production
+    environments with frequent dashboard access.
+
+    Args:
+        client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
+
+    Returns:
+        Dictionary with warming results:
+        - 'warmed': Number of queries successfully cached
+        - 'failed': Number of queries that failed
+        - 'duration_seconds': Total time taken
+        - 'details': List of per-query results
+    """
+    import os
+
+    if os.getenv('ENABLE_CACHE_WARMING', '').lower() not in ('1', 'true', 'yes'):
+        logger.info("Cache warming disabled (ENABLE_CACHE_WARMING not set)")
+        return {
+            'warmed': 0,
+            'failed': 0,
+            'duration_seconds': 0.0,
+            'details': [],
+            'enabled': False,
+        }
+
+    logger.info("Cache warming started")
+    start_time = time.time()
+    warmed = 0
+    failed = 0
+    details = []
+
+    # List of queries to warm
+    queries = [
+        ('results_overview_aggregates', lambda: fetch_results_overview_aggregates(client)),
+        ('results_category_kpis', lambda: fetch_results_category_kpis(client)),
+        ('results_activity_timeline', lambda: fetch_results_activity_timeline(client)),
+        ('pulse_scope_footnote', lambda: fetch_pulse_scope_footnote(client)),
+    ]
+
+    for query_name, query_func in queries:
+        query_start = time.time()
+        try:
+            result = query_func()
+            query_duration = time.time() - query_start
+            if result.error is None:
+                warmed += 1
+                details.append({
+                    'query': query_name,
+                    'status': 'success',
+                    'duration_seconds': query_duration,
+                })
+                logger.info(
+                    f"Cache warmed: {query_name} | "
+                    f"duration={query_duration:.2f}s"
+                )
+            else:
+                failed += 1
+                details.append({
+                    'query': query_name,
+                    'status': 'error',
+                    'error': result.error,
+                    'duration_seconds': query_duration,
+                })
+                logger.warning(
+                    f"Cache warming failed: {query_name} | "
+                    f"error={result.error}"
+                )
+        except Exception as exc:
+            query_duration = time.time() - query_start
+            failed += 1
+            details.append({
+                'query': query_name,
+                'status': 'exception',
+                'error': str(exc),
+                'duration_seconds': query_duration,
+            })
+            logger.error(
+                f"Cache warming exception: {query_name} | "
+                f"error={exc}"
+            )
+
+    total_duration = time.time() - start_time
+    logger.info(
+        f"Cache warming completed | "
+        f"warmed={warmed} failed={failed} duration={total_duration:.2f}s"
+    )
+
+    # Log cache statistics
+    cache_service = get_cache_service()
+    metrics = cache_service.get_metrics()
+    logger.info(
+        f"Cache metrics after warming | "
+        f"hits={metrics.hits} misses={metrics.misses} "
+        f"hit_rate={metrics.hit_rate:.1f}% errors={metrics.errors}"
+    )
+
+    return {
+        'warmed': warmed,
+        'failed': failed,
+        'duration_seconds': total_duration,
+        'details': details,
+        'enabled': True,
+    }
+
+
+def log_cache_statistics() -> Dict[str, Any]:
+    """
+    Log current cache statistics for monitoring.
+
+    Returns cache hit rate, miss rate, total requests, and error count.
+    Useful for periodic monitoring and performance analysis.
+
+    Returns:
+        Dictionary with cache statistics:
+        - 'hits': Number of cache hits
+        - 'misses': Number of cache misses
+        - 'errors': Number of cache errors
+        - 'total_requests': Total cache requests (hits + misses)
+        - 'hit_rate': Cache hit rate as percentage (0-100)
+        - 'miss_rate': Cache miss rate as percentage (0-100)
+    """
+    cache_service = get_cache_service()
+    metrics = cache_service.get_metrics()
+
+    stats = {
+        'hits': metrics.hits,
+        'misses': metrics.misses,
+        'errors': metrics.errors,
+        'total_requests': metrics.total_requests,
+        'hit_rate': metrics.hit_rate,
+        'miss_rate': 100.0 - metrics.hit_rate if metrics.total_requests > 0 else 0.0,
+    }
+
+    logger.info(
+        f"Cache statistics | "
+        f"hits={stats['hits']} misses={stats['misses']} "
+        f"total={stats['total_requests']} "
+        f"hit_rate={stats['hit_rate']:.1f}% "
+        f"miss_rate={stats['miss_rate']:.1f}% "
+        f"errors={stats['errors']}"
+    )
+
+    return stats

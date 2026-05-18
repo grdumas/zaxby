@@ -98,6 +98,7 @@ performance-dashboard/
 │   ├── pulse_ui.py               # Pulse UI components
 │   ├── query_service.py          # Query service layer
 │   ├── regression_detection.py   # Regression detection logic
+│   ├── track_kpis.py             # Track KPI calculations (baseline comparison)
 │   └── components/
 │       ├── filters.py            # Filter components
 │       ├── summaries.py          # Summary generation
@@ -106,7 +107,8 @@ performance-dashboard/
 │   ├── test_query_service.py
 │   ├── test_regression_detection.py
 │   ├── test_investigation_templates.py
-│   └── ...                       # 17 test files total
+│   ├── test_track_kpis.py
+│   └── ...                       # 18 test files total
 └── assets/
     └── style.css                 # Custom styling
 ```

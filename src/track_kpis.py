@@ -198,12 +198,12 @@ def _parse_documents_to_dataframe(documents: List[Dict[str, Any]]) -> pd.DataFra
 
     rows = []
     for doc in documents:
-        metadata = doc.get("metadata", {})
-        test = doc.get("test", {})
-        results = doc.get("results", {})
+        metadata = doc.get("metadata") or {}
+        test = doc.get("test") or {}
+        results = doc.get("results") or {}
 
         # Extract primary metric value
-        primary_metric_value = results.get("primary_metric", {}).get("value")
+        primary_metric_value = (results.get("primary_metric") or {}).get("value")
         if primary_metric_value is None:
             # Try alternative locations
             primary_metric_value = results.get("value")
@@ -216,7 +216,7 @@ def _parse_documents_to_dataframe(documents: List[Dict[str, Any]]) -> pd.DataFra
             "instance_type": metadata.get("instance_type"),
             "status": results.get("status", "UNKNOWN"),
             "primary_metric_value": primary_metric_value,
-            "primary_metric_name": results.get("primary_metric", {}).get("name", "value"),
+            "primary_metric_name": (results.get("primary_metric") or {}).get("name") or "value",
         }
         rows.append(row)
 
@@ -327,7 +327,7 @@ def _calculate_benchmark_stats(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         values = pd.to_numeric(group["primary_metric_value"], errors="coerce").dropna()
 
         if len(values) > 0:
-            metric_name = group["primary_metric_name"].iloc[0] if "primary_metric_name" in group.columns else "value"
+            metric_name = (group["primary_metric_name"].iloc[0] if "primary_metric_name" in group.columns else "value") or "value"
             stats[test_name] = {
                 "mean": float(values.mean()),
                 "count": len(values),

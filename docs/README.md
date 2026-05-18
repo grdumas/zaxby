@@ -27,6 +27,9 @@ Essential technical documentation for working with the dashboard:
 - **[PULSE_KPIS.md](guides/PULSE_KPIS.md)**  
   Pulse (executive) KPI bundle: index overview, category mix, monthly activity, scope metadata — definitions and product review checklist (P2-A)
 
+- **[TRACK_KPIS.md](guides/TRACK_KPIS.md)**  
+  Track mode KPI calculations with baseline comparison: delta calculations, regression detection integration, summary statistics (RPOPC-1162)
+
 - **[UI_SUMMARY.md](guides/UI_SUMMARY.md)** ⭐ NEW  
   Executive summary of UI modernization proposal - start here! (Dec 2025)
 

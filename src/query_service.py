@@ -570,3 +570,361 @@ def fetch_pulse_scope_footnote(client: Any) -> PulseScopeFootnote:
         source="opensearch",
         error=None,
     )
+# --- Phase 3 P3-C: baseline comparison aggregates (exception-oriented) --------
+
+
+@dataclass
+class BaselineComparisonSnapshot:
+    """
+    Exception-oriented baseline vs nightly comparison (bounded aggregation).
+
+    Returns only deltas that exceed regression thresholds or represent missing
+    benchmarks, with result set bounded regardless of total benchmark count.
+    """
+
+    baseline_id: str
+    nightly_date: Optional[str]
+    regressions: List[Tuple[str, float]]  # (benchmark_name, percent_change), worst-first
+    improvements: List[Tuple[str, float]]  # (benchmark_name, percent_change), best-first
+    missing: List[str]  # benchmark names present in baseline but not nightly
+    added: List[str]  # benchmark names present in nightly but not baseline
+    delta_count: int  # total deltas calculated (before exception filtering)
+    exception_count: int  # count of exceptions (regressions + improvements + missing)
+    source: str  # "opensearch" | "synthetic"
+    error: str | None = None
+
+
+def fetch_baseline_comparison_aggregates(
+    client: Any,
+    baseline_filter: Dict[str, Any],
+    nightly_date_range: Tuple[str, str],
+    *,
+    baseline_id: str = "baseline",
+    max_regressions: int = 50,
+    max_improvements: int = 20,
+    max_missing: int = 10,
+) -> BaselineComparisonSnapshot:
+    """
+    Exception-oriented baseline comparison: fetch baseline and nightly data,
+    calculate deltas, and return only exceptions (regressions/improvements/missing).
+
+    Implementation: client-side join. Fetch baseline documents by filter, fetch
+    nightly by date range, group by benchmark name, calculate percent_change,
+    filter to only exceptions (regression threshold or missing benchmarks).
+
+    Args:
+        client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
+        baseline_filter: OpenSearch filter criteria for baseline documents
+            (e.g., {"metadata.baseline_tag.keyword": "v1.0"}).
+        nightly_date_range: Tuple of (start_date, end_date) ISO strings for nightly data.
+        baseline_id: Identifier for the baseline dataset (metadata field).
+        max_regressions: Bound on regression results (top N worst).
+        max_improvements: Bound on improvement results (top N best).
+        max_missing: Bound on missing benchmark results.
+
+    Returns:
+        BaselineComparisonSnapshot with exception-filtered deltas and metadata.
+    """
+    try:
+        # Fetch baseline documents
+        baseline_body = _build_baseline_query(baseline_filter)
+        baseline_resp = client.search_results(baseline_body)
+        baseline_docs = [hit["_source"] for hit in baseline_resp.get("hits", {}).get("hits", [])]
+
+        # Fetch nightly documents
+        nightly_body = _build_nightly_query(nightly_date_range)
+        nightly_resp = client.search_results(nightly_body)
+        nightly_docs = [hit["_source"] for hit in nightly_resp.get("hits", {}).get("hits", [])]
+
+        # Parse to DataFrames (reuse track_kpis parsing logic pattern)
+        baseline_df = _parse_comparison_documents_to_dataframe(baseline_docs)
+        nightly_df = _parse_comparison_documents_to_dataframe(nightly_docs)
+
+        # Client-side join and delta calculation
+        result = _calculate_exception_deltas(
+            baseline_df=baseline_df,
+            nightly_df=nightly_df,
+            baseline_id=baseline_id,
+            max_regressions=max_regressions,
+            max_improvements=max_improvements,
+            max_missing=max_missing,
+        )
+
+        return BaselineComparisonSnapshot(
+            baseline_id=baseline_id,
+            nightly_date=result["nightly_date"],
+            regressions=result["regressions"],
+            improvements=result["improvements"],
+            missing=result["missing"],
+            added=result["added"],
+            delta_count=result["delta_count"],
+            exception_count=result["exception_count"],
+            source="opensearch",
+            error=None,
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        return BaselineComparisonSnapshot(
+            baseline_id=baseline_id,
+            nightly_date=None,
+            regressions=[],
+            improvements=[],
+            missing=[],
+            added=[],
+            delta_count=0,
+            exception_count=0,
+            source="opensearch",
+            error=str(exc),
+        )
+
+
+def _build_baseline_query(baseline_filter: Dict[str, Any]) -> Dict[str, Any]:
+    """Build OpenSearch query for baseline documents."""
+    must_clauses = []
+    for field, value in baseline_filter.items():
+        if isinstance(value, list):
+            must_clauses.append({"terms": {field: value}})
+        else:
+            must_clauses.append({"term": {field: value}})
+
+    return {
+        "query": {"bool": {"must": must_clauses}},
+        "size": MAX_SEARCH_HITS,
+    }
+
+
+def _build_nightly_query(date_range: Tuple[str, str]) -> Dict[str, Any]:
+    """Build OpenSearch query for nightly documents by date range."""
+    start_date, end_date = date_range
+    return {
+        "query": {
+            "range": {
+                RESULTS_ACTIVITY_TIMESTAMP_FIELD: {
+                    "gte": start_date,
+                    "lte": end_date,
+                }
+            }
+        },
+        "size": MAX_SEARCH_HITS,
+    }
+
+
+def _parse_comparison_documents_to_dataframe(documents: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Parse OpenSearch documents for baseline comparison (minimal fields).
+
+    Extracts test.name, primary_metric.value, status, and timestamp.
+    """
+    if not documents:
+        return pd.DataFrame()
+
+    from src.regression_detection import filter_dataframe_for_regression_math
+
+    rows = []
+    for doc in documents:
+        metadata = doc.get("metadata") or {}
+        test = doc.get("test") or {}
+        results = doc.get("results") or {}
+
+        # Extract primary metric value
+        primary_metric = results.get("primary_metric") or {}
+        value = primary_metric.get("value")
+        if value is None:
+            value = results.get("value")
+
+        row = {
+            "test_name": test.get("name"),
+            "test_timestamp": metadata.get("test_timestamp"),
+            "status": results.get("status", "UNKNOWN"),
+            "primary_metric_value": value,
+        }
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    # Convert timestamp to datetime
+    if "test_timestamp" in df.columns and not df.empty:
+        df["test_timestamp"] = pd.to_datetime(df["test_timestamp"], utc=True)
+
+    # Filter for PASS status only (reuse regression detection filter)
+    return filter_dataframe_for_regression_math(df, context="baseline_comparison")
+
+
+def _calculate_exception_deltas(
+    baseline_df: pd.DataFrame,
+    nightly_df: pd.DataFrame,
+    baseline_id: str,
+    max_regressions: int,
+    max_improvements: int,
+    max_missing: int,
+) -> Dict[str, Any]:
+    """
+    Calculate deltas and filter to exceptions only.
+
+    Returns dict with regressions, improvements, missing, added, and counts.
+    """
+    from src.regression_detection import (
+        is_regression_for_test_name,
+        is_improvement_for_test_name,
+        percent_change,
+        regression_severity_score,
+    )
+    from src.metric_registry import higher_is_better_for_test
+
+    # Get nightly date
+    nightly_date = None
+    if not nightly_df.empty and "test_timestamp" in nightly_df.columns:
+        ts = nightly_df["test_timestamp"].max()
+        if pd.notna(ts):
+            nightly_date = ts.date().isoformat()
+
+    # Calculate means by test_name
+    baseline_means = _calculate_test_means(baseline_df)
+    nightly_means = _calculate_test_means(nightly_df)
+
+    # Calculate deltas
+    all_tests = set(baseline_means.keys()) | set(nightly_means.keys())
+    regressions_list = []
+    improvements_list = []
+    missing_list = []
+    added_list = []
+    delta_count = 0
+
+    for test_name in all_tests:
+        baseline_mean = baseline_means.get(test_name)
+        nightly_mean = nightly_means.get(test_name)
+
+        if baseline_mean is None and nightly_mean is not None:
+            # Benchmark added
+            added_list.append(test_name)
+        elif baseline_mean is not None and nightly_mean is None:
+            # Benchmark missing
+            missing_list.append(test_name)
+        elif baseline_mean is not None and nightly_mean is not None:
+            delta_count += 1
+            # Calculate percent change
+            if baseline_mean == 0:
+                continue
+            pct = percent_change(baseline_mean, nightly_mean)
+
+            # Check for regression or improvement
+            if is_regression_for_test_name(pct, test_name):
+                regressions_list.append((test_name, pct))
+            elif is_improvement_for_test_name(pct, test_name):
+                improvements_list.append((test_name, pct))
+
+    # Sort and bound results
+    # Regressions: worst first (most negative for higher-is-better, most positive for lower-is-better)
+    # Use regression_severity_score for consistent sorting
+    regressions_scored = [
+        (name, pct, regression_severity_score(pct, name))
+        for name, pct in regressions_list
+    ]
+    regressions_scored.sort(key=lambda x: x[2], reverse=True)
+    regressions = [(name, pct) for name, pct, _ in regressions_scored[:max_regressions]]
+
+    # Improvements: best first (most positive for higher-is-better, most negative for lower-is-better)
+    # Invert the severity score logic for improvements
+    improvements_scored = [
+        (name, pct, -pct if higher_is_better_for_test(name) else pct)
+        for name, pct in improvements_list
+    ]
+    improvements_scored.sort(key=lambda x: x[2], reverse=True)
+    improvements = [(name, pct) for name, pct, _ in improvements_scored[:max_improvements]]
+
+    # Missing: alphabetical, bounded
+    missing = sorted(missing_list)[:max_missing]
+
+    # Added: alphabetical, bounded
+    added = sorted(added_list)[:max_missing]
+
+    exception_count = len(regressions) + len(improvements) + len(missing)
+
+    return {
+        "nightly_date": nightly_date,
+        "regressions": regressions,
+        "improvements": improvements,
+        "missing": missing,
+        "added": added,
+        "delta_count": delta_count,
+        "exception_count": exception_count,
+    }
+
+
+def _calculate_test_means(df: pd.DataFrame) -> Dict[str, float]:
+    """Calculate mean primary_metric_value for each test_name."""
+    if df.empty or "test_name" not in df.columns:
+        return {}
+
+    means = {}
+    for test_name, group in df.groupby("test_name"):
+        if "primary_metric_value" not in group.columns:
+            continue
+        values = pd.to_numeric(group["primary_metric_value"], errors="coerce").dropna()
+        if len(values) > 0:
+            means[test_name] = float(values.mean())
+
+    return means
+
+
+def aggregate_baseline_comparison_from_dataframe(
+    baseline_df: pd.DataFrame,
+    nightly_df: pd.DataFrame,
+    *,
+    baseline_id: str = "synthetic",
+    max_regressions: int = 50,
+    max_improvements: int = 20,
+    max_missing: int = 10,
+) -> BaselineComparisonSnapshot:
+    """
+    Mirror :func:`fetch_baseline_comparison_aggregates` using pre-loaded DataFrames.
+
+    Args:
+        baseline_df: Baseline benchmark DataFrame.
+        nightly_df: Nightly benchmark DataFrame.
+        baseline_id: Identifier for baseline.
+        max_regressions: Bound on regression results.
+        max_improvements: Bound on improvement results.
+        max_missing: Bound on missing results.
+
+    Returns:
+        BaselineComparisonSnapshot with synthetic source.
+    """
+    try:
+        result = _calculate_exception_deltas(
+            baseline_df=baseline_df,
+            nightly_df=nightly_df,
+            baseline_id=baseline_id,
+            max_regressions=max_regressions,
+            max_improvements=max_improvements,
+            max_missing=max_missing,
+        )
+
+        return BaselineComparisonSnapshot(
+            baseline_id=baseline_id,
+            nightly_date=result["nightly_date"],
+            regressions=result["regressions"],
+            improvements=result["improvements"],
+            missing=result["missing"],
+            added=result["added"],
+            delta_count=result["delta_count"],
+            exception_count=result["exception_count"],
+            source="synthetic",
+            error=None,
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        return BaselineComparisonSnapshot(
+            baseline_id=baseline_id,
+            nightly_date=None,
+            regressions=[],
+            improvements=[],
+            missing=[],
+            added=[],
+            delta_count=0,
+            exception_count=0,
+            source="synthetic",
+            error=str(exc),
+        )
+
+

@@ -778,6 +778,7 @@ def test_calculate_exception_deltas_missing_and_added():
     assert "streams" in result["missing"]
     assert len(result["added"]) == 1
     assert "pyperf" in result["added"]
+    assert result["exception_count"] == 2  # 1 missing + 1 added
     assert result["delta_count"] == 1  # Only coremark compared
 
 

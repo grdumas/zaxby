@@ -786,6 +786,7 @@ def fetch_baseline_comparison_aggregates(
     max_regressions: int = 50,
     max_improvements: int = 20,
     max_missing: int = 10,
+    max_added: int = 10,
 ) -> BaselineComparisonSnapshot:
     """
     Exception-oriented baseline comparison: fetch baseline and nightly data,
@@ -831,6 +832,7 @@ def fetch_baseline_comparison_aggregates(
             max_regressions=max_regressions,
             max_improvements=max_improvements,
             max_missing=max_missing,
+            max_added=max_added,
         )
 
         return BaselineComparisonSnapshot(
@@ -940,6 +942,7 @@ def _calculate_exception_deltas(
     max_regressions: int,
     max_improvements: int,
     max_missing: int,
+    max_added: int = 10,
 ) -> Dict[str, Any]:
     """
     Calculate deltas and filter to exceptions only.
@@ -1009,7 +1012,7 @@ def _calculate_exception_deltas(
     # Improvements: best first (most positive for higher-is-better, most negative for lower-is-better)
     # Invert the severity score logic for improvements
     improvements_scored = [
-        (name, pct, -pct if higher_is_better_for_test(name) else pct)
+        (name, pct, pct if higher_is_better_for_test(name) else -pct)
         for name, pct in improvements_list
     ]
     improvements_scored.sort(key=lambda x: x[2], reverse=True)
@@ -1019,9 +1022,9 @@ def _calculate_exception_deltas(
     missing = sorted(missing_list)[:max_missing]
 
     # Added: alphabetical, bounded
-    added = sorted(added_list)[:max_missing]
+    added = sorted(added_list)[:max_added]
 
-    exception_count = len(regressions) + len(improvements) + len(missing)
+    exception_count = len(regressions) + len(improvements) + len(missing) + len(added)
 
     return {
         "nightly_date": nightly_date,
@@ -1058,6 +1061,7 @@ def aggregate_baseline_comparison_from_dataframe(
     max_regressions: int = 50,
     max_improvements: int = 20,
     max_missing: int = 10,
+    max_added: int = 10,
 ) -> BaselineComparisonSnapshot:
     """
     Mirror :func:`fetch_baseline_comparison_aggregates` using pre-loaded DataFrames.
@@ -1081,6 +1085,7 @@ def aggregate_baseline_comparison_from_dataframe(
             max_regressions=max_regressions,
             max_improvements=max_improvements,
             max_missing=max_missing,
+            max_added=max_added,
         )
 
         return BaselineComparisonSnapshot(

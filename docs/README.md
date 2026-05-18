@@ -42,11 +42,17 @@ Essential technical documentation for working with the dashboard:
 - **[DARK_MODE_GUIDE.md](guides/DARK_MODE_GUIDE.md)** 🌓 NEW  
   Dark mode implementation guide with toggle button and theme persistence (Dec 2025)
 
-- **[JIRA_BREAKDOWN.md](guides/JIRA_BREAKDOWN.md)** 📋 NEW  
-  Complete JIRA work breakdown with Features, Stories, and Tasks for remaining dashboard work (Dec 2025)
-
 - **[CATEGORY_DRILLDOWN_GUIDE.md](guides/CATEGORY_DRILLDOWN_GUIDE.md)** 🔍 NEW  
   Interactive drill-down functionality for Competitive Performance section - click categories to explore benchmarks (Dec 2025)
+
+- **[COMPARISON_POLICY.md](guides/COMPARISON_POLICY.md)** 📐 NEW  
+  Canonical comparison templates and policy for baseline vs candidate comparisons (Apr 2026)
+
+- **[REGRESSION_DETECTION.md](guides/REGRESSION_DETECTION.md)** 📊 NEW  
+  Regression detection thresholds, directionality, and metric resolution specification (Apr 2026)
+
+- **[UI_COLOR_REFERENCE.md](guides/UI_COLOR_REFERENCE.md)** 🎨 NEW  
+  Complete color palette reference for dashboard UI including status colors, sections, and accessibility guidelines (Dec 2025)
 
 ### Bug Fixes & Issues (`fixes/`)
 
@@ -63,15 +69,6 @@ Documentation of bugs that have been identified and resolved:
 
 - **[OS_REGRESSION_FIX.md](fixes/OS_REGRESSION_FIX.md)**  
   Fixed OS version regression analysis to compare within same OS distribution only (Dec 2025)
-
-- **[FIX_SUMMARY.md](fixes/FIX_SUMMARY.md)**  
-  Fixed missing benchmarks in RHEL regression comparison (synthetic data generation issue)
-
-- **[SCALE_FIX_SUMMARY.md](fixes/SCALE_FIX_SUMMARY.md)**  
-  Fixed scaling visualization issues
-
-- **[BUGFIX_RHEL_REGRESSION_NO_DATA.md](fixes/BUGFIX_RHEL_REGRESSION_NO_DATA.md)**  
-  Resolved issue with missing data in RHEL regression analysis
 
 - **[SYNTHETIC_DATA_HARDWARE_CONSISTENCY_FIX.md](fixes/SYNTHETIC_DATA_HARDWARE_CONSISTENCY_FIX.md)**  
   Fixed hardware configuration consistency in synthetic data generation
@@ -94,11 +91,20 @@ Older documentation kept for reference but superseded by current docs:
 - **OS_EXPANSION_SUMMARY.md** - OS expansion work summary
 - **VISUALIZATION_IMPROVEMENTS.md** - Visualization enhancements
 
+#### Planning Documents
+- **DASHBOARD_REDESIGN_AND_DATA_PLAN.md** - Dashboard redesign strategy and data plan (Apr 2026, implemented)
+- **IMPLEMENTATION_PLAN.md** - Execution roadmap for dashboard redesign (Apr 2026, Phase 0 complete)
+
 #### Deprecated Guides
 - **QUICK_START_NEW_DASHBOARD.md** - Superseded by QUICKSTART.md
 - **QUICK_START_SIMPLIFIED_REGRESSION.md** - Superseded by QUICKSTART.md
 - **HARDWARE_AWARE_QUICK_REF.md** - Quick reference (archived)
 - **RHEL_REGRESSION_SIMPLIFICATION.md** - Regression simplification notes
+
+#### Historical Fixes
+- **FIX_SUMMARY.md** - Missing benchmarks in RHEL regression (synthetic data, incorporated)
+- **SCALE_FIX_SUMMARY.md** - Visualization scaling issues (incorporated)
+- **BUGFIX_RHEL_REGRESSION_NO_DATA.md** - RHEL regression no-data issue (incorporated)
 
 ## 🗂️ Documentation Structure
 
@@ -108,19 +114,24 @@ docs/
 ├── guides/                      # Technical guides
 │   ├── OPENSEARCH_CONNECTION_GUIDE.md
 │   ├── SCHEMA.md
-│   └── CATEGORY_DRILLDOWN_GUIDE.md
+│   ├── CATEGORY_DRILLDOWN_GUIDE.md
+│   ├── COMPARISON_POLICY.md
+│   ├── REGRESSION_DETECTION.md
+│   ├── UI_MODERNIZATION_PROPOSAL.md
+│   ├── UI_IMPLEMENTATION_GUIDE.md
+│   ├── UI_COLOR_REFERENCE.md
+│   └── DARK_MODE_GUIDE.md
 ├── fixes/                       # Bug fix documentation
 │   ├── COLLAPSIBLE_SECTIONS_UPDATE.md
 │   ├── STATUS_BOX_MISLEADING_UX_FIX.md
 │   ├── DATE_FILTER_BUG_FIX.md
 │   ├── OS_REGRESSION_FIX.md
-│   ├── FIX_SUMMARY.md
-│   ├── SCALE_FIX_SUMMARY.md
-│   ├── BUGFIX_RHEL_REGRESSION_NO_DATA.md
 │   └── SYNTHETIC_DATA_HARDWARE_CONSISTENCY_FIX.md
 └── archive/                     # Historical/superseded documentation
     ├── IMPLEMENTATION_SUMMARY.md
     ├── DASHBOARD_REDESIGN.md
+    ├── DASHBOARD_REDESIGN_AND_DATA_PLAN.md
+    ├── IMPLEMENTATION_PLAN.md
     ├── BEFORE_AFTER_COMPARISON.md
     ├── SYNTHETIC_DATA_ENHANCEMENTS.md
     ├── SYNTHETIC_DATA_IMPROVEMENT.md
@@ -129,6 +140,9 @@ docs/
     ├── HARDWARE_FILTERING_UPDATE.md
     ├── OS_EXPANSION_SUMMARY.md
     ├── VISUALIZATION_IMPROVEMENTS.md
+    ├── FIX_SUMMARY.md
+    ├── SCALE_FIX_SUMMARY.md
+    ├── BUGFIX_RHEL_REGRESSION_NO_DATA.md
     ├── QUICK_START_NEW_DASHBOARD.md
     ├── QUICK_START_SIMPLIFIED_REGRESSION.md
     ├── HARDWARE_AWARE_QUICK_REF.md
@@ -194,7 +208,7 @@ When adding new documentation:
 
 ---
 
-**Last Updated**: December 4, 2025  
+**Last Updated**: May 18, 2026  
 **Project Status**: Active Development  
 **Version**: v2.0
 

@@ -570,3 +570,303 @@ def fetch_pulse_scope_footnote(client: Any) -> PulseScopeFootnote:
         source="opensearch",
         error=None,
     )
+
+
+# --- Nightly Runs Aggregation (Recent Runs Dashboard) ------------------------------
+
+
+@dataclass
+class NightlyRunSnapshot:
+    """
+    Snapshot of a single nightly run identified by timestamp clustering.
+
+    Nightly runs are identified by grouping tests with similar timestamps
+    (e.g., tests that ran together in the same scheduled batch).
+    """
+
+    timestamp: datetime
+    test_count: int
+    pass_count: int
+    fail_count: int
+    category_breakdown: List[Tuple[str, int]]
+    source: str  # "opensearch" | "synthetic"
+    error: str | None = None
+
+
+def build_nightly_runs_aggregation_body(
+    date_range: Optional[Tuple[datetime, datetime]] = None,
+    n_days: int = 30,
+) -> Dict[str, Any]:
+    """
+    OpenSearch body: date_histogram aggregation to identify distinct nightly runs.
+
+    Uses 1-day interval buckets to cluster runs by date. Tests that ran together
+    in the same day are considered part of the same nightly run.
+
+    Args:
+        date_range: Optional (start, end) datetime tuple for filtering
+        n_days: Number of days to look back (default 30)
+
+    Returns:
+        OpenSearch query body with date_histogram aggregation
+    """
+    # Base query with date range filter
+    query: Dict[str, Any] = {"match_all": {}}
+
+    if date_range is not None:
+        start_dt, end_dt = date_range
+        query = {
+            "range": {
+                RESULTS_ACTIVITY_TIMESTAMP_FIELD: {
+                    "gte": start_dt.isoformat(),
+                    "lte": end_dt.isoformat(),
+                }
+            }
+        }
+
+    return {
+        "size": 0,
+        "track_total_hits": True,
+        "query": query,
+        "aggs": {
+            "runs_by_date": {
+                "date_histogram": {
+                    "field": RESULTS_ACTIVITY_TIMESTAMP_FIELD,
+                    "calendar_interval": "1d",
+                    "order": {"_key": "desc"},
+                },
+                "aggs": {
+                    "pass_count": {
+                        "filter": {
+                            "term": {"results.status.keyword": "PASS"}
+                        }
+                    },
+                    "fail_count": {
+                        "filter": {
+                            "term": {"results.status.keyword": "FAIL"}
+                        }
+                    },
+                    "by_test_name": {
+                        "terms": {
+                            "field": "test.name.keyword",
+                            "size": MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI,
+                        }
+                    }
+                }
+            }
+        },
+    }
+
+
+def parse_nightly_runs_aggregation_response(
+    response: Dict[str, Any],
+    n: int = 10,
+    min_tests_threshold: int = 10,
+) -> List[NightlyRunSnapshot]:
+    """
+    Parse OpenSearch date_histogram response into NightlyRunSnapshot list.
+
+    Args:
+        response: OpenSearch aggregation response
+        n: Maximum number of runs to return (most recent)
+        min_tests_threshold: Minimum tests per bucket to consider it a nightly run
+
+    Returns:
+        List of NightlyRunSnapshot objects, sorted by most recent first
+    """
+    buckets = (
+        response.get("aggregations", {})
+        .get("runs_by_date", {})
+        .get("buckets", [])
+    )
+
+    snapshots: List[NightlyRunSnapshot] = []
+
+    for bucket in buckets:
+        test_count = int(bucket.get("doc_count", 0))
+
+        # Filter out buckets with too few tests (likely not a full nightly run)
+        if test_count < min_tests_threshold:
+            continue
+
+        # Parse timestamp
+        timestamp_ms = bucket.get("key")
+        if timestamp_ms is None:
+            continue
+        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+
+        # Parse pass/fail counts
+        pass_count = int(bucket.get("pass_count", {}).get("doc_count", 0))
+        fail_count = int(bucket.get("fail_count", {}).get("doc_count", 0))
+
+        # Parse category breakdown from test.name buckets
+        test_name_buckets = (
+            bucket.get("by_test_name", {}).get("buckets", [])
+        )
+        category_counts: Dict[str, int] = {}
+        for test_bucket in test_name_buckets:
+            test_name = test_bucket.get("key")
+            if test_name is None:
+                continue
+            count = int(test_bucket.get("doc_count", 0))
+            category = category_for_test_name(str(test_name))
+            category_counts[category] = category_counts.get(category, 0) + count
+
+        category_breakdown = sorted(
+            category_counts.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        snapshots.append(
+            NightlyRunSnapshot(
+                timestamp=timestamp,
+                test_count=test_count,
+                pass_count=pass_count,
+                fail_count=fail_count,
+                category_breakdown=category_breakdown,
+                source="opensearch",
+                error=None,
+            )
+        )
+
+        # Stop after collecting N runs
+        if len(snapshots) >= n:
+            break
+
+    return snapshots
+
+
+def fetch_recent_nightly_runs(
+    client: Any,
+    date_range: Optional[Tuple[datetime, datetime]] = None,
+    n: int = 10,
+) -> List[NightlyRunSnapshot]:
+    """
+    Fetch recent nightly runs using OpenSearch date_histogram aggregation.
+
+    Identifies nightly runs by clustering tests with similar timestamps
+    (same day). Returns up to N most recent runs.
+
+    Args:
+        client: BenchmarkDataSource instance
+        date_range: Optional (start, end) datetime tuple for filtering
+        n: Maximum number of runs to return (default 10)
+
+    Returns:
+        List of NightlyRunSnapshot objects, sorted by most recent first
+    """
+    body = build_nightly_runs_aggregation_body(date_range=date_range)
+
+    try:
+        resp = client.search_results(body)
+    except Exception as exc:  # noqa: BLE001
+        return [
+            NightlyRunSnapshot(
+                timestamp=datetime.now(tz=timezone.utc),
+                test_count=0,
+                pass_count=0,
+                fail_count=0,
+                category_breakdown=[],
+                source="opensearch",
+                error=str(exc),
+            )
+        ]
+
+    return parse_nightly_runs_aggregation_response(resp, n=n)
+
+
+def aggregate_recent_nightly_runs_from_dataframe(
+    df: pd.DataFrame,
+    date_range: Optional[Tuple[datetime, datetime]] = None,
+    n: int = 10,
+) -> List[NightlyRunSnapshot]:
+    """
+    DataFrame aggregation equivalent of fetch_recent_nightly_runs for synthetic mode.
+
+    Groups tests by date(test_timestamp) to identify nightly runs.
+
+    Args:
+        df: DataFrame with benchmark results
+        date_range: Optional (start, end) datetime tuple for filtering
+        n: Maximum number of runs to return (default 10)
+
+    Returns:
+        List of NightlyRunSnapshot objects, sorted by most recent first
+    """
+    if df is None or df.empty:
+        return []
+
+    # Ensure required columns exist
+    if "timestamp" not in df.columns:
+        return []
+
+    # Apply date range filter if provided
+    filtered_df = df.copy()
+    if date_range is not None:
+        start_dt, end_dt = date_range
+        filtered_df = filtered_df[
+            (filtered_df["timestamp"] >= start_dt) &
+            (filtered_df["timestamp"] <= end_dt)
+        ]
+
+    if filtered_df.empty:
+        return []
+
+    # Group by date to identify nightly runs
+    filtered_df["run_date"] = pd.to_datetime(filtered_df["timestamp"]).dt.date
+
+    snapshots: List[NightlyRunSnapshot] = []
+
+    # Get unique dates sorted descending (most recent first)
+    dates = sorted(filtered_df["run_date"].unique(), reverse=True)
+
+    for run_date in dates[:n]:  # Take top N dates
+        date_df = filtered_df[filtered_df["run_date"] == run_date]
+
+        # Filter out days with too few tests (threshold: 10)
+        if len(date_df) < 10:
+            continue
+
+        # Calculate metrics
+        test_count = len(date_df)
+
+        # Count pass/fail if status column exists
+        pass_count = 0
+        fail_count = 0
+        if "status" in date_df.columns:
+            status_counts = date_df["status"].value_counts()
+            pass_count = int(status_counts.get("PASS", 0))
+            fail_count = int(status_counts.get("FAIL", 0))
+
+        # Category breakdown from test_name
+        category_counts: Dict[str, int] = {}
+        if "test_name" in date_df.columns:
+            for test_name in date_df["test_name"].dropna():
+                category = category_for_test_name(str(test_name))
+                category_counts[category] = category_counts.get(category, 0) + 1
+
+        category_breakdown = sorted(
+            category_counts.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        # Use the latest timestamp from that date
+        latest_timestamp = pd.to_datetime(date_df["timestamp"]).max()
+        if pd.isna(latest_timestamp):
+            continue
+
+        snapshots.append(
+            NightlyRunSnapshot(
+                timestamp=latest_timestamp.to_pydatetime().replace(tzinfo=timezone.utc),
+                test_count=test_count,
+                pass_count=pass_count,
+                fail_count=fail_count,
+                category_breakdown=category_breakdown,
+                source="synthetic",
+                error=None,
+            )
+        )
+
+    return snapshots

@@ -33,6 +33,7 @@ from src.pulse_ui import render_pulse_v1_panel
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
 from src.components import filters, visualizations
+from src.components.nightly_runs import create_nightly_runs_section
 from src.components.summaries import (
     format_regression_summary,
     format_peer_comparison_summary,
@@ -40,6 +41,11 @@ from src.components.summaries import (
     get_status_icon,
     summarize_investigation_details,
     format_investigation_summary_text
+)
+from src.query_service import (
+    fetch_recent_nightly_runs,
+    aggregate_recent_nightly_runs_from_dataframe,
+    NightlyRunSnapshot,
 )
 
 
@@ -327,6 +333,7 @@ def serve_layout():
             dcc.Store(id='filtered-data-store'),
             dcc.Store(id='analysis-results-store'),
             dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
+            dcc.Store(id='nightly-runs-store'),
 
             # Header
             dbc.Card([
@@ -552,6 +559,10 @@ def create_overview_layout():
             ]),
         ], className="mb-4 border-primary", style={"borderWidth": "2px"}),
         dcc.Interval(id="server-snapshot-init", interval=400, max_intervals=1, n_intervals=0),
+
+        # Recent Nightly Runs section
+        html.Div(id="nightly-runs-section"),
+
         dbc.Button(
             [
                 html.I(className="bi bi-chevron-down me-2"),
@@ -995,6 +1006,129 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         kpi_definition_version=bundle.definition_version,
         policy_template_id=bundle.policy_template_id,
     )
+
+
+@app.callback(
+    Output("nightly-runs-store", "data"),
+    [Input("filtered-data-store", "data")],
+    prevent_initial_call=False,
+)
+def update_nightly_runs_store(filtered_data_json):
+    """
+    Fetch recent nightly runs respecting date range filter.
+
+    In OpenSearch mode: calls fetch_recent_nightly_runs()
+    In synthetic mode: calls aggregate_recent_nightly_runs_from_dataframe()
+    """
+    if DATA_MODE == "opensearch":
+        try:
+            client = BenchmarkDataSource()
+            runs = fetch_recent_nightly_runs(client, date_range=None, n=10)
+        except Exception:  # noqa: BLE001
+            runs = []
+    else:
+        # Synthetic mode - use filtered DataFrame
+        if filtered_data_json:
+            try:
+                filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+                runs = aggregate_recent_nightly_runs_from_dataframe(filtered_df, date_range=None, n=10)
+            except Exception:  # noqa: BLE001
+                runs = []
+        else:
+            runs = []
+
+    # Serialize runs to JSON
+    runs_dict = [
+        {
+            "timestamp": run.timestamp.isoformat(),
+            "test_count": run.test_count,
+            "pass_count": run.pass_count,
+            "fail_count": run.fail_count,
+            "category_breakdown": run.category_breakdown,
+            "source": run.source,
+            "error": run.error,
+        }
+        for run in runs
+    ]
+    return runs_dict
+
+
+@app.callback(
+    Output("nightly-runs-section", "children"),
+    [Input("nightly-runs-store", "data")],
+    prevent_initial_call=False,
+)
+def render_nightly_runs_section(runs_dict):
+    """Render the nightly runs section from store data."""
+    if not runs_dict:
+        runs = []
+    else:
+        # Deserialize runs from JSON
+        runs = [
+            NightlyRunSnapshot(
+                timestamp=datetime.fromisoformat(r["timestamp"]),
+                test_count=r["test_count"],
+                pass_count=r["pass_count"],
+                fail_count=r["fail_count"],
+                category_breakdown=r["category_breakdown"],
+                source=r["source"],
+                error=r["error"],
+            )
+            for r in runs_dict
+        ]
+
+    return create_nightly_runs_section(runs)
+
+
+@app.callback(
+    Output("nightly-run-chart", "figure"),
+    [Input("nightly-run-selector", "value")],
+    State("nightly-runs-store", "data"),
+    prevent_initial_call=True,
+)
+def update_nightly_run_chart(selected_timestamp_iso, runs_dict):
+    """Update chart when user selects different run from dropdown."""
+    from src.components.nightly_runs import create_nightly_run_category_chart
+
+    if not runs_dict or not selected_timestamp_iso:
+        raise PreventUpdate
+
+    # Find the selected run
+    selected_run = None
+    for r in runs_dict:
+        if r["timestamp"] == selected_timestamp_iso:
+            selected_run = NightlyRunSnapshot(
+                timestamp=datetime.fromisoformat(r["timestamp"]),
+                test_count=r["test_count"],
+                pass_count=r["pass_count"],
+                fail_count=r["fail_count"],
+                category_breakdown=r["category_breakdown"],
+                source=r["source"],
+                error=r["error"],
+            )
+            break
+
+    if selected_run is None:
+        raise PreventUpdate
+
+    return create_nightly_run_category_chart(selected_run)
+
+
+@app.callback(
+    [Output("collapse-nightly-runs", "is_open"),
+     Output("icon-nightly-runs", "className")],
+    Input("btn-toggle-nightly-runs", "n_clicks"),
+    State("collapse-nightly-runs", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_nightly_runs_section(n_clicks, is_open):
+    """Handle collapse/expand of nightly runs section."""
+    if n_clicks is None:
+        raise PreventUpdate
+
+    new_is_open = not is_open
+    icon_class = "bi bi-chevron-down me-2" if new_is_open else "bi bi-chevron-right me-2"
+    return new_is_open, icon_class
 
 
 @app.callback(

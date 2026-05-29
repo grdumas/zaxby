@@ -1,9 +1,9 @@
 # OpenSearch Schema Documentation
 
 **Index**: `zathras-results`  
-**Total Documents**: 3,616  
+**Total Documents**: 5,659  
 **OpenSearch Version**: 3.2.0  
-**Last Updated**: 2025-11-20
+**Last Updated**: 2026-05-29
 
 ## Overview
 
@@ -49,11 +49,18 @@ Core identification and context for the test execution.
 
 **Key Fields for Dashboard:**
 - `os_vendor`: Operating system vendor (e.g., "rhel")
-- `cloud_provider`: Cloud platform (e.g., "aws")
-- `instance_type`: Hardware configuration identifier (e.g., "m5.24xlarge")
+- `cloud_provider`: Cloud platform (e.g., "aws", "azure", "ibm", "gcp")
+- `instance_type`: Hardware configuration identifier (e.g., "m5.24xlarge", "bx2-16x64")
 - `test_timestamp`: When the test was executed (ISO 8601 format)
-- `scenario_name`: Test scenario identifier (e.g., "rhel_95")
+- `scenario_name`: Test scenario identifier (e.g., "rhel_95", "RHEL-10.2-20260507.1-x86_64")
 - `iteration`: Test iteration number
+
+**Observed Cloud Providers** (as of 2026-05-29):
+- AWS: 3,851 documents (68% of total)
+- Azure: 1,519 documents (27% of total)
+- IBM Cloud: 274 documents (5% of total)
+- GCP: 12 documents
+- local: 3 documents
 
 ### 2. `test` Object
 
@@ -67,15 +74,20 @@ Information about the benchmark/test executed.
 }
 ```
 
-**Observed Test Names:**
-- `coremark` - CoreMark CPU benchmark
-- `coremark_pro` - CoreMark-PRO benchmark suite
-- `passmark` - PassMark Performance Test
-- `pyperf` - Python performance benchmarks
-- `phoronix` - Phoronix Test Suite
-- `streams` - STREAM memory bandwidth benchmark
-- `auto_hpl` - High-Performance Linpack
-- Additional tests in `test_to_run` arrays
+**Observed Test Names** (as of 2026-05-29):
+- `pyperf` - Python performance benchmarks (4,856 documents, 86% of total)
+- `coremark_pro` - CoreMark-PRO benchmark suite (172 documents)
+- `coremark` - CoreMark CPU benchmark (147 documents)
+- `streams` - STREAM memory bandwidth benchmark (128 documents)
+- `phoronix` - Phoronix Test Suite (74 documents)
+- `auto_hpl` - High-Performance Linpack (67 documents)
+- `passmark` - PassMark Performance Test (60 documents)
+- `specjbb` - SPECjbb Java benchmark (59 documents)
+- `uperf` - Network performance tool (46 documents)
+- `pig` - Apache Pig benchmark (31 documents)
+- `fio` - Flexible I/O tester (10 documents)
+- `speccpu2017` - SPEC CPU 2017 (7 documents)
+- `iozone` - Filesystem benchmark (2 documents)
 
 ### 3. `system_under_test` Object
 
@@ -120,8 +132,17 @@ Comprehensive system configuration information.
 
 **Key Fields for Dashboard:**
 - `distribution`: OS distribution (e.g., "rhel")
-- `version`: OS version (e.g., "9.5")
+- `version`: OS version (e.g., "9.5", "10.2")
 - `kernel_version`: Linux kernel version
+
+**Observed OS Versions** (as of 2026-05-29):
+- RHEL 9.5: 3,616 documents (most common)
+- RHEL 10.2: 1,223 documents
+- RHEL 9.6: 588 documents
+- RHEL 9.8: 172 documents
+- RHEL 10.0: 42 documents
+- RHEL 9.7: 15 documents
+- RHEL 10.3: 3 documents
 
 ### 4. `results` Object
 
@@ -255,8 +276,8 @@ Different tests store their primary metrics in different locations:
 ## Data Characteristics
 
 ### Volume
-- **Total documents**: 3,616
-- **Field count**: 494 unique fields across all documents
+- **Total documents**: 5,659
+- **Field count**: 4,856 mapped fields across all documents
 - **Nested depth**: Up to 5-6 levels
 
 ### Data Quality Notes
@@ -266,8 +287,8 @@ Different tests store their primary metrics in different locations:
 - Some fields are test-specific (only present for certain test types)
 
 ### Temporal Coverage
-- Recent data: November 2025
-- Appears to be actively updated
+- Date range: August 2025 - May 2026 (2025-08-14 to 2026-05-28)
+- Actively updated with current data
 
 ---
 
@@ -298,7 +319,7 @@ The dashboard should support comparisons across:
   "aggs": {
     "os_versions": {
       "terms": {
-        "field": "system_under_test.operating_system.version.keyword",
+        "field": "system_under_test.operating_system.version",
         "size": 100
       }
     }
@@ -313,7 +334,7 @@ The dashboard should support comparisons across:
   "aggs": {
     "test_types": {
       "terms": {
-        "field": "test.name.keyword",
+        "field": "test.name",
         "size": 100
       }
     }
@@ -327,14 +348,16 @@ The dashboard should support comparisons across:
   "query": {
     "bool": {
       "must": [
-        {"term": {"system_under_test.operating_system.version.keyword": "9.5"}},
-        {"term": {"metadata.instance_type.keyword": "m5.24xlarge"}},
-        {"term": {"test.name.keyword": "coremark"}}
+        {"term": {"system_under_test.operating_system.version": "9.5"}},
+        {"term": {"metadata.instance_type": "m5.24xlarge"}},
+        {"term": {"test.name": "coremark"}}
       ]
     }
   }
 }
 ```
+
+**Note**: The index fields work without `.keyword` suffix for aggregations and term queries.
 
 ---
 
@@ -350,9 +373,13 @@ When generating synthetic data, maintain:
    - Improvements: 15-30% increase in scores
    - Stable: ±5% variation
 
-5. **Temporal distribution**: Spread data across multiple days/weeks
+5. **Temporal distribution**: Spread data across multiple days/weeks (current range: Aug 2025 - May 2026)
 
-6. **Hardware variations**: Multiple instance types (m5.*, m6.*, c5.*, etc.)
+6. **Hardware variations**: Multiple instance types across cloud providers:
+   - AWS: m5.*, m6.*, c5.*, etc.
+   - Azure: Standard_D*, Standard_E*, etc.
+   - IBM Cloud: bx2-*, cx2-*, mx2-*, etc.
+   - GCP: n2-*, c2-*, etc.
 
-7. **OS versions**: Multiple RHEL versions (9.3, 9.4, 9.5, 9.6)
+7. **OS versions**: Multiple RHEL versions (9.5, 9.6, 9.7, 9.8, 10.0, 10.2, 10.3)
 

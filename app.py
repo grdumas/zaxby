@@ -32,7 +32,7 @@ from src.opensearch_links import opensearch_discover_url_for_document, results_i
 from src.pulse_ui import render_pulse_v1_panel
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
-from src.components import filters, visualizations
+from src.components import filters, visualizations, ai_widget
 from src.components.summaries import (
     format_regression_summary,
     format_peer_comparison_summary,
@@ -552,6 +552,10 @@ def create_overview_layout():
             ]),
         ], className="mb-4 border-primary", style={"borderWidth": "2px"}),
         dcc.Interval(id="server-snapshot-init", interval=400, max_intervals=1, n_intervals=0),
+
+        # AI Widget (RPOPC-1014)
+        ai_widget.create_ai_widget(),
+
         dbc.Button(
             [
                 html.I(className="bi bi-chevron-down me-2"),
@@ -2376,6 +2380,184 @@ def reset_filters(n_clicks):
             combined_os_versions.append(f"{dist}:{version}")
     
     return combined_os_versions, instance_types, test_names, cloud_providers, ['PASS', 'FAIL', 'UNKNOWN']
+
+
+# AI Widget Callbacks (RPOPC-1014)
+
+@app.callback(
+    Output('ai-widget-custom-query-container', 'style'),
+    Input('ai-widget-analysis-type', 'value')
+)
+def toggle_custom_query_input(analysis_type):
+    """Show/hide custom query input based on analysis type."""
+    if analysis_type == 'custom':
+        return {'display': 'block'}
+    return {'display': 'none'}
+
+
+@app.callback(
+    Output('ai-widget-context-collapse', 'is_open'),
+    Input('ai-widget-analyze-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def toggle_context_summary(n_clicks):
+    """Show context summary on Analyze button click."""
+    if n_clicks:
+        return True
+    return False
+
+
+@app.callback(
+    Output('ai-widget-context-summary', 'children'),
+    Input('filter-os-version', 'value'),
+    Input('filter-instance-type', 'value'),
+    Input('filter-test-name', 'value'),
+    Input('filter-cloud-provider', 'value'),
+    Input('header-date-range', 'start_date'),
+    Input('header-date-range', 'end_date')
+)
+def update_context_summary(os_versions, instance_types, test_names, cloud_providers, start_date, end_date):
+    """Update the context summary display with current filter state."""
+    # Parse OS versions (they're in "dist:version" format)
+    os_display_list = []
+    if os_versions:
+        for ov in os_versions[:3]:
+            if ':' in str(ov):
+                dist, ver = ov.split(':', 1)
+                os_display_list.append(f"{dist.upper()} {ver}")
+            else:
+                os_display_list.append(str(ov))
+
+    return ai_widget.format_context_summary(
+        os_versions=os_display_list,
+        instance_types=instance_types or [],
+        test_names=test_names or [],
+        cloud_providers=cloud_providers or [],
+        date_range=(start_date, end_date),
+        data_mode=DATA_MODE
+    )
+
+
+@app.callback(
+    [Output('ai-widget-results', 'children'),
+     Output('ai-widget-status', 'children')],
+    Input('ai-widget-analyze-btn', 'n_clicks'),
+    [State('ai-widget-persona', 'value'),
+     State('ai-widget-analysis-type', 'value'),
+     State('ai-widget-custom-query', 'value'),
+     State('filter-os-version', 'value'),
+     State('filter-instance-type', 'value'),
+     State('filter-test-name', 'value'),
+     State('filter-cloud-provider', 'value'),
+     State('header-date-range', 'start_date'),
+     State('header-date-range', 'end_date'),
+     State('filtered-data-store', 'data')],
+    prevent_initial_call=True
+)
+def analyze_with_ai(n_clicks, persona, analysis_type, custom_query, os_versions,
+                   instance_types, test_names, cloud_providers, start_date, end_date,
+                   filtered_data_json):
+    """
+    Perform AI analysis based on current dashboard context and user selections.
+    """
+    if not n_clicks:
+        raise PreventUpdate
+
+    # Import AI service
+    try:
+        from src.ai_analysis import get_ai_analysis_service
+    except ImportError:
+        error_msg = "AI analysis not available: anthropic package not installed"
+        return ai_widget.format_ai_analysis_result(None, error=error_msg, persona=persona), None
+
+    service = get_ai_analysis_service()
+    if service is None:
+        status = dbc.Alert([
+            html.I(className="bi bi-info-circle me-2"),
+            "AI analysis requires ANTHROPIC_API_KEY in .env"
+        ], color="info", className="mb-0 py-2")
+        return ai_widget.format_ai_analysis_result(None, error="API key not configured", persona=persona), status
+
+    # Show processing status
+    status = dbc.Alert([
+        dbc.Spinner(size="sm", className="me-2"),
+        "Analyzing with AI..."
+    ], color="info", className="mb-0 py-2")
+
+    try:
+        # Load filtered data
+        if filtered_data_json:
+            filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+        else:
+            filtered_df = df.copy()
+
+        # Build context for AI
+        context = ai_widget.extract_dashboard_context(
+            filtered_df=filtered_df,
+            os_versions=os_versions or [],
+            instance_types=instance_types or [],
+            test_names=test_names or [],
+            cloud_providers=cloud_providers or [],
+            date_range=(start_date, end_date),
+            analysis_type=analysis_type
+        )
+
+        # Prepare data for AI analysis based on analysis type
+        baseline_data = {}
+        comparison_data = {}
+        metadata = {
+            'analysis_type': analysis_type,
+            'filters': context['filters'],
+            'dataset_size': context['dataset_stats'].get('total_runs', 0)
+        }
+
+        if analysis_type == 'regression':
+            # Extract regression statistics
+            if 'regression_count' in context['dataset_stats']:
+                baseline_data['regression_count'] = context['dataset_stats']['regression_count']
+                comparison_data['total_tests'] = context['dataset_stats'].get('unique_tests', 0)
+                metadata['top_regressions'] = context['dataset_stats'].get('top_regressions', {})
+
+        elif analysis_type == 'peer':
+            # Extract peer OS comparison data
+            if 'os_distributions' in context['dataset_stats']:
+                baseline_data = {'os_distributions': context['dataset_stats']['os_distributions']}
+                comparison_data = {'test_coverage': context['dataset_stats'].get('unique_tests', 0)}
+
+        elif analysis_type == 'scaling':
+            # Extract scaling data
+            if 'instance_classes' in context['dataset_stats']:
+                baseline_data = {'instance_distribution': context['dataset_stats']['instance_classes']}
+                comparison_data = {'scaling_metrics': 'available'}
+
+        elif analysis_type == 'custom' and custom_query:
+            # Custom query - include query in metadata
+            metadata['custom_query'] = custom_query
+            baseline_data = context['dataset_stats']
+            comparison_data = {'query': custom_query}
+
+        # Generate AI analysis
+        analysis_text = service.analyze_comparison(
+            baseline_data=baseline_data,
+            comparison_data=comparison_data,
+            metadata=metadata,
+            persona=persona
+        )
+
+        success_status = dbc.Alert([
+            html.I(className="bi bi-check-circle me-2"),
+            f"Analysis complete ({persona.replace('_', ' ').title()})"
+        ], color="success", className="mb-0 py-2")
+
+        return ai_widget.format_ai_analysis_result(analysis_text, persona=persona), success_status
+
+    except Exception as e:
+        logger.exception("AI analysis failed")
+        error_status = dbc.Alert([
+            html.I(className="bi bi-exclamation-triangle me-2"),
+            f"Analysis failed: {str(e)}"
+        ], color="warning", className="mb-0 py-2")
+        return ai_widget.format_ai_analysis_result(None, error=str(e), persona=persona), error_status
 
 
 # Run the app

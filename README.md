@@ -10,6 +10,10 @@ A Python Dash dashboard for visualizing software performance benchmark results f
 - **Regression Detection**: Visual identification of performance improvements and regressions
 - **Time Series Analysis**: Track performance trends over time
 - **Dual Data Mode**: Works with live OpenSearch data and synthetic test data
+- **AI-Powered Analysis** ✨ NEW: Persona-based intelligent analysis with Claude AI
+  - Executive persona: Concise pass/fail verdicts with color-coded severity
+  - Technical Lead persona: Trend analysis and bottleneck identification
+  - Expert persona: Comprehensive deep-dive with detailed metrics
 
 ## Quick Start
 
@@ -49,6 +53,9 @@ Required environment variables:
 - `OPENSEARCH_DASHBOARDS_BASE_URL`: Optional — OpenSearch Dashboards base URL for “View in Discover” links from the investigation view; see [Discover deep links](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md#discover-deep-links) in the connection guide
 - `DATA_MODE`: Set to 'opensearch' or 'synthetic'
 - `ZAXBY_USE_SYNTHETIC_AFTER_OPENSEARCH_FAILURE`: Optional. When `DATA_MODE=opensearch`, if the initial OpenSearch load fails, set to `1`, `true`, or `yes` to load synthetic data **explicitly** after that failure. If unset, the app shows an error and empty data instead of silently using synthetic samples.
+
+Optional AI analysis:
+- `ANTHROPIC_API_KEY`: Optional — API key for AI-powered analysis features. Get from [Anthropic Console](https://console.anthropic.com/). If not set, AI analysis features are disabled but the dashboard works normally.
 
 ### 3. Run the Dashboard
 
@@ -99,9 +106,11 @@ performance-dashboard/
 │   ├── query_service.py          # Query service layer
 │   ├── regression_detection.py   # Regression detection logic
 │   ├── track_kpis.py             # Track KPI calculations (baseline comparison)
+│   ├── persona_prompts.py        # AI persona prompt templates (RPOPC-1016)
+│   ├── ai_analysis.py            # AI analysis service (RPOPC-1016)
 │   └── components/
 │       ├── filters.py            # Filter components
-│       ├── summaries.py          # Summary generation
+│       ├── summaries.py          # Summary generation (includes AI analysis)
 │       └── visualizations.py     # Visualization components
 ├── tests/                        # Test suite (pytest)
 │   ├── test_query_service.py
@@ -170,6 +179,7 @@ All documentation is organized in the [`docs/`](docs/) directory:
 - **[docs/README.md](docs/README.md)**: Complete documentation index
 - **[docs/guides/OPENSEARCH_CONNECTION_GUIDE.md](docs/guides/OPENSEARCH_CONNECTION_GUIDE.md)**: OpenSearch connection details and patterns
 - **[docs/guides/SCHEMA.md](docs/guides/SCHEMA.md)**: Documented schema from OpenSearch data discovery
+- **[docs/guides/AI_ANALYSIS.md](docs/guides/AI_ANALYSIS.md)**: AI-powered analysis configuration and usage (RPOPC-1016)
 - **[docs/fixes/](docs/fixes/)**: Bug fix documentation and resolutions
 - **[data/synthetic/README.md](data/synthetic/README.md)**: Synthetic data generation approach
 

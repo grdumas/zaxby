@@ -297,6 +297,19 @@ class CategoryKpiSnapshot:
     cache_timestamp: Optional[float] = None
 
 
+@dataclass
+class NightlyRunSnapshot:
+    """Single nightly run summary for Recent Nightly Runs section (RPOPC-1207)."""
+
+    timestamp: datetime
+    test_count: int
+    pass_count: int
+    fail_count: int
+    category_breakdown: List[Tuple[str, int]]
+    source: str  # "opensearch" | "synthetic"
+    error: Optional[str] = None
+
+
 def aggregate_category_kpis_from_dataframe(df: pd.DataFrame) -> CategoryKpiSnapshot:
     """Mirror :func:`fetch_results_category_kpis` using the loaded benchmark DataFrame."""
     if df is None or df.empty or "test_name" not in df.columns:

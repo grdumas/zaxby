@@ -1,5 +1,7 @@
 """Tests for comparison template validation (COMPARISON_POLICY.md §4–5)."""
 
+from dataclasses import dataclass
+
 import pytest
 
 from src.comparison_policy import (
@@ -195,3 +197,64 @@ def test_pulse_rejects_multi_public_cloud_in_cloud_providers_set():
     )
     assert r.ok is False
     assert any("multiple public" in e.lower() for e in r.errors)
+
+
+# --- Dataclass parameter support (acceptance criteria) ---
+
+
+@dataclass
+class ComparisonParams:
+    baseline_cloud_provider: str
+    candidate_cloud_provider: str
+
+
+@dataclass
+class RollupParams:
+    cloud_providers: list[str]
+
+
+def test_validate_accepts_dataclass_params():
+    """Acceptance: function works with both dict and dataclass parameter inputs."""
+    params = ComparisonParams(
+        baseline_cloud_provider="aws",
+        candidate_cloud_provider="aws",
+    )
+    r = validate_comparison_request("TPL_RHEL_MINOR_SAME_HW", params, mode="pulse")
+    assert r.ok is True
+
+
+def test_validate_dataclass_detects_cross_cloud_violation():
+    """Dataclass params are normalized and validated correctly."""
+    params = ComparisonParams(
+        baseline_cloud_provider="aws",
+        candidate_cloud_provider="azure",
+    )
+    r = validate_comparison_request("TPL_RHEL_MINOR_SAME_HW", params, mode="pulse")
+    assert r.ok is False
+    assert any("baseline vs candidate" in e.lower() for e in r.errors)
+
+
+def test_validate_dataclass_with_cloud_providers_list():
+    """Dataclass with cloud_providers field validates correctly."""
+    params = RollupParams(cloud_providers=["aws", "azure"])
+    r = validate_comparison_request("TPL_CATEGORY_ROLLUP", params, mode="pulse")
+    assert r.ok is False
+    assert any("multiple public" in e.lower() for e in r.errors)
+
+
+def test_validate_dataclass_investigate_mode():
+    """Dataclass params work in investigate mode."""
+    params = ComparisonParams(
+        baseline_cloud_provider="aws",
+        candidate_cloud_provider="gcp",
+    )
+    r = validate_comparison_request(
+        "TPL_RHEL_MINOR_SAME_HW", params, mode="investigate"
+    )
+    assert r.ok is True
+
+
+def test_validate_accepts_none_params():
+    """None params should not cause errors."""
+    r = validate_comparison_request("TPL_RHEL_MINOR_SAME_HW", None)
+    assert r.ok is True

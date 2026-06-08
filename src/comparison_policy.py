@@ -8,8 +8,8 @@ is Pulse-allowed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import FrozenSet, Literal, Mapping, Optional
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import FrozenSet, Literal, Mapping, Optional, Union
 
 Mode = Literal["pulse", "investigate"]
 
@@ -72,6 +72,18 @@ def _canonical_public_cloud_slug(value: object) -> Optional[str]:
     return None
 
 
+def _normalize_params(params: Union[Mapping[str, object], object, None]) -> Mapping[str, object]:
+    """Convert params to a Mapping, handling dataclasses and None."""
+    if params is None:
+        return {}
+    if is_dataclass(params):
+        return asdict(params)  # type: ignore[arg-type]
+    if isinstance(params, Mapping):
+        return params
+    # Unknown type; return empty dict to avoid AttributeError downstream
+    return {}
+
+
 def _pulse_violations_for_public_cloud_axes(params: Mapping[str, object]) -> list[str]:
     """
     COMPARISON_POLICY.md §3.1 — Pulse must not compare cohorts across hyperscalers.
@@ -109,7 +121,7 @@ def _pulse_violations_for_public_cloud_axes(params: Mapping[str, object]) -> lis
 
 def validate_comparison_request(
     template_id: str,
-    params: Optional[Mapping[str, object]] = None,
+    params: Union[Mapping[str, object], object, None] = None,
     *,
     mode: Mode = "investigate",
 ) -> ValidationResult:
@@ -118,11 +130,12 @@ def validate_comparison_request(
 
     Args:
         template_id: Must match a row in COMPARISON_POLICY.md §5.
-        params: Optional request parameters. For ``mode='pulse'``, values that
-            imply cross–public-cloud comparative cohorts are rejected; see
-            COMPARISON_POLICY.md §3.1. Supported keys include ``baseline_cloud_provider``,
-            ``candidate_cloud_provider``, and ``cloud_providers`` (the latter as
-            ``list``, ``tuple``, ``set``, or ``frozenset`` of provider slugs).
+        params: Optional request parameters, as a dict/Mapping or dataclass instance.
+            For ``mode='pulse'``, values that imply cross–public-cloud comparative
+            cohorts are rejected; see COMPARISON_POLICY.md §3.1. Supported keys include
+            ``baseline_cloud_provider``, ``candidate_cloud_provider``, and
+            ``cloud_providers`` (the latter as ``list``, ``tuple``, ``set``, or
+            ``frozenset`` of provider slugs).
         mode: ``pulse`` rejects templates not marked Pulse-allowed in the policy doc
             and enforces §3 forbidden axes on ``params``.
 
@@ -144,6 +157,9 @@ def validate_comparison_request(
     if tid not in VALID_TEMPLATE_IDS:
         return ValidationResult(False, (f"Unknown template_id: {tid!r}",))
 
+    # Normalize params (supports dict, dataclass, None)
+    normalized_params = _normalize_params(params)
+
     if mode == "pulse":
         if tid not in PULSE_ALLOWED_TEMPLATE_IDS:
             errors.append(
@@ -153,6 +169,6 @@ def validate_comparison_request(
         else:
             # Template is Pulse-allowed; enforce §3 forbidden axes on params. (We do not
             # run this when the template is already Pulse-rejected — avoid piling on errors.)
-            errors.extend(_pulse_violations_for_public_cloud_axes(params or {}))
+            errors.extend(_pulse_violations_for_public_cloud_axes(normalized_params))
 
     return ValidationResult(ok=len(errors) == 0, errors=tuple(errors))

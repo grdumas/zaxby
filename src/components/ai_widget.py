@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
+import pandas as pd
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
@@ -264,8 +265,6 @@ def extract_dashboard_context(
     Returns:
         Dictionary containing context for AI analysis
     """
-    import pandas as pd
-
     context = {
         'filters': {
             'os_versions': os_versions,

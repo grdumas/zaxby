@@ -2398,14 +2398,13 @@ def toggle_custom_query_input(analysis_type):
 @app.callback(
     Output('ai-widget-context-collapse', 'is_open'),
     Input('ai-widget-analyze-btn', 'n_clicks'),
-    State('ai-widget-context-collapse', 'is_open'),
     prevent_initial_call=True
 )
-def toggle_context_summary(n_clicks, is_open):
-    """Toggle context summary visibility."""
+def toggle_context_summary(n_clicks):
+    """Show context summary on Analyze button click."""
     if n_clicks:
-        return not is_open
-    return is_open
+        return True
+    return False
 
 
 @app.callback(

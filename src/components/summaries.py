@@ -4,8 +4,9 @@ Summary text generation for dashboard insights.
 Provides human-readable summaries of analysis results.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import pandas as pd
+import logging
 
 from src.regression_detection import (
     REGRESSION_THRESHOLD_REL,
@@ -13,6 +14,8 @@ from src.regression_detection import (
     is_regression_for_test_name,
     percent_change,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def format_regression_summary(analysis_result: Dict[str, Any]) -> str:
@@ -173,25 +176,94 @@ def summarize_investigation_details(
 def format_investigation_summary_text(summary: Dict[str, Any]) -> str:
     """
     Format investigation summary as readable text.
-    
+
     Args:
         summary: Summary dictionary from summarize_investigation_details
-        
+
     Returns:
         Formatted text summary
     """
     lines = []
-    
+
     if 'baseline_mean' in summary and 'comparison_mean' in summary:
         lines.append(f"**{summary['baseline_label']}**: {summary['baseline_mean']:,.1f} (avg)")
         lines.append(f"**{summary['comparison_label']}**: {summary['comparison_mean']:,.1f} (avg)")
-        
+
         if 'percent_change' in summary:
             direction = "↑" if summary['percent_change'] > 0 else "↓"
             lines.append(f"**Change**: {direction} {abs(summary['percent_change']):.1f}%")
-    
+
     if 'baseline_count' in summary:
         lines.append(f"**Sample sizes**: {summary['baseline_count']} vs {summary['comparison_count']} tests")
-    
+
     return "\n\n".join(lines)
+
+
+def generate_ai_analysis(
+    summary: Dict[str, Any],
+    persona: str = "tech_lead"
+) -> Optional[str]:
+    """
+    Generate AI-powered analysis of investigation summary (RPOPC-1016).
+
+    Args:
+        summary: Summary dictionary from summarize_investigation_details
+        persona: Analysis persona (executive, tech_lead, or expert)
+
+    Returns:
+        AI-generated analysis text, or None if AI service is unavailable
+    """
+    try:
+        from src.ai_analysis import analyze_performance_comparison
+
+        # Extract baseline and comparison data from summary
+        baseline_data = {}
+        comparison_data = {}
+
+        if 'baseline_mean' in summary:
+            baseline_data['average'] = summary['baseline_mean']
+        if 'baseline_std' in summary:
+            baseline_data['std_dev'] = summary['baseline_std']
+        if 'baseline_min' in summary and 'baseline_max' in summary:
+            baseline_data['range'] = f"{summary['baseline_min']:.1f} - {summary['baseline_max']:.1f}"
+        if 'baseline_count' in summary:
+            baseline_data['sample_size'] = summary['baseline_count']
+
+        if 'comparison_mean' in summary:
+            comparison_data['average'] = summary['comparison_mean']
+        if 'comparison_std' in summary:
+            comparison_data['std_dev'] = summary['comparison_std']
+        if 'comparison_min' in summary and 'comparison_max' in summary:
+            comparison_data['range'] = f"{summary['comparison_min']:.1f} - {summary['comparison_max']:.1f}"
+        if 'comparison_count' in summary:
+            comparison_data['sample_size'] = summary['comparison_count']
+
+        # Build metadata
+        metadata = {
+            'test': summary.get('test_name', 'Unknown Test'),
+            'baseline': summary.get('baseline_label', 'Baseline'),
+            'comparison': summary.get('comparison_label', 'Comparison'),
+        }
+
+        if 'percent_change' in summary:
+            metadata['percent_change'] = f"{summary['percent_change']:+.1f}%"
+        if 'status_text' in summary:
+            metadata['assessment'] = summary['status_text']
+
+        # Generate analysis
+        analysis = analyze_performance_comparison(
+            baseline_data=baseline_data,
+            comparison_data=comparison_data,
+            metadata=metadata,
+            persona=persona
+        )
+
+        return analysis
+
+    except ImportError:
+        logger.debug("AI analysis not available (anthropic package not installed)")
+        return None
+    except Exception as e:
+        logger.warning(f"AI analysis failed: {e}")
+        return None
 

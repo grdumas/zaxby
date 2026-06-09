@@ -196,12 +196,26 @@ def render_pulse_v1_panel(
 
     mode_label = (data_mode or "").strip().lower() or "unknown"
     idx_part = results_index_label.strip() if results_index_label.strip() else "(index not set)"
+
+    # Add cache status if data came from cache
+    cache_status = ""
+    if snap.from_cache and snap.cache_timestamp:
+        import time
+        age_seconds = time.time() - snap.cache_timestamp
+        if age_seconds < 60:
+            cache_status = f" · cached {int(age_seconds)}s ago"
+        elif age_seconds < 3600:
+            cache_status = f" · cached {int(age_seconds/60)}m ago"
+        else:
+            cache_status = f" · cached {int(age_seconds/3600)}h ago"
+
     source_line = html.P(
         [
             html.Strong("Data: "),
             f"mode={mode_label}",
             " · ",
             f"results index: {idx_part}",
+            cache_status,
         ],
         className="small text-muted mb-1",
     )

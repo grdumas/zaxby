@@ -297,6 +297,84 @@ class CacheService:
 
         return False
 
+    def invalidate_by_query_type(self, query_type: str) -> int:
+        """
+        Invalidate all cache entries for a specific query type.
+
+        Args:
+            query_type: Query type to invalidate (e.g., 'pulse_kpis', 'track_exceptions')
+
+        Returns:
+            Number of cache entries invalidated
+        """
+        if self.cache_type == 'null':
+            return 0
+
+        try:
+            pattern = f"cache:{query_type}:*"
+            invalidated = 0
+
+            if self.cache_type == 'simple':
+                keys_to_delete = [k for k in self._simple_cache.keys() if k.startswith(f"cache:{query_type}:")]
+                for key in keys_to_delete:
+                    del self._simple_cache[key]
+                    invalidated += 1
+                logger.info(f"Cache invalidated by query_type={query_type}: {invalidated} entries")
+                return invalidated
+
+            elif self.cache_type == 'redis' and self._backend:
+                batch = []
+                batch_size = 1000
+
+                for key in self._backend.scan_iter(match=pattern, count=100):
+                    batch.append(key)
+                    if len(batch) >= batch_size:
+                        self._backend.delete(*batch)
+                        invalidated += len(batch)
+                        batch = []
+
+                if batch:
+                    self._backend.delete(*batch)
+                    invalidated += len(batch)
+
+                logger.info(f"Cache invalidated by query_type={query_type}: {invalidated} entries")
+                return invalidated
+
+        except Exception as e:
+            logger.error(f"Cache invalidate_by_query_type error: {e}")
+            self.metrics.errors += 1
+            return 0
+
+        return 0
+
+    def invalidate_by_mode(self, mode: str) -> int:
+        """
+        Invalidate all cache entries for a specific mode (Pulse, Track, Investigate).
+
+        Args:
+            mode: Mode to invalidate ('pulse', 'track', 'investigate')
+
+        Returns:
+            Number of cache entries invalidated
+        """
+        if self.cache_type == 'null':
+            return 0
+
+        mode_query_types = {
+            'pulse': ['pulse_kpis', 'category_rollup', 'activity_timeline', 'scope_footnote'],
+            'track': ['track_exceptions'],
+            'investigate': [],  # Add investigate-specific query types as needed
+        }
+
+        query_types = mode_query_types.get(mode.lower(), [])
+        total_invalidated = 0
+
+        for query_type in query_types:
+            total_invalidated += self.invalidate_by_query_type(query_type)
+
+        logger.info(f"Cache invalidated for mode={mode}: {total_invalidated} total entries")
+        return total_invalidated
+
     def clear(self) -> bool:
         """
         Clear all cache entries.

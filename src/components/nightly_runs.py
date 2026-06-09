@@ -13,6 +13,100 @@ from dash import dcc, html
 from src.query_service import NightlyRunSnapshot
 
 
+def create_nightly_run_selector_dropdown(runs: List[NightlyRunSnapshot]) -> dcc.Dropdown:
+    """
+    Create dropdown selector for choosing which nightly run to visualize.
+
+    Dropdown options show run date/time and test count. Most recent run is selected by default.
+
+    Args:
+        runs: List of NightlyRunSnapshot objects (sorted descending by timestamp).
+
+    Returns:
+        Dash Dropdown component.
+    """
+    if not runs:
+        return dcc.Dropdown(
+            id="nightly-run-selector",
+            options=[],
+            value=None,
+            placeholder="No runs available",
+            disabled=True,
+            className="mb-3"
+        )
+
+    options = []
+    for idx, run in enumerate(runs):
+        label = f"{run.timestamp.strftime('%Y-%m-%d %H:%M UTC')} ({run.test_count} tests)"
+        options.append({"label": label, "value": idx})
+
+    return dcc.Dropdown(
+        id="nightly-run-selector",
+        options=options,
+        value=0 if options else None,
+        placeholder="Select a nightly run",
+        className="mb-3"
+    )
+
+
+def create_nightly_run_category_chart(run: Optional[NightlyRunSnapshot]) -> go.Figure:
+    """
+    Create horizontal bar chart showing test counts by benchmark category.
+
+    Args:
+        run: NightlyRunSnapshot object with category breakdown.
+
+    Returns:
+        Plotly Figure with horizontal bar chart.
+    """
+    if run is None or not run.category_breakdown:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No category data available",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=13, color="#64748b"),
+        )
+        fig.update_layout(
+            title="Category Breakdown",
+            template="plotly_white",
+            height=280,
+            margin=dict(l=140, r=20, t=50, b=40),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
+        return fig
+
+    # Extract categories and counts
+    categories = [cat for cat, _ in run.category_breakdown]
+    counts = [count for _, count in run.category_breakdown]
+
+    fig = go.Figure(
+        go.Bar(
+            x=counts,
+            y=categories,
+            orientation="h",
+            marker=dict(color="#7c3aed"),
+            hovertemplate="%{y}<br>Tests: %{x:,}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(text="Category Breakdown", font=dict(size=14)),
+        template="plotly_white",
+        height=280,
+        margin=dict(l=140, r=20, t=50, b=40),
+        xaxis=dict(title="Test Count"),
+        yaxis=dict(autorange="reversed"),
+        showlegend=False,
+    )
+
+    return fig
+
+
 def create_nightly_run_summary_cards(runs: List[NightlyRunSnapshot]) -> html.Div:
     """
     Create KPI summary cards for the most recent nightly run.
@@ -117,8 +211,12 @@ def create_nightly_runs_section(runs: List[NightlyRunSnapshot]) -> dbc.Card:
         dbc.Collapse([
             dbc.CardBody([
                 create_nightly_run_summary_cards(runs),
-                html.Div(id="nightly-runs-dropdown-container"),
-                html.Div(id="nightly-runs-chart-container"),
+                html.Label("Select Nightly Run:", className="fw-bold mb-2"),
+                create_nightly_run_selector_dropdown(runs),
+                dcc.Loading(
+                    dcc.Graph(id="nightly-run-chart"),
+                    type="default"
+                ),
             ])
         ], id="collapse-nightly-runs", is_open=True)
     ], className="mb-4", style={

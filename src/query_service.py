@@ -1331,3 +1331,134 @@ def log_cache_statistics() -> Dict[str, Any]:
     )
 
     return stats
+
+
+# --- Recent Nightly Runs (RPOPC-1207) ---------------------------------------------
+
+
+def fetch_recent_nightly_runs(
+    client: Any,
+    *,
+    max_runs: int = 10,
+    date_range: Optional[Tuple[datetime, datetime]] = None,
+    min_test_threshold: int = 10,
+) -> List[NightlyRunSnapshot]:
+    """
+    Fetch recent nightly benchmark runs using OpenSearch date_histogram aggregation.
+
+    Identifies nightly runs by grouping tests into 1-day buckets and filtering for
+    buckets with sufficient test volume. Returns up to max_runs most recent runs.
+
+    Args:
+        client: :class:`src.opensearch_client.BenchmarkDataSource` instance.
+        max_runs: Maximum number of recent runs to return (default 10).
+        date_range: Optional (start_date, end_date) tuple to filter results.
+        min_test_threshold: Minimum tests per day to qualify as a nightly run (default 10).
+
+    Returns:
+        List of NightlyRunSnapshot objects, sorted by timestamp descending (most recent first).
+    """
+    # Build OpenSearch query body
+    query_body: Dict[str, Any] = {
+        "size": 0,
+        "query": {"match_all": {}},
+        "aggs": {
+            "runs_by_date": {
+                "date_histogram": {
+                    "field": RESULTS_ACTIVITY_TIMESTAMP_FIELD,
+                    "calendar_interval": "1d",
+                    "order": {"_key": "desc"},
+                },
+                "aggs": {
+                    "pass_count": {
+                        "filter": {"term": {"results.status.keyword": "PASS"}}
+                    },
+                    "fail_count": {
+                        "filter": {"term": {"results.status.keyword": "FAIL"}}
+                    },
+                    "by_test_name": {
+                        "terms": {
+                            "field": "test.name.keyword",
+                            "size": MAX_TEST_NAME_TERMS_FOR_CATEGORY_KPI,
+                        }
+                    },
+                },
+            }
+        },
+    }
+
+    # Apply date range filter if provided
+    if date_range is not None:
+        start_date, end_date = date_range
+        query_body["query"] = {
+            "range": {
+                RESULTS_ACTIVITY_TIMESTAMP_FIELD: {
+                    "gte": start_date.isoformat(),
+                    "lte": end_date.isoformat(),
+                }
+            }
+        }
+
+    try:
+        resp = client.search_results(query_body)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Failed to fetch nightly runs from OpenSearch: {exc}")
+        return []
+
+    # Parse response buckets
+    buckets = (
+        resp.get("aggregations", {})
+        .get("runs_by_date", {})
+        .get("buckets", [])
+    )
+
+    runs: List[NightlyRunSnapshot] = []
+    for bucket in buckets:
+        doc_count = bucket.get("doc_count", 0)
+
+        # Filter out days with insufficient test volume
+        if doc_count < min_test_threshold:
+            continue
+
+        # Parse timestamp
+        timestamp_ms = bucket.get("key")
+        if timestamp_ms is None:
+            continue
+        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+
+        # Extract pass/fail counts
+        pass_count = bucket.get("pass_count", {}).get("doc_count", 0)
+        fail_count = bucket.get("fail_count", {}).get("doc_count", 0)
+
+        # Calculate category breakdown
+        test_buckets = bucket.get("by_test_name", {}).get("buckets", [])
+        category_counts: Counter[str] = Counter()
+        for tb in test_buckets:
+            test_name = tb.get("key")
+            count = tb.get("doc_count", 0)
+            if test_name and count > 0:
+                category = category_for_test_name(str(test_name))
+                category_counts[category] += count
+
+        category_breakdown = sorted(
+            category_counts.items(),
+            key=lambda x: (-x[1], x[0])
+        )
+
+        runs.append(
+            NightlyRunSnapshot(
+                timestamp=timestamp,
+                test_count=doc_count,
+                pass_count=pass_count,
+                fail_count=fail_count,
+                category_breakdown=category_breakdown,
+                source="opensearch",
+                error=None,
+            )
+        )
+
+        # Limit to max_runs
+        if len(runs) >= max_runs:
+            break
+
+    return runs

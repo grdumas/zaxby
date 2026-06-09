@@ -1462,3 +1462,94 @@ def fetch_recent_nightly_runs(
             break
 
     return runs
+
+
+def aggregate_recent_nightly_runs_from_dataframe(
+    df: pd.DataFrame,
+    *,
+    max_runs: int = 10,
+    date_range: Optional[Tuple[datetime, datetime]] = None,
+    min_test_threshold: int = 10,
+) -> List[NightlyRunSnapshot]:
+    """
+    Mirror :func:`fetch_recent_nightly_runs` using a loaded DataFrame for synthetic mode.
+
+    Identifies nightly runs by grouping tests by date and filtering days with sufficient
+    test volume. Returns up to max_runs most recent runs.
+
+    Args:
+        df: Benchmark DataFrame with 'timestamp', 'test_name', 'status' columns.
+        max_runs: Maximum number of recent runs to return (default 10).
+        date_range: Optional (start_date, end_date) tuple to filter results.
+        min_test_threshold: Minimum tests per day to qualify as a nightly run (default 10).
+
+    Returns:
+        List of NightlyRunSnapshot objects, sorted by timestamp descending (most recent first).
+    """
+    if df is None or df.empty or "timestamp" not in df.columns:
+        return []
+
+    # Apply date range filter if provided
+    filtered_df = df.copy()
+    if date_range is not None:
+        start_date, end_date = date_range
+        filtered_df = filtered_df[
+            (filtered_df["timestamp"] >= start_date)
+            & (filtered_df["timestamp"] <= end_date)
+        ]
+
+    if filtered_df.empty:
+        return []
+
+    # Extract date from timestamp
+    filtered_df["date"] = pd.to_datetime(filtered_df["timestamp"]).dt.date
+
+    # Group by date and calculate metrics
+    runs: List[NightlyRunSnapshot] = []
+    for date, group in filtered_df.groupby("date", sort=False):
+        test_count = len(group)
+
+        # Filter days with insufficient test volume
+        if test_count < min_test_threshold:
+            continue
+
+        # Calculate pass/fail counts
+        if "status" in group.columns:
+            pass_count = int((group["status"] == "PASS").sum())
+            fail_count = int((group["status"] == "FAIL").sum())
+        else:
+            pass_count = 0
+            fail_count = 0
+
+        # Calculate category breakdown
+        category_counts: Counter[str] = Counter()
+        if "test_name" in group.columns:
+            for test_name in group["test_name"].dropna():
+                category = category_for_test_name(str(test_name))
+                category_counts[category] += 1
+
+        category_breakdown = sorted(
+            category_counts.items(),
+            key=lambda x: (-x[1], x[0])
+        )
+
+        # Use max timestamp for the day as the run timestamp
+        max_timestamp = group["timestamp"].max()
+        if pd.isna(max_timestamp):
+            continue
+
+        runs.append(
+            NightlyRunSnapshot(
+                timestamp=pd.Timestamp(max_timestamp).to_pydatetime(),
+                test_count=test_count,
+                pass_count=pass_count,
+                fail_count=fail_count,
+                category_breakdown=category_breakdown,
+                source="synthetic",
+                error=None,
+            )
+        )
+
+    # Sort by timestamp descending and limit to max_runs
+    runs.sort(key=lambda r: r.timestamp, reverse=True)
+    return runs[:max_runs]

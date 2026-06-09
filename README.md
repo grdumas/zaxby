@@ -57,6 +57,15 @@ Required environment variables:
 Optional AI analysis:
 - `ANTHROPIC_API_KEY`: Optional — API key for AI-powered analysis features. Get from [Anthropic Console](https://console.anthropic.com/). If not set, AI analysis features are disabled but the dashboard works normally.
 
+Optional Track mode scheduler:
+- `TRACK_SCHEDULER_ENABLED`: Enable/disable automated baseline vs nightly comparisons (default: true)
+- `TRACK_SCHEDULER_HOUR`: Hour to run daily comparison in 24-hour format (default: 6)
+- `TRACK_SCHEDULER_MINUTE`: Minute to run comparison (default: 0)
+- `TRACK_BASELINE_ID`: Optional baseline identifier for scheduled runs
+- `TRACK_BASELINE_START_DATE`: Optional baseline start date (ISO format)
+- `TRACK_BASELINE_END_DATE`: Optional baseline end date (ISO format)
+- `TRACK_RESULTS_DIR`: Directory for storing results (default: ./track_results)
+
 ### 3. Run the Dashboard
 
 ```bash
@@ -188,11 +197,65 @@ Additional documentation:
 - **[PROJECT_BRIEF.md](PROJECT_BRIEF.md)**: Original project requirements and design
 - **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)**: Implementation status and achievements
 
+## Track Mode Scheduler
+
+The Track mode includes an automated scheduler for baseline vs nightly comparisons. The scheduler runs daily at a configurable time and persists results for quick retrieval.
+
+### Features
+
+- **Scheduled Execution**: Runs daily at configurable time (default: 6 AM local)
+- **Baseline Auto-Detection**: Automatically detects baseline from environment or uses last 7 days
+- **Result Persistence**: Stores comparison results as JSON for historical tracking
+- **Execution Logging**: Logs query metadata (timestamp, baseline_id, regression count)
+- **On-Demand Queries**: Manual trigger via UI button in Track mode
+- **Graceful Degradation**: Handles OpenSearch unavailability and missed runs
+
+### Configuration
+
+Configure the scheduler in your `.env` file:
+
+```bash
+# Enable/disable scheduler (default: true)
+TRACK_SCHEDULER_ENABLED=true
+
+# Schedule time (24-hour format, local time)
+TRACK_SCHEDULER_HOUR=6
+TRACK_SCHEDULER_MINUTE=0
+
+# Baseline configuration (optional, auto-detects if not set)
+TRACK_BASELINE_ID=rhel-9.5-baseline
+TRACK_BASELINE_START_DATE=2025-01-01T00:00:00
+TRACK_BASELINE_END_DATE=2025-01-31T23:59:59
+
+# Results directory
+TRACK_RESULTS_DIR=./track_results
+```
+
+### Usage
+
+**Automated Execution:**
+- Scheduler starts automatically when the app starts (if enabled)
+- Runs daily at configured time
+- Results stored in `track_results/` directory
+- Execution logs available in `track_results/execution_log.jsonl`
+
+**On-Demand Execution:**
+1. Navigate to Track mode in the dashboard
+2. Configure baseline and nightly date ranges
+3. Click "Run Comparison" button
+4. Results displayed immediately and persisted for future reference
+
+**Viewing Results:**
+- Latest results shown in Track mode UI
+- Historical results stored as JSON files: `comparison_{baseline_id}_{timestamp}.json`
+- Execution log tracks all runs with metadata
+
 ## Tech Stack
 
 - **Framework**: Python Dash 2.14+ with Plotly
 - **Data Source**: OpenSearch 3.x via opensearch-py
 - **Data Processing**: Pandas + NumPy
+- **Scheduler**: APScheduler for background job execution
 - **Testing**: pytest
 - **Grid Component**: dash-ag-grid
 

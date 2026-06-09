@@ -91,8 +91,20 @@ def create_track_mode_layout() -> html.Div:
                             "Run Comparison",
                             id="btn-run-track-comparison",
                             color="primary",
+                            className="mt-3 me-2"
+                        ),
+                        dbc.Button(
+                            "View Schedule Status",
+                            id="btn-view-schedule-status",
+                            color="secondary",
+                            outline=True,
                             className="mt-3"
                         ),
+                    ])
+                ]),
+                dbc.Row([
+                    dbc.Col([
+                        html.Div(id='track-scheduler-status', className="mt-3 small text-muted")
                     ])
                 ]),
             ])

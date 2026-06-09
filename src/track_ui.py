@@ -22,6 +22,19 @@ def create_track_mode_layout() -> html.Div:
         Div containing Track mode UI components.
     """
     return html.Div([
+        # Back Button
+        dbc.Row([
+            dbc.Col([
+                dbc.Button(
+                    "← Back to Overview",
+                    id="btn-back-to-overview-track",
+                    color="link",
+                    size="sm",
+                    className="mb-2"
+                ),
+            ])
+        ]),
+
         # Header
         dbc.Card([
             dbc.CardBody([

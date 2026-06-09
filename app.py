@@ -2317,11 +2317,12 @@ def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, 
 
 @app.callback(
     Output('navigation-state', 'data', allow_duplicate=True),
-    Input('btn-back-to-overview', 'n_clicks'),
+    [Input('btn-back-to-overview', 'n_clicks'),
+     Input('btn-back-to-overview-track', 'n_clicks')],
     prevent_initial_call=True
 )
-def handle_back_to_overview(n_clicks):
-    """Handle back to overview navigation."""
+def handle_back_to_overview(investigation_back, track_back):
+    """Handle back to overview navigation from investigation or track mode."""
     return {'view': 'overview', 'investigation_params': None}
 
 

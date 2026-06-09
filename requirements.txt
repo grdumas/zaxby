@@ -25,3 +25,6 @@ pytest-cov==4.1.0
 # AI Analysis (RPOPC-1016)
 anthropic>=0.39.0
 
+# Scheduler (RPOPC-1166)
+APScheduler>=3.10.0
+

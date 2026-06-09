@@ -4,13 +4,36 @@ A Python Dash dashboard for visualizing software performance benchmark results f
 
 ## Features
 
+### Analysis Modes
+
+- **Pulse Mode**: Executive dashboard for coverage and activity tracking
+  - Server-side aggregations for fast performance
+  - Total runs, reporting window, monthly trends
+  - Benchmark category mix and distribution
+  - No full data scroll required
+
+- **Track Mode**: Exception-oriented monitoring for CPT and release owners
+  - Baseline vs nightly comparison
+  - Focus on regressions, improvements, and missing benchmarks
+  - Automated daily scheduling with result persistence
+  - On-demand query execution
+  - See [Track Mode Guide](docs/guides/TRACK_MODE_GUIDE.md) for detailed workflow
+
+- **Investigate Mode**: Deep-dive analysis for specific benchmarks
+  - Detailed test-level comparisons
+  - Time series visualization
+  - Performance trend analysis
+
+### Core Capabilities
+
 - **Category Navigation**: Interactive drill-down from benchmark categories to individual tests with breadcrumb navigation
 - **Multi-axis Filtering**: Filter by OS version, hardware, benchmark type, and date range
 - **Performance Comparisons**: Side-by-side comparisons across configurations
-- **Regression Detection**: Visual identification of performance improvements and regressions
+- **Regression Detection**: Visual identification of performance improvements and regressions with configurable thresholds
 - **Time Series Analysis**: Track performance trends over time
 - **Dual Data Mode**: Works with live OpenSearch data and synthetic test data
-- **AI-Powered Analysis** ✨ NEW: Persona-based intelligent analysis with Claude AI
+- **Caching Layer**: Multi-backend caching (in-memory, Redis) with intelligent invalidation
+- **AI-Powered Analysis**: Persona-based intelligent analysis with Claude AI
   - Executive persona: Concise pass/fail verdicts with color-coded severity
   - Technical Lead persona: Trend analysis and bottleneck identification
   - Expert persona: Comprehensive deep-dive with detailed metrics
@@ -196,6 +219,60 @@ Additional documentation:
 - **[QUICKSTART.md](QUICKSTART.md)**: 5-minute quick start guide
 - **[PROJECT_BRIEF.md](PROJECT_BRIEF.md)**: Original project requirements and design
 - **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)**: Implementation status and achievements
+
+## Usage Examples
+
+### Pulse Mode - Executive Overview
+
+Navigate to Pulse mode for a high-level view of benchmark coverage and activity:
+
+1. View total benchmark runs and reporting window
+2. Check monthly activity trends
+3. Review benchmark category distribution
+4. Monitor overall health without loading full dataset
+
+**When to use:** Daily health checks, stakeholder reports, capacity planning
+
+### Track Mode - Regression Monitoring
+
+Use Track mode for continuous performance monitoring:
+
+**Daily Automated Workflow:**
+```bash
+# Configure in .env
+TRACK_SCHEDULER_ENABLED=true
+TRACK_SCHEDULER_HOUR=6  # 6 AM daily
+TRACK_BASELINE_ID=rhel-9.5-ga
+TRACK_BASELINE_START_DATE=2025-01-01T00:00:00
+TRACK_BASELINE_END_DATE=2025-01-31T23:59:59
+```
+
+**On-Demand Analysis:**
+1. Navigate to Track mode
+2. Set baseline date range (e.g., last month for GA release)
+3. Set nightly date range (e.g., yesterday's build)
+4. Click "Run Comparison"
+5. Review exceptions:
+   - Regressions: Performance decreased beyond threshold
+   - Improvements: Performance increased significantly
+   - Missing: Benchmarks not run in nightly
+   - New: Benchmarks added since baseline
+
+**When to use:** Pre-release validation, nightly build monitoring, performance gates
+
+See [Track Mode Guide](docs/guides/TRACK_MODE_GUIDE.md) for complete workflow documentation.
+
+### Investigate Mode - Deep Dive
+
+Use Investigate mode for detailed benchmark analysis:
+
+1. Navigate from regression in Track mode or bar chart in overview
+2. View detailed comparison across versions
+3. Analyze time series trends
+4. Compare performance characteristics
+5. Access OpenSearch Discover links for raw data
+
+**When to use:** Root cause analysis, performance debugging, optimization validation
 
 ## Track Mode Scheduler
 

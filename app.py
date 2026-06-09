@@ -45,6 +45,13 @@ from src.components.nightly_runs import create_nightly_runs_section
 from src.query_service import (
     fetch_recent_nightly_runs,
     aggregate_recent_nightly_runs_from_dataframe,
+    fetch_baseline_comparison_aggregates,
+    aggregate_baseline_comparison_from_dataframe,
+)
+from src.track_ui import (
+    create_track_mode_layout,
+    create_track_summary_metrics,
+    create_track_exception_table,
 )
 
 
@@ -882,7 +889,7 @@ def create_overview_layout():
                             outline=True,
                             className="w-100"
                         )
-                    ], width=4),
+                    ], width=3),
                     dbc.Col([
                         dbc.Button(
                             "Compare Configurations →",
@@ -891,7 +898,7 @@ def create_overview_layout():
                             outline=True,
                             className="w-100"
                         )
-                    ], width=4),
+                    ], width=3),
                     dbc.Col([
                         dbc.Button(
                             "View Detailed Table →",
@@ -900,7 +907,16 @@ def create_overview_layout():
                             outline=True,
                             className="w-100"
                         )
-                    ], width=4)
+                    ], width=3),
+                    dbc.Col([
+                        dbc.Button(
+                            "📊 Track Mode →",
+                            id="btn-track-mode",
+                            color="info",
+                            outline=True,
+                            className="w-100"
+                        )
+                    ], width=3)
                 ])
             ])
         ])
@@ -2225,6 +2241,8 @@ def render_main_content(nav_state):
             os_distribution=params.get('os_distribution', 'rhel'),
             benchmark_category=benchmark_category,
         )
+    elif nav_state['view'] == 'track':
+        return create_track_mode_layout()
     else:
         return create_overview_layout()
 
@@ -2236,12 +2254,13 @@ def render_main_content(nav_state):
      Input('q1-rhel10-graph', 'clickData'),
      Input('btn-view-benchmarks', 'n_clicks'),
      Input('btn-view-comparisons', 'n_clicks'),
-     Input('btn-view-table', 'n_clicks')],
+     Input('btn-view-table', 'n_clicks'),
+     Input('btn-track-mode', 'n_clicks')],
     [State('navigation-state', 'data'),
      State('analysis-results-store', 'data')],
     prevent_initial_call=True
 )
-def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, comparisons_click, table_click, current_nav, analysis_json):
+def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, comparisons_click, table_click, track_click, current_nav, analysis_json):
     """Handle navigation between views."""
     from dash import ctx
     
@@ -2287,7 +2306,11 @@ def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, 
             except Exception as e:
                 print(f"Error parsing bar chart click: {e}")
                 return current_nav
-    
+
+    # Track mode button
+    if trigger_id == 'btn-track-mode':
+        return {'view': 'track', 'investigation_params': None}
+
     # Other navigation buttons - stay on overview for now (future: navigate to specific tabs)
     return current_nav
 
@@ -2477,6 +2500,123 @@ def update_investigation_view(nav_state, filtered_data_json):
     )
 
     return summary_component, comparison_fig, timeline_fig, table_component
+
+
+# --- Track Mode Callbacks (RPOPC-1165) ---
+
+
+@app.callback(
+    [Output('track-summary-metrics', 'children'),
+     Output('track-exception-table', 'children')],
+    Input('btn-run-track-comparison', 'n_clicks'),
+    [State('track-baseline-date-range', 'start_date'),
+     State('track-baseline-date-range', 'end_date'),
+     State('track-baseline-id', 'value'),
+     State('track-nightly-date-range', 'start_date'),
+     State('track-nightly-date-range', 'end_date')],
+    prevent_initial_call=True
+)
+def run_track_comparison(
+    n_clicks,
+    baseline_start,
+    baseline_end,
+    baseline_id,
+    nightly_start,
+    nightly_end
+):
+    """
+    Run baseline vs nightly comparison and display results.
+
+    Fetches baseline and nightly data, calculates deltas, and shows
+    exception-oriented view (regressions, improvements, missing benchmarks).
+    """
+    from datetime import datetime
+
+    # Validate inputs
+    if not baseline_start or not baseline_end or not nightly_start or not nightly_end:
+        return (
+            dbc.Alert("Please select baseline and nightly date ranges", color="warning"),
+            html.P("Configure dates to run comparison", className="text-muted")
+        )
+
+    baseline_id = baseline_id or "manual-baseline"
+
+    # Run comparison based on data mode
+    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is None:
+        try:
+            client = BenchmarkDataSource()
+
+            # Build baseline filter by date range
+            baseline_filter = {
+                "range": {
+                    "metadata.test_timestamp": {
+                        "gte": baseline_start,
+                        "lte": baseline_end,
+                    }
+                }
+            }
+
+            # Nightly date range
+            nightly_date_range = (nightly_start, nightly_end)
+
+            # Fetch comparison
+            snapshot = fetch_baseline_comparison_aggregates(
+                client,
+                baseline_filter=baseline_filter,
+                nightly_date_range=nightly_date_range,
+                baseline_id=baseline_id,
+                max_regressions=50,
+                max_improvements=20,
+                max_missing=10,
+                max_added=10,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to fetch baseline comparison from OpenSearch: {exc}")
+            return (
+                dbc.Alert(f"Error: {exc}", color="danger"),
+                html.P("Comparison failed", className="text-muted")
+            )
+    else:
+        # Use synthetic data mode
+        try:
+            # Filter baseline data by date range
+            baseline_start_dt = datetime.fromisoformat(baseline_start.replace('Z', '+00:00'))
+            baseline_end_dt = datetime.fromisoformat(baseline_end.replace('Z', '+00:00'))
+            baseline_df = df[
+                (df['timestamp'] >= baseline_start_dt) &
+                (df['timestamp'] <= baseline_end_dt)
+            ]
+
+            # Filter nightly data by date range
+            nightly_start_dt = datetime.fromisoformat(nightly_start.replace('Z', '+00:00'))
+            nightly_end_dt = datetime.fromisoformat(nightly_end.replace('Z', '+00:00'))
+            nightly_df = df[
+                (df['timestamp'] >= nightly_start_dt) &
+                (df['timestamp'] <= nightly_end_dt)
+            ]
+
+            # Calculate comparison
+            snapshot = aggregate_baseline_comparison_from_dataframe(
+                baseline_df=baseline_df,
+                nightly_df=nightly_df,
+                baseline_id=baseline_id,
+                max_regressions=50,
+                max_improvements=20,
+                max_missing=10,
+                max_added=10,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to calculate baseline comparison from DataFrame: {exc}")
+            return (
+                dbc.Alert(f"Error: {exc}", color="danger"),
+                html.P("Comparison failed", className="text-muted")
+            )
+
+    # Render results
+    summary = create_track_summary_metrics(snapshot)
+    table = create_track_exception_table(snapshot)
+
+    return summary, table
 
 
 @app.callback(

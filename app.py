@@ -1271,8 +1271,22 @@ def parse_os_version_filters(os_vers):
     ]
 )
 def update_filtered_data(os_vers, inst_types, tests, clouds, start_date, end_date, statuses):
-    """Update the filtered dataset based on filter selections."""
-    
+    """Update the filtered dataset based on filter selections.
+
+    Invalidates relevant cache entries when filters change to prevent stale data.
+    """
+    from src.cache_service import get_cache_service
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Invalidate cache for all query types when filters change
+    # This ensures fresh data is loaded with the new filter criteria
+    cache_service = get_cache_service()
+    invalidated = cache_service.clear()
+    if invalidated:
+        logger.info("Cache cleared due to filter change")
+
     # Convert date strings to timezone-aware datetime objects
     date_range_param = None
     if start_date and end_date:
@@ -2261,8 +2275,15 @@ def render_main_content(nav_state):
     prevent_initial_call=True
 )
 def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, comparisons_click, table_click, track_click, current_nav, analysis_json):
-    """Handle navigation between views."""
+    """Handle navigation between views.
+
+    Invalidates mode-specific cache when switching between Pulse and Track modes.
+    """
     from dash import ctx
+    from src.cache_service import get_cache_service
+    import logging
+
+    logger = logging.getLogger(__name__)
     
     if not ctx.triggered:
         return current_nav
@@ -2309,6 +2330,10 @@ def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, 
 
     # Track mode button
     if trigger_id == 'btn-track-mode':
+        # Invalidate Pulse cache when switching to Track mode
+        cache_service = get_cache_service()
+        invalidated = cache_service.invalidate_by_mode('pulse')
+        logger.info(f"Switched to Track mode, invalidated {invalidated} Pulse cache entries")
         return {'view': 'track', 'investigation_params': None}
 
     # Other navigation buttons - stay on overview for now (future: navigate to specific tabs)
@@ -2322,7 +2347,20 @@ def handle_navigation(major_click, rhel9_click, rhel10_click, benchmarks_click, 
     prevent_initial_call=True
 )
 def handle_back_to_overview(investigation_back, track_back):
-    """Handle back to overview navigation from investigation or track mode."""
+    """Handle back to overview navigation from investigation or track mode.
+
+    Invalidates Track cache when returning to overview (Pulse mode).
+    """
+    from src.cache_service import get_cache_service
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Invalidate Track cache when returning to overview
+    cache_service = get_cache_service()
+    invalidated = cache_service.invalidate_by_mode('track')
+    logger.info(f"Returned to overview, invalidated {invalidated} Track cache entries")
+
     return {'view': 'overview', 'investigation_params': None}
 
 

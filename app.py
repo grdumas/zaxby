@@ -41,6 +41,11 @@ from src.components.summaries import (
     summarize_investigation_details,
     format_investigation_summary_text
 )
+from src.components.nightly_runs import create_nightly_runs_section
+from src.query_service import (
+    fetch_recent_nightly_runs,
+    aggregate_recent_nightly_runs_from_dataframe,
+)
 
 
 def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
@@ -327,6 +332,7 @@ def serve_layout():
             dcc.Store(id='filtered-data-store'),
             dcc.Store(id='analysis-results-store'),
             dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
+            dcc.Store(id='nightly-runs-store'),
 
             # Header
             dbc.Card([
@@ -555,6 +561,9 @@ def create_overview_layout():
 
         # AI Widget (RPOPC-1014)
         ai_widget.create_ai_widget(),
+
+        # Recent Nightly Runs (RPOPC-1207)
+        html.Div(id="nightly-runs-section"),
 
         dbc.Button(
             [
@@ -1066,6 +1075,20 @@ def toggle_section_cloud(n_clicks, is_open):
     return new_state, icon_class
 
 
+@app.callback(
+    [Output('collapse-nightly-runs', 'is_open'),
+     Output('icon-nightly-runs', 'className')],
+    Input('btn-toggle-nightly-runs', 'n_clicks'),
+    State('collapse-nightly-runs', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_nightly_runs(n_clicks, is_open):
+    """Toggle Recent Nightly Runs section."""
+    new_state = not is_open
+    icon_class = "bi bi-chevron-down me-2" if new_state else "bi bi-chevron-right me-2"
+    return new_state, icon_class
+
+
 # Callbacks for subsection toggles within RHEL Regression Analysis
 @app.callback(
     Output('collapse-major-release', 'is_open'),
@@ -1100,19 +1123,113 @@ def toggle_rhel10_seq(n_clicks, is_open):
     return not is_open
 
 
+@app.callback(
+    [Output('nightly-runs-store', 'data'),
+     Output('nightly-runs-section', 'children')],
+    [Input('header-date-range', 'start_date'),
+     Input('header-date-range', 'end_date')],
+)
+def update_nightly_runs(start_date, end_date):
+    """
+    Fetch nightly runs and populate both the store and the section.
+
+    Respects header date range filter. Uses OpenSearch or DataFrame aggregation
+    based on DATA_MODE.
+    """
+    from datetime import datetime
+    import json
+
+    # Parse date range
+    date_range = None
+    if start_date and end_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            date_range = (start_dt, end_dt)
+        except (ValueError, AttributeError):
+            date_range = None
+
+    # Fetch nightly runs based on data mode
+    if DATA_MODE == "opensearch" and OPENSEARCH_LOAD_ERROR is None:
+        try:
+            client = BenchmarkDataSource()
+            runs = fetch_recent_nightly_runs(client, max_runs=10, date_range=date_range)
+        except Exception as exc:
+            logger.error(f"Failed to fetch nightly runs from OpenSearch: {exc}")
+            runs = []
+    else:
+        # Use DataFrame aggregation for synthetic mode
+        runs = aggregate_recent_nightly_runs_from_dataframe(
+            df, max_runs=10, date_range=date_range
+        )
+
+    # Serialize runs for store
+    runs_data = [
+        {
+            'timestamp': run.timestamp.isoformat(),
+            'test_count': run.test_count,
+            'pass_count': run.pass_count,
+            'fail_count': run.fail_count,
+            'category_breakdown': run.category_breakdown,
+            'source': run.source,
+            'error': run.error,
+        }
+        for run in runs
+    ]
+
+    # Create section component
+    section = create_nightly_runs_section(runs)
+
+    return runs_data, section
+
+
+@app.callback(
+    Output('nightly-run-chart', 'figure'),
+    [Input('nightly-run-selector', 'value')],
+    [State('nightly-runs-store', 'data')],
+)
+def update_nightly_run_chart(selected_idx, runs_data):
+    """
+    Update category breakdown chart when user selects a different nightly run.
+    """
+    from src.components.nightly_runs import create_nightly_run_category_chart
+    from src.query_service import NightlyRunSnapshot
+    from datetime import datetime
+
+    if runs_data is None or selected_idx is None:
+        return create_nightly_run_category_chart(None)
+
+    if selected_idx >= len(runs_data):
+        return create_nightly_run_category_chart(None)
+
+    # Deserialize selected run
+    run_dict = runs_data[selected_idx]
+    run = NightlyRunSnapshot(
+        timestamp=datetime.fromisoformat(run_dict['timestamp']),
+        test_count=run_dict['test_count'],
+        pass_count=run_dict['pass_count'],
+        fail_count=run_dict['fail_count'],
+        category_breakdown=run_dict['category_breakdown'],
+        source=run_dict['source'],
+        error=run_dict.get('error'),
+    )
+
+    return create_nightly_run_category_chart(run)
+
+
 def parse_os_version_filters(os_vers):
     """
     Parse combined OS version filters in format 'distribution:version'.
-    
+
     Args:
         os_vers: List of combined values like ['rhel:9.5', 'ubuntu:22.04']
-        
+
     Returns:
         Set of (distribution, version) tuples for filtering
     """
     if not os_vers:
         return None
-    
+
     parsed = set()
     for val in os_vers:
         if ':' in str(val):
@@ -1121,7 +1238,7 @@ def parse_os_version_filters(os_vers):
         else:
             # Legacy format - just version, match any distribution
             parsed.add((None, val))
-    
+
     return parsed if parsed else None
 
 

@@ -13,17 +13,20 @@ from src.query_service import (
     RESULTS_ACTIVITY_TIMESTAMP_FIELD,
     ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
+    NightlyRunSnapshot,
     PulseScopeFootnote,
     ResultsOverviewSnapshot,
     aggregate_activity_timeline_from_dataframe,
     aggregate_category_kpis_from_dataframe,
     aggregate_pulse_scope_footnote_from_dataframe,
+    aggregate_recent_nightly_runs_from_dataframe,
     aggregate_results_overview_from_dataframe,
     build_results_monthly_activity_histogram_body,
     build_results_overview_aggregation_body,
     build_results_run_timestamp_stats_body,
     build_results_test_name_terms_aggregation_body,
     fetch_pulse_scope_footnote,
+    fetch_recent_nightly_runs,
     format_pulse_scope_footnote,
     fetch_results_activity_timeline,
     fetch_results_category_kpis,
@@ -983,3 +986,191 @@ def test_fetch_baseline_comparison_aggregates_error_handling():
     assert snap.error is not None
     assert "Connection failed" in snap.error
     assert len(snap.regressions) == 0
+
+
+# --- Recent Nightly Runs Tests (RPOPC-1207 / RPOPC-1212) --------------------------
+
+
+def test_nightly_run_snapshot_dataclass():
+    """Test NightlyRunSnapshot dataclass creation."""
+    from datetime import datetime, timezone
+
+    snap = NightlyRunSnapshot(
+        timestamp=datetime(2025, 5, 18, 10, 0, 0, tzinfo=timezone.utc),
+        test_count=100,
+        pass_count=95,
+        fail_count=5,
+        category_breakdown=[("CPU", 50), ("Memory", 30), ("I/O", 20)],
+        source="opensearch",
+        error=None,
+    )
+
+    assert snap.test_count == 100
+    assert snap.pass_count == 95
+    assert snap.fail_count == 5
+    assert len(snap.category_breakdown) == 3
+    assert snap.source == "opensearch"
+    assert snap.error is None
+
+
+def test_fetch_recent_nightly_runs_success():
+    """Test OpenSearch fetch for nightly runs."""
+    from datetime import datetime, timezone
+
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {
+            "runs_by_date": {
+                "buckets": [
+                    {
+                        "key": 1715774400000,  # 2024-05-15 12:00 UTC
+                        "doc_count": 50,
+                        "pass_count": {"doc_count": 45},
+                        "fail_count": {"doc_count": 5},
+                        "by_test_name": {
+                            "buckets": [
+                                {"key": "coremark", "doc_count": 25},
+                                {"key": "streams", "doc_count": 25},
+                            ]
+                        },
+                    },
+                    {
+                        "key": 1715688000000,  # 2024-05-14 12:00 UTC
+                        "doc_count": 40,
+                        "pass_count": {"doc_count": 38},
+                        "fail_count": {"doc_count": 2},
+                        "by_test_name": {
+                            "buckets": [
+                                {"key": "coremark", "doc_count": 20},
+                                {"key": "pyperf", "doc_count": 20},
+                            ]
+                        },
+                    },
+                ]
+            }
+        }
+    }
+
+    runs = fetch_recent_nightly_runs(mock_client, max_runs=10)
+
+    assert len(runs) == 2
+    assert all(isinstance(r, NightlyRunSnapshot) for r in runs)
+    assert runs[0].test_count == 50
+    assert runs[0].pass_count == 45
+    assert runs[0].fail_count == 5
+    assert runs[0].source == "opensearch"
+    assert len(runs[0].category_breakdown) > 0
+    mock_client.search_results.assert_called_once()
+
+
+def test_fetch_recent_nightly_runs_with_threshold():
+    """Test nightly runs fetch filters low-volume days."""
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {
+            "runs_by_date": {
+                "buckets": [
+                    {
+                        "key": 1715774400000,
+                        "doc_count": 5,  # Below threshold
+                        "pass_count": {"doc_count": 5},
+                        "fail_count": {"doc_count": 0},
+                        "by_test_name": {"buckets": []},
+                    },
+                    {
+                        "key": 1715688000000,
+                        "doc_count": 50,  # Above threshold
+                        "pass_count": {"doc_count": 45},
+                        "fail_count": {"doc_count": 5},
+                        "by_test_name": {
+                            "buckets": [{"key": "coremark", "doc_count": 50}]
+                        },
+                    },
+                ]
+            }
+        }
+    }
+
+    runs = fetch_recent_nightly_runs(mock_client, min_test_threshold=10)
+
+    # Should only include the day with 50 tests (above threshold of 10)
+    assert len(runs) == 1
+    assert runs[0].test_count == 50
+
+
+def test_fetch_recent_nightly_runs_empty():
+    """Test nightly runs fetch with no qualifying runs."""
+    mock_client = MagicMock()
+    mock_client.search_results.return_value = {
+        "aggregations": {"runs_by_date": {"buckets": []}}
+    }
+
+    runs = fetch_recent_nightly_runs(mock_client)
+
+    assert runs == []
+
+
+def test_fetch_recent_nightly_runs_error_handling():
+    """Test error handling in nightly runs fetch."""
+    mock_client = MagicMock()
+    mock_client.search_results.side_effect = RuntimeError("Connection failed")
+
+    runs = fetch_recent_nightly_runs(mock_client)
+
+    assert runs == []
+
+
+def test_aggregate_recent_nightly_runs_from_dataframe():
+    """Test DataFrame aggregation for nightly runs."""
+    df = pd.DataFrame({
+        "timestamp": pd.to_datetime([
+            "2025-05-18 10:00:00", "2025-05-18 11:00:00", "2025-05-18 12:00:00",
+            "2025-05-17 10:00:00", "2025-05-17 11:00:00",
+            "2025-05-16 10:00:00",  # Single test day (below threshold)
+        ], utc=True),
+        "test_name": ["coremark", "streams", "pyperf", "coremark", "streams", "coremark"],
+        "status": ["PASS", "PASS", "FAIL", "PASS", "PASS", "PASS"],
+    })
+
+    runs = aggregate_recent_nightly_runs_from_dataframe(df, max_runs=10, min_test_threshold=2)
+
+    assert len(runs) == 2  # Only days with >= 2 tests
+    assert all(isinstance(r, NightlyRunSnapshot) for r in runs)
+    assert runs[0].timestamp.date().isoformat() == "2025-05-18"
+    assert runs[0].test_count == 3
+    assert runs[0].pass_count == 2
+    assert runs[0].fail_count == 1
+    assert runs[0].source == "synthetic"
+    assert len(runs[0].category_breakdown) > 0
+
+
+def test_aggregate_recent_nightly_runs_empty():
+    """Test DataFrame aggregation with empty DataFrame."""
+    runs = aggregate_recent_nightly_runs_from_dataframe(pd.DataFrame())
+
+    assert runs == []
+
+
+def test_aggregate_recent_nightly_runs_with_date_range():
+    """Test DataFrame aggregation respects date range filter."""
+    from datetime import datetime, timezone
+
+    df = pd.DataFrame({
+        "timestamp": pd.to_datetime([
+            "2025-05-18 10:00:00", "2025-05-18 11:00:00",
+            "2025-05-01 10:00:00", "2025-05-01 11:00:00",
+        ], utc=True),
+        "test_name": ["coremark", "streams", "coremark", "streams"],
+        "status": ["PASS", "PASS", "PASS", "PASS"],
+    })
+
+    date_range = (
+        datetime(2025, 5, 15, tzinfo=timezone.utc),
+        datetime(2025, 5, 20, tzinfo=timezone.utc),
+    )
+
+    runs = aggregate_recent_nightly_runs_from_dataframe(df, date_range=date_range)
+
+    # Should only include May 18 (within range), not May 1
+    assert len(runs) == 1
+    assert runs[0].timestamp.date().isoformat() == "2025-05-18"

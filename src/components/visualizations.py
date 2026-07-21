@@ -338,10 +338,10 @@ def create_box_plot(
         
         # Update each facet to have independent y-axis
         fig.update_yaxes(matches=None, showticklabels=True)
-        
+
         fig.update_layout(
             height=500,
-            showlegend=True
+            showlegend=False  # Legend is redundant with facet labels
         )
     else:
         fig = px.box(

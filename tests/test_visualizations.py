@@ -113,7 +113,11 @@ def test_create_cloud_scaling_chart_custom_title(scaling_data_with_cores):
 def test_create_cloud_scaling_chart_sorts_instances_by_cores(scaling_data_with_cores):
     """Test that instances are sorted by CPU cores in visualization (Acceptance Criterion 1)."""
     # Shuffle data to verify sorting works
-    shuffled_data = scaling_data_with_cores.sample(frac=1, random_state=42).reset_index(drop=True)
+    shuffled_data = (
+        scaling_data_with_cores
+        .sample(frac=1, random_state=42)
+        .reset_index(drop=True)
+    )
 
     fig = create_cloud_scaling_chart(shuffled_data)
 

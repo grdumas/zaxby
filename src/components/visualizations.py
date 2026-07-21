@@ -162,7 +162,8 @@ def create_time_series_chart(
     y_col: str = 'primary_metric_value',
     color_col: Optional[str] = 'test_name',
     title: str = "Performance Trends Over Time",
-    use_facets: bool = False
+    use_facets: bool = False,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a time series line chart.
@@ -385,7 +386,8 @@ def create_box_plot(
     y_col: str = 'primary_metric_value',
     color_col: Optional[str] = None,
     title: str = "Performance Distribution",
-    use_facets: bool = False
+    use_facets: bool = False,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a box plot showing distribution of performance metrics.
@@ -478,7 +480,8 @@ def create_scatter_plot(
     color_col: Optional[str] = None,
     size_col: Optional[str] = None,
     hover_data: Optional[List[str]] = None,
-    title: str = "Performance Scatter Plot"
+    title: str = "Performance Scatter Plot",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a scatter plot for exploring relationships.
@@ -629,7 +632,8 @@ def create_performance_delta_chart(
 def create_metrics_table(
     df: pd.DataFrame,
     columns: Optional[List[str]] = None,
-    title: str = "Detailed Metrics"
+    title: str = "Detailed Metrics",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a table visualization for detailed metrics.
@@ -1162,7 +1166,8 @@ def create_version_comparison_bar_chart(
 def create_peer_os_comparison_chart(
     comparison_df: pd.DataFrame,
     baseline_os: str = "RHEL",
-    title: str = "RHEL vs Peer Operating Systems"
+    title: str = "RHEL vs Peer Operating Systems",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a grouped bar chart comparing RHEL against peer OSes.
@@ -1304,7 +1309,8 @@ def create_peer_os_comparison_chart(
 
 def create_cloud_scaling_chart(
     scaling_df: pd.DataFrame,
-    title: str = "Performance Scaling Across Instance Sizes"
+    title: str = "Performance Scaling Across Instance Sizes",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a line chart showing how performance scales with instance size.
@@ -1589,7 +1595,8 @@ def create_investigation_detail_chart(
     comparison_df: pd.DataFrame,
     test_name: str,
     baseline_label: str,
-    comparison_label: str
+    comparison_label: str,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a detailed comparison chart for investigation drill-down.
@@ -1638,7 +1645,8 @@ def create_investigation_detail_chart(
 def create_category_benchmark_detail_chart(
     comparison_df: pd.DataFrame,
     category: str,
-    baseline_os: str = "RHEL"
+    baseline_os: str = "RHEL",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a horizontal bar chart showing individual benchmark performance within a category.
@@ -1731,7 +1739,8 @@ def create_category_benchmark_detail_chart(
 def create_category_hardware_heatmap(
     comparison_df: pd.DataFrame,
     category: str,
-    baseline_os: str = "RHEL"
+    baseline_os: str = "RHEL",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a heatmap showing benchmark × hardware performance matrix.

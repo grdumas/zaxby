@@ -5,7 +5,16 @@ Tests for visualization components.
 import pytest
 import pandas as pd
 import plotly.graph_objects as go
-from src.components.visualizations import create_cloud_scaling_chart
+from src.components.visualizations import (
+    create_cloud_scaling_chart,
+    create_comparison_chart,
+    create_box_plot,
+    create_scatter_plot,
+    create_heatmap,
+    create_regression_heatmap,
+    create_time_series_chart,
+    LEGEND_RIGHT_MARGIN
+)
 
 
 @pytest.fixture
@@ -390,3 +399,798 @@ def test_create_cloud_scaling_chart_handles_nan_memory_values():
     # Second and third instances should NOT have memory info
     assert "Memory:" not in trace.customdata[1] or " GB" not in trace.customdata[1]
     assert "Memory:" not in trace.customdata[2] or " GB" not in trace.customdata[2]
+
+
+@pytest.fixture
+def comparison_data():
+    """Sample comparison data for baseline vs comparison charts."""
+    return pd.DataFrame([
+        {
+            "test_name": "coremark",
+            "baseline_mean": 100000.0,
+            "baseline_std": 1000.0,
+            "comparison_mean": 105000.0,
+            "comparison_std": 1500.0
+        },
+        {
+            "test_name": "streams",
+            "baseline_mean": 50000.0,
+            "baseline_std": 500.0,
+            "comparison_mean": 48000.0,
+            "comparison_std": 600.0
+        },
+        {
+            "test_name": "iperf",
+            "baseline_mean": 8500.0,
+            "baseline_std": 100.0,
+            "comparison_mean": 8700.0,
+            "comparison_std": 150.0
+        }
+    ])
+
+
+def test_create_comparison_chart_has_legend(comparison_data):
+    """Test that comparison chart has a visible legend explaining colors."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Chart should have legend enabled
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+
+    # Should have legend configuration
+    assert hasattr(fig.layout, 'legend'), "Chart should have legend config"
+
+
+def test_create_comparison_chart_legend_positioned_consistently(comparison_data):
+    """Test that legend is positioned at bottom (consistent positioning)."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Legend should be positioned at bottom with horizontal orientation
+    assert fig.layout.legend.orientation == 'h', "Legend should be horizontal"
+    assert fig.layout.legend.yanchor == 'top', "Legend should be anchored to top"
+    assert fig.layout.legend.y < 0, "Legend should be below chart (y < 0)"
+
+
+def test_create_comparison_chart_legend_explains_colors(comparison_data):
+    """Test that legend trace names explain what baseline/comparison colors mean."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Should have two traces: Baseline and Comparison
+    assert len(fig.data) == 2, "Should have two traces"
+
+    trace_names = [trace.name for trace in fig.data]
+    assert 'Baseline' in trace_names, "Should have Baseline trace"
+    assert 'Comparison' in trace_names, "Should have Comparison trace"
+
+
+def test_create_comparison_chart_legend_does_not_obscure_data(comparison_data):
+    """Test that legend positioning doesn't obscure chart data."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Legend should be outside plot area (below it)
+    # This is ensured by y < 0 which places it below the plot
+    assert fig.layout.legend.y < 0, "Legend should be positioned below chart to avoid obscuring data"
+
+    # Chart should have bottom margin to accommodate legend
+    assert fig.layout.margin.b >= 80, "Chart should have bottom margin for legend"
+
+
+@pytest.fixture
+def box_plot_data_with_color():
+    """Sample data for box plot with color grouping."""
+    return pd.DataFrame([
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 100000},
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 102000},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 105000},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 107000},
+        {"test_name": "streams", "os_version": "RHEL 9.0", "primary_metric_value": 50000},
+        {"test_name": "streams", "os_version": "RHEL 9.0", "primary_metric_value": 51000},
+        {"test_name": "streams", "os_version": "RHEL 9.1", "primary_metric_value": 52000},
+        {"test_name": "streams", "os_version": "RHEL 9.1", "primary_metric_value": 53000},
+    ])
+
+
+def test_create_box_plot_with_color_has_legend(box_plot_data_with_color):
+    """Test that box plot with color grouping has visible legend."""
+    fig = create_box_plot(
+        box_plot_data_with_color,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version'
+    )
+
+    # Legend should be visible when color_col is used
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+    assert hasattr(fig.layout, 'legend'), "Chart should have legend config"
+
+
+def test_create_box_plot_legend_positioned_at_bottom(box_plot_data_with_color):
+    """Test that box plot legend is positioned consistently at bottom."""
+    fig = create_box_plot(
+        box_plot_data_with_color,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version'
+    )
+
+    # Legend should be horizontal at bottom
+    assert fig.layout.legend.orientation == 'h', "Legend should be horizontal"
+    assert fig.layout.legend.yanchor == 'top', "Legend should anchor to top"
+    assert fig.layout.legend.y < 0, "Legend should be below chart"
+
+
+def test_create_box_plot_legend_explains_color_groups(box_plot_data_with_color):
+    """Test that legend explains what color groups represent."""
+    fig = create_box_plot(
+        box_plot_data_with_color,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version'
+    )
+
+    # Should have traces for each OS version
+    trace_names = [trace.name for trace in fig.data]
+    assert any("RHEL 9.0" in name for name in trace_names), "Should have RHEL 9.0 in legend"
+    assert any("RHEL 9.1" in name for name in trace_names), "Should have RHEL 9.1 in legend"
+
+
+def test_create_box_plot_without_color_has_no_legend():
+    """Test that box plot without color grouping doesn't need legend."""
+    data = pd.DataFrame([
+        {"test_name": "coremark", "primary_metric_value": 100000},
+        {"test_name": "coremark", "primary_metric_value": 102000},
+        {"test_name": "streams", "primary_metric_value": 50000},
+        {"test_name": "streams", "primary_metric_value": 51000},
+    ])
+
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col=None
+    )
+
+    # No color grouping, so legend can be hidden
+    # (Not required, but acceptable to show trace names)
+    assert isinstance(fig, go.Figure), "Should create valid figure"
+
+
+def test_faceted_box_plot_hides_legend_when_no_color():
+    """Test that faceted box plots hide legend when color_col is None (redundant).
+
+    When faceting without color grouping, the facet labels already identify each
+    group, making the legend redundant.
+    """
+    # Create data with multiple test names, no color grouping
+    data = pd.DataFrame([
+        {"test_name": "coremark", "primary_metric_value": 100000.0},
+        {"test_name": "coremark", "primary_metric_value": 102000.0},
+        {"test_name": "streams", "primary_metric_value": 50000.0},
+        {"test_name": "streams", "primary_metric_value": 51000.0},
+    ])
+
+    # Create faceted box plot WITHOUT color grouping
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col=None,
+        use_facets=True
+    )
+
+    # Legend should be disabled because facet labels already identify test names
+    assert fig.layout.showlegend is False, (
+        "Faceted box plots without color grouping should hide legend "
+        "(redundant with facet labels)"
+    )
+
+
+def test_faceted_box_plot_shows_legend_when_color_differs_from_facet():
+    """Test that faceted box plots show legend when color represents different dimension.
+
+    When color_col represents a different grouping variable than the facet variable,
+    the legend is needed to explain what the colors represent. Facet labels only
+    identify the facet dimension, not the color dimension.
+    """
+    # Create data with faceting by test_name and coloring by config
+    data = pd.DataFrame([
+        {"test_name": "coremark", "config": "baseline", "primary_metric_value": 100000.0},
+        {"test_name": "coremark", "config": "baseline", "primary_metric_value": 102000.0},
+        {"test_name": "coremark", "config": "optimized", "primary_metric_value": 120000.0},
+        {"test_name": "coremark", "config": "optimized", "primary_metric_value": 122000.0},
+        {"test_name": "streams", "config": "baseline", "primary_metric_value": 50000.0},
+        {"test_name": "streams", "config": "baseline", "primary_metric_value": 51000.0},
+        {"test_name": "streams", "config": "optimized", "primary_metric_value": 55000.0},
+        {"test_name": "streams", "config": "optimized", "primary_metric_value": 56000.0},
+    ])
+
+    # Create faceted box plot with color representing different dimension
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='config',  # Different from facet variable
+        use_facets=True
+    )
+
+    # Legend should be shown because colors represent a different dimension (config)
+    # that's not captured by facet labels
+    assert fig.layout.showlegend is not False, (
+        "Faceted box plots should show legend when color_col represents "
+        "a different dimension than the facet variable"
+    )
+
+
+def test_faceted_box_plot_legend_positioned_when_shown():
+    """Test that legend is positioned consistently when shown in faceted box plots."""
+    # Create data with faceting and color representing different dimensions
+    data = pd.DataFrame([
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 100000.0},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 105000.0},
+        {"test_name": "streams", "os_version": "RHEL 9.0", "primary_metric_value": 50000.0},
+        {"test_name": "streams", "os_version": "RHEL 9.1", "primary_metric_value": 52000.0},
+    ])
+
+    # Create faceted box plot with color grouping
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version',  # Different dimension
+        use_facets=True
+    )
+
+    # When legend is shown, it should use consistent positioning (horizontal bottom)
+    if fig.layout.showlegend is not False:
+        legend = fig.layout.legend
+        assert legend is not None, "Legend config should exist when showlegend is True"
+        assert legend.orientation == 'h', "Legend should be horizontal"
+        assert legend.yanchor == 'top', "Legend should anchor to top"
+        assert legend.y < 0, "Legend should be below chart"
+
+
+@pytest.fixture
+def scatter_plot_data():
+    """Sample data for scatter plots."""
+    return pd.DataFrame([
+        {"cpu_cores": 4, "performance": 100000, "instance_type": "c2-standard-4", "cost": 150},
+        {"cpu_cores": 8, "performance": 195000, "instance_type": "c2-standard-8", "cost": 300},
+        {"cpu_cores": 16, "performance": 380000, "instance_type": "c2-standard-16", "cost": 600},
+        {"cpu_cores": 4, "performance": 98000, "instance_type": "n2-standard-4", "cost": 140},
+        {"cpu_cores": 8, "performance": 190000, "instance_type": "n2-standard-8", "cost": 280},
+        {"cpu_cores": 16, "performance": 370000, "instance_type": "n2-standard-16", "cost": 560},
+    ])
+
+
+def test_create_scatter_plot_with_color_has_legend(scatter_plot_data):
+    """Test that scatter plot with color grouping has visible legend."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Legend should be visible when color_col is used
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+    assert hasattr(fig.layout, 'legend'), "Chart should have legend config"
+
+
+def test_create_scatter_plot_legend_positioned_right(scatter_plot_data):
+    """Test that scatter plot legend is positioned on right side."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Legend should be vertical on right side (better for scatter plots)
+    assert fig.layout.legend.orientation == 'v', "Legend should be vertical"
+    assert fig.layout.legend.xanchor == 'left', "Legend should anchor to left"
+    assert fig.layout.legend.x > 1.0, "Legend should be to right of chart"
+
+
+def test_create_scatter_plot_legend_explains_colors(scatter_plot_data):
+    """Test that legend explains what colors represent."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Should have traces for each instance type
+    trace_names = [trace.name for trace in fig.data]
+    assert 'c2-standard-4' in trace_names or 'instance_type=c2-standard-4' in str(trace_names)
+
+
+def test_create_scatter_plot_with_size_has_legend(scatter_plot_data):
+    """Test that scatter plot with size encoding has legend for both color and size."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type',
+        size_col='cost'
+    )
+
+    # Legend should be visible
+    assert fig.layout.showlegend is not False, "Legend should be visible for color/size"
+
+
+def test_create_scatter_plot_legend_does_not_obscure_data(scatter_plot_data):
+    """Test that legend is positioned outside plot area."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Legend should be positioned to right (x > 1) to avoid obscuring data
+    assert fig.layout.legend.x > 1.0, "Legend should be outside plot area"
+
+    # Chart should have right margin for legend
+    assert fig.layout.margin.r >= 150, "Chart should have right margin for legend"
+
+
+def test_create_scatter_plot_with_only_size_has_minimal_margin(scatter_plot_data):
+    """Test that scatter plot with ONLY size encoding uses minimal right margin.
+
+    When only size_col is set (no color_col), Plotly doesn't create a discrete
+    legend that needs 200px of space. The margin should be minimal (default).
+    """
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        size_col='cost'
+    )
+
+    # Should NOT have large right margin when only size is used
+    # Verify that code did NOT set the right margin to LEGEND_RIGHT_MARGIN
+    margin_r = fig.layout.margin.r
+    assert margin_r != LEGEND_RIGHT_MARGIN, \
+        f"Right margin should not be set to LEGEND_RIGHT_MARGIN without color legend, got {margin_r}"
+
+
+def test_create_scatter_plot_empty_string_color_col_behaves_like_none(scatter_plot_data):
+    """Test that color_col='' (empty string) behaves like color_col=None.
+
+    This defends against UI passing empty strings instead of None, which could
+    crash Plotly Express. Empty string should be normalized to None.
+    """
+    # Create scatter plot with empty string color_col
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col=""
+    )
+
+    # Chart should be created successfully (no crash)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+    # Should NOT have large right margin (same behavior as color_col=None)
+    margin_r = fig.layout.margin.r
+    assert margin_r != LEGEND_RIGHT_MARGIN, \
+        f"Empty string color_col should not trigger large right margin, got {margin_r}"
+
+
+def test_create_scatter_plot_with_color_has_large_margin(scatter_plot_data):
+    """Test that scatter plot with color encoding has large right margin for discrete legend."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Should have large right margin for discrete color legend
+    assert fig.layout.margin.r == LEGEND_RIGHT_MARGIN, \
+        f"Chart with color legend should have right margin set to LEGEND_RIGHT_MARGIN ({LEGEND_RIGHT_MARGIN}), got {fig.layout.margin.r}"
+
+
+@pytest.fixture
+def heatmap_data():
+    """Sample data for heatmap."""
+    return pd.DataFrame([
+        {"os_version": "RHEL 9.0", "instance_type": "c2-standard-4", "primary_metric_value": 100000},
+        {"os_version": "RHEL 9.0", "instance_type": "c2-standard-8", "primary_metric_value": 195000},
+        {"os_version": "RHEL 9.1", "instance_type": "c2-standard-4", "primary_metric_value": 105000},
+        {"os_version": "RHEL 9.1", "instance_type": "c2-standard-8", "primary_metric_value": 200000},
+        {"os_version": "RHEL 9.2", "instance_type": "c2-standard-4", "primary_metric_value": 103000},
+        {"os_version": "RHEL 9.2", "instance_type": "c2-standard-8", "primary_metric_value": 198000},
+    ])
+
+
+def test_create_heatmap_has_colorbar(heatmap_data):
+    """Test that heatmap has colorbar legend."""
+    fig = create_heatmap(heatmap_data)
+
+    # Heatmap should have a colorbar (Plotly heatmaps have this by default)
+    assert len(fig.data) > 0, "Heatmap should have data"
+    assert hasattr(fig.data[0], 'colorbar'), "Heatmap should have colorbar"
+
+
+def test_create_heatmap_has_help_annotation(heatmap_data):
+    """Test that heatmap has help annotation explaining how to read it."""
+    fig = create_heatmap(heatmap_data)
+
+    # Should have at least one annotation with help text
+    assert len(fig.layout.annotations) > 0, "Heatmap should have help annotations"
+
+    # Check that annotation contains helpful context
+    annotation_texts = [ann.text.lower() for ann in fig.layout.annotations]
+    has_help_text = any(
+        'color' in text or 'red' in text or 'green' in text or 'performance' in text
+        for text in annotation_texts
+    )
+    assert has_help_text, "Annotation should provide context about color meaning"
+
+
+def test_create_heatmap_annotation_positioned_clearly(heatmap_data):
+    """Test that help annotation is positioned to not obscure data."""
+    fig = create_heatmap(heatmap_data)
+
+    # Annotations should be positioned outside main plot area or in corner
+    has_outside_annotation = False
+    for ann in fig.layout.annotations:
+        # Check that annotation uses paper coordinates (relative positioning)
+        # and is positioned in a corner or edge
+        if hasattr(ann, 'xref') and ann.xref == 'paper':
+            # Should be in corner (x near 0 or 1, y near 0 or 1)
+            is_in_corner = (
+                (ann.x <= 0.1 or ann.x >= 0.9) or
+                (ann.y <= 0.1 or ann.y >= 0.9)
+            )
+            # At least some annotations should be positioned clearly
+            # (This is a soft check - we just want to verify positioning is considered)
+            if ann.x > 1.0:
+                has_outside_annotation = True
+
+    # At least one annotation should be positioned outside plot area (x > 1.0)
+    assert has_outside_annotation, "At least one annotation should be positioned outside plot area (x > 1.0)"
+
+    # Chart should have right margin for annotation positioned outside
+    assert fig.layout.margin.r is not None and fig.layout.margin.r >= 180, "Chart should have right margin for annotation"
+
+
+def test_create_heatmap_colorbar_has_title(heatmap_data):
+    """Test that colorbar has a descriptive title."""
+    fig = create_heatmap(heatmap_data)
+
+    # Colorbar should have a title
+    colorbar = fig.data[0].colorbar
+    assert hasattr(colorbar, 'title'), "Colorbar should have title config"
+    assert colorbar.title.text is not None, "Colorbar title should not be empty"
+
+
+@pytest.fixture
+def regression_heatmap_data():
+    """Sample data for regression heatmap (percent changes)."""
+    data = {
+        '9.0→9.1': [5.2, -3.1, 1.8],
+        '9.1→9.2': [-2.5, 4.3, 0.9],
+        '9.2→9.3': [7.8, -5.2, 2.1]
+    }
+    return pd.DataFrame(data, index=['coremark', 'streams', 'iperf'])
+
+
+def test_create_regression_heatmap_has_colorbar(regression_heatmap_data):
+    """Test that regression heatmap has colorbar."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have colorbar
+    assert len(fig.data) > 0, "Heatmap should have data"
+    assert hasattr(fig.data[0], 'colorbar'), "Should have colorbar"
+
+
+def test_create_regression_heatmap_has_help_annotation(regression_heatmap_data):
+    """Test that regression heatmap has help annotation explaining color scale."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have help annotation
+    assert len(fig.layout.annotations) > 0, "Should have help annotations"
+
+    # Check for color explanation
+    annotation_texts = [ann.text.lower() for ann in fig.layout.annotations]
+    has_color_help = any(
+        'red' in text or 'green' in text or 'regression' in text or 'improvement' in text
+        for text in annotation_texts
+    )
+    assert has_color_help, "Annotation should explain red/green color meaning"
+
+
+def test_create_regression_heatmap_annotation_positioned_clearly(regression_heatmap_data):
+    """Test that annotation is positioned outside plot area with proper margin."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have at least one annotation positioned outside the right edge
+    assert len(fig.layout.annotations) > 0, "Should have help annotations"
+
+    # At least one annotation should be positioned to the right (x > 1.0) using paper coordinates
+    annotations_outside_right = [
+        ann for ann in fig.layout.annotations
+        if hasattr(ann, 'xref') and ann.xref == 'paper' and ann.x > 1.0
+    ]
+    assert len(annotations_outside_right) > 0, \
+        "At least one annotation should be positioned outside right edge (xref='paper', x > 1.0)"
+
+    # Chart should have right margin to accommodate the annotation
+    assert fig.layout.margin.r >= 180, \
+        "Chart should have right margin >= 180 to prevent annotation clipping"
+
+
+def test_create_heatmap_colorbar_positioned_explicitly(heatmap_data):
+    """Test that heatmap colorbar has explicit positioning to avoid overlap with help annotation."""
+    fig = create_heatmap(heatmap_data)
+
+    # Colorbar should have explicit positioning
+    colorbar = fig.data[0].colorbar
+    assert hasattr(colorbar, 'x'), "Colorbar should have explicit x position"
+    assert colorbar.x is not None, "Colorbar x position should be set"
+    assert hasattr(colorbar, 'xanchor'), "Colorbar should have xanchor"
+    assert colorbar.xanchor == 'left', "Colorbar should be anchored to left edge"
+
+
+def test_create_heatmap_annotation_avoids_colorbar_collision(heatmap_data):
+    """Test that help annotation is positioned to not overlap with colorbar."""
+    fig = create_heatmap(heatmap_data)
+
+    # Get colorbar position
+    colorbar = fig.data[0].colorbar
+    colorbar_x = colorbar.x if hasattr(colorbar, 'x') and colorbar.x is not None else 1.02
+
+    # Get help annotation position
+    help_annotations = [
+        ann for ann in fig.layout.annotations
+        if hasattr(ann, 'xref') and ann.xref == 'paper' and ann.x > 1.0
+    ]
+    assert len(help_annotations) > 0, "Should have help annotation positioned outside plot"
+
+    help_ann = help_annotations[0]
+
+    # Help annotation should either:
+    # 1. Be positioned further right than colorbar (with sufficient gap), OR
+    # 2. Use xshift to move away from colorbar position
+    if hasattr(help_ann, 'xshift') and help_ann.xshift is not None:
+        # If using xshift, the shift should be significant enough to avoid overlap
+        assert abs(help_ann.xshift) >= 80, \
+            f"Help annotation should use xshift >= 80 to avoid colorbar, got {help_ann.xshift}"
+    else:
+        # If not using xshift, x position should be sufficiently different
+        x_gap = abs(help_ann.x - colorbar_x)
+        assert x_gap >= 0.15, \
+            f"Help annotation x position should be at least 0.15 away from colorbar, got gap={x_gap:.3f}"
+
+
+def test_create_regression_heatmap_colorbar_positioned_explicitly(regression_heatmap_data):
+    """Test that regression heatmap colorbar has explicit positioning."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Colorbar should have explicit positioning
+    colorbar = fig.data[0].colorbar
+    assert hasattr(colorbar, 'x'), "Colorbar should have explicit x position"
+    assert colorbar.x is not None, "Colorbar x position should be set"
+    assert hasattr(colorbar, 'xanchor'), "Colorbar should have xanchor"
+    assert colorbar.xanchor == 'left', "Colorbar should be anchored to left edge"
+
+
+def test_create_regression_heatmap_annotation_avoids_colorbar_collision(regression_heatmap_data):
+    """Test that regression heatmap help annotation avoids colorbar collision."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Get colorbar position
+    colorbar = fig.data[0].colorbar
+    colorbar_x = colorbar.x if hasattr(colorbar, 'x') and colorbar.x is not None else 1.02
+
+    # Get help annotation position
+    help_annotations = [
+        ann for ann in fig.layout.annotations
+        if hasattr(ann, 'xref') and ann.xref == 'paper' and ann.x > 1.0
+    ]
+    assert len(help_annotations) > 0, "Should have help annotation positioned outside plot"
+
+    help_ann = help_annotations[0]
+
+    # Help annotation should either use xshift or be positioned with sufficient gap
+    if hasattr(help_ann, 'xshift') and help_ann.xshift is not None:
+        assert abs(help_ann.xshift) >= 80, \
+            f"Help annotation should use xshift >= 80 to avoid colorbar, got {help_ann.xshift}"
+    else:
+        x_gap = abs(help_ann.x - colorbar_x)
+        assert x_gap >= 0.15, \
+            f"Help annotation x position should be at least 0.15 away from colorbar, got gap={x_gap:.3f}"
+
+
+def test_create_heatmap_adequate_right_margin(heatmap_data):
+    """Test that heatmap has adequate right margin for colorbar and annotation."""
+    fig = create_heatmap(heatmap_data)
+
+    # Should have sufficient right margin to accommodate both colorbar and annotation
+    # Colorbar typically needs ~80px, annotation needs ~120px + gap
+    assert fig.layout.margin.r >= 200, \
+        f"Heatmap should have right margin >= 200 to fit colorbar + annotation, got {fig.layout.margin.r}"
+
+
+def test_create_regression_heatmap_adequate_right_margin(regression_heatmap_data):
+    """Test that regression heatmap has adequate right margin."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have sufficient right margin
+    assert fig.layout.margin.r >= 200, \
+        f"Regression heatmap should have right margin >= 200, got {fig.layout.margin.r}"
+
+
+@pytest.fixture
+def time_series_data():
+    """Sample time series data."""
+    return pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100000, "test_name": "coremark"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102000, "test_name": "coremark"},
+        {"timestamp": "2024-01-03", "primary_metric_value": 101500, "test_name": "coremark"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 50000, "test_name": "streams"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 51000, "test_name": "streams"},
+        {"timestamp": "2024-01-03", "primary_metric_value": 52000, "test_name": "streams"},
+    ])
+
+
+def test_create_time_series_chart_has_legend(time_series_data):
+    """Test that time series chart has visible legend."""
+    fig = create_time_series_chart(time_series_data, color_col='test_name')
+
+    # Legend should be visible
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+
+
+def test_create_time_series_legend_positioned_consistently(time_series_data):
+    """Test that time series legend is positioned consistently (top-right)."""
+    fig = create_time_series_chart(time_series_data, color_col='test_name', use_facets=False)
+
+    # Legend should be positioned at top-right (standard for time series)
+    legend = fig.layout.legend
+    assert legend.orientation == 'v', "Legend should be vertical"
+    assert legend.xanchor == 'right', "Legend should anchor to right"
+    assert legend.x >= 0.95, "Legend should be on right side"
+    assert legend.yanchor == 'top', "Legend should anchor to top"
+    assert legend.y >= 0.95, "Legend should be at top"
+
+
+def test_create_time_series_legend_does_not_obscure_data(time_series_data):
+    """Test that legend positioning doesn't obscure time series data."""
+    fig = create_time_series_chart(time_series_data, color_col='test_name', use_facets=False)
+
+    # Legend should be inside plot area but at top-right corner
+    # This is acceptable for time series as data usually doesn't reach top-right
+    legend = fig.layout.legend
+    assert legend.x <= 1.0, "Legend should be within plot area (not outside)"
+    assert legend.y <= 1.0, "Legend should be within plot area"
+
+
+def test_create_time_series_faceted_hides_legend(time_series_data):
+    """Test that faceted time series hides legend (redundant with facet labels)."""
+    fig = create_time_series_chart(
+        time_series_data,
+        color_col='test_name',
+        use_facets=True
+    )
+
+    # Legend should be hidden when using facets (facet labels replace legend)
+    assert fig.layout.showlegend is False, "Legend should be hidden for faceted time series"
+
+    # Verify that facets were actually created (multiple subplot rows)
+    # In plotly, faceted charts have multiple yaxis (yaxis, yaxis2, yaxis3, etc.)
+    # Use public API: check for existence of second y-axis
+    assert hasattr(fig.layout, 'yaxis2'), "Should have multiple y-axes for faceted chart"
+
+
+@pytest.fixture
+def single_trace_time_series_data():
+    """Sample time series data with single trace (no grouping)."""
+    return pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100000},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102000},
+        {"timestamp": "2024-01-03", "primary_metric_value": 101500},
+        {"timestamp": "2024-01-04", "primary_metric_value": 103000},
+    ])
+
+
+def test_create_time_series_single_trace_no_legend_config(single_trace_time_series_data):
+    """Test that single-trace time series (color_col=None) does not configure legend.
+
+    When there's only one trace (no color_col), a legend is unnecessary and
+    should not be explicitly configured.
+    """
+    fig = create_time_series_chart(
+        single_trace_time_series_data,
+        color_col=None,
+        use_facets=False
+    )
+
+    # Chart should be created successfully
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+    # Legend should either be disabled or not explicitly configured
+    # Plotly may show a default legend even for single trace, but we shouldn't
+    # be explicitly positioning it with our custom legend dict
+    # Check that our custom legend config (top-right positioning) was not applied
+    legend = fig.layout.legend
+
+    # If legend dict exists, it should not have our custom positioning
+    # (orientation='v', x=0.99, y=0.99, etc.)
+    # The best way to check this is that the legend dict should either not exist
+    # or should not have all our custom properties
+    if legend is not None:
+        # Should not have ALL of our custom legend properties
+        has_all_custom_props = (
+            hasattr(legend, 'orientation') and legend.orientation == 'v' and
+            hasattr(legend, 'xanchor') and legend.xanchor == 'right' and
+            hasattr(legend, 'x') and legend.x == 0.99 and
+            hasattr(legend, 'yanchor') and legend.yanchor == 'top' and
+            hasattr(legend, 'y') and legend.y == 0.99
+        )
+        assert not has_all_custom_props, \
+            "Single-trace chart should not have custom legend positioning"
+
+
+def test_create_time_series_multi_trace_has_legend_config(time_series_data):
+    """Test that multi-trace time series (color_col provided) configures legend properly.
+
+    When color_col is provided, we expect multiple traces with different colors,
+    so the legend should be explicitly configured and positioned.
+    """
+    fig = create_time_series_chart(
+        time_series_data,
+        color_col='test_name',
+        use_facets=False
+    )
+
+    # Chart should be created successfully
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 1, "Should have multiple traces when color_col is provided"
+
+    # Legend should be explicitly configured with our standard positioning
+    legend = fig.layout.legend
+    assert legend is not None, "Legend should be configured for multi-trace chart"
+    assert legend.orientation == 'v', "Legend should be vertical"
+    assert legend.xanchor == 'right', "Legend should anchor to right"
+    assert legend.x == 0.99, "Legend should be at x=0.99"
+    assert legend.yanchor == 'top', "Legend should anchor to top"
+    assert legend.y == 0.99, "Legend should be at y=0.99"
+    assert legend.bgcolor == 'rgba(255, 255, 255, 0.8)', \
+        "Legend should have semi-transparent background"
+
+
+def test_create_time_series_empty_string_color_col_behaves_like_none(time_series_data):
+    """Test that color_col='' (empty string) behaves like color_col=None.
+
+    This defends against UI passing empty strings instead of None, which could
+    crash Plotly Express. Empty string should be normalized to None.
+    """
+    # Create chart with empty string color_col
+    fig = create_time_series_chart(
+        time_series_data,
+        color_col="",
+        use_facets=False
+    )
+
+    # Chart should be created successfully (no crash)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+    # Legend should NOT be configured (same behavior as color_col=None)
+    legend = fig.layout.legend
+    if legend is not None:
+        # Should not have our custom legend positioning for multi-trace
+        has_all_custom_props = (
+            hasattr(legend, 'orientation') and legend.orientation == 'v' and
+            hasattr(legend, 'xanchor') and legend.xanchor == 'right' and
+            hasattr(legend, 'x') and legend.x == 0.99 and
+            hasattr(legend, 'yanchor') and legend.yanchor == 'top' and
+            hasattr(legend, 'y') and legend.y == 0.99
+        )
+        assert not has_all_custom_props, \
+            "Empty string color_col should not trigger custom legend config"

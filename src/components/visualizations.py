@@ -1002,9 +1002,13 @@ def create_version_comparison_bar_chart(
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
+
     if comparison_df.empty:
         return create_empty_figure("No comparison data available")
-    
+
     if title is None:
         title = f"Performance Comparison: {baseline_version} vs {comparison_version}"
     
@@ -1125,13 +1129,23 @@ def create_version_comparison_bar_chart(
     ])
     
     # Add legend annotation explaining the color/pattern scheme
+    # Build legend dynamically from palette
+    if colorblind_mode:
+        # Colorblind palette uses Vermillion and Blue
+        regression_label = "Vermillion"
+        improvement_label = "Blue"
+    else:
+        # Standard palette uses Red and Green
+        regression_label = "Dark Red"
+        improvement_label = "Green"
+
     legend_text = (
         "<b>Legend:</b><br>"
-        "■ <span style='color:#d73027'>Dark Red</span>: All configs regressed<br>"
-        "▤ <span style='color:#f46d43'>Orange striped</span>: Mixed, net regression<br>"
-        "■ <span style='color:#6b7280'>Gray</span>: Stable (±5%)<br>"
-        "▤ <span style='color:#fdae61'>Amber striped</span>: Mixed, net improvement<br>"
-        "■ <span style='color:#1a9850'>Green</span>: All configs improved"
+        f"■ <span style='color:{palette.semantic.regression}'>{regression_label}</span>: All configs regressed<br>"
+        f"▤ <span style='color:{palette.semantic.mixed_regression}'>Orange striped</span>: Mixed, net regression<br>"
+        f"■ <span style='color:{palette.semantic.stable}'>Gray</span>: Stable (±5%)<br>"
+        f"▤ <span style='color:{palette.semantic.mixed_improvement}'>Amber striped</span>: Mixed, net improvement<br>"
+        f"■ <span style='color:{palette.semantic.improvement}'>{improvement_label}</span>: All configs improved"
     )
     
     fig.add_annotation(
@@ -1171,37 +1185,41 @@ def create_peer_os_comparison_chart(
 ) -> go.Figure:
     """
     Create a grouped bar chart comparing RHEL against peer OSes.
-    
+
     Args:
         comparison_df: DataFrame with comparison data
         baseline_os: Name of baseline OS
         title: Chart title
-        
+        colorblind_mode: Use colorblind-safe colors
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if comparison_df.empty:
         return create_empty_figure("No peer comparison data available")
-    
+
     BENCHMARK_GROUPS = benchmark_groups()
+    palette = get_palette(colorblind_mode)
 
     # Group by benchmark category
     fig = go.Figure()
-    
+
     peer_os_list = sorted(comparison_df['peer_os'].unique())
     # Sort categories alphabetically but put "Other" last
     all_categories = sorted(comparison_df['benchmark_category'].unique())
     categories = [c for c in all_categories if c != 'Other'] + [c for c in all_categories if c == 'Other']
-    
+
     # Create grouped bars by benchmark category
     for peer_os in peer_os_list:
         peer_data = comparison_df[comparison_df['peer_os'] == peer_os]
-        
+
         y_values = []
         x_labels = []
         colors = []
         hover_texts = []
-        
+
         for category in categories:
             cat_data = peer_data[peer_data['benchmark_category'] == category]
             if not cat_data.empty:
@@ -1209,14 +1227,14 @@ def create_peer_os_comparison_chart(
                 avg_rel_perf = cat_data['relative_performance'].mean()
                 y_values.append(avg_rel_perf)
                 x_labels.append(category)
-                
-                # Color: green if within 10%, amber if within 20%, red otherwise
+
+                # Color: competitive, moderate, or significant difference
                 if avg_rel_perf >= 90 and avg_rel_perf <= 110:
-                    colors.append('#1a9850')  # Green - competitive
+                    colors.append(palette.semantic.improvement)  # Competitive
                 elif avg_rel_perf >= 80 and avg_rel_perf <= 120:
-                    colors.append('#d97706')  # Amber - moderate difference (darker for readability)
+                    colors.append(palette.semantic.moderate_difference)  # Moderate difference
                 else:
-                    colors.append('#d73027')  # Red - significant difference
+                    colors.append(palette.semantic.regression)  # Significant difference
                 
                 # Build hover text with benchmark list
                 benchmarks_in_category = BENCHMARK_GROUPS.get(category, ['Unknown'])
@@ -1251,11 +1269,11 @@ def create_peer_os_comparison_chart(
         annotation_text=f"{baseline_os} baseline (100%)",
         annotation_position="right"
     )
-    
+
     # Add competitive zone (90-110%)
     fig.add_hrect(
         y0=90, y1=110,
-        fillcolor="green",
+        fillcolor=palette.semantic.improvement,
         opacity=0.1,
         line_width=0,
         annotation_text="Competitive zone",
@@ -1263,11 +1281,14 @@ def create_peer_os_comparison_chart(
     )
     
     # Add legend annotation explaining the color scheme
+    competitive_label = "Blue" if colorblind_mode else "Green"
+    significant_label = "Vermillion" if colorblind_mode else "Red"
+
     legend_text = (
         "<b>Color Legend:</b><br>"
-        "■ <span style='color:#1a9850'>Green</span>: Competitive (90-110%)<br>"
-        "■ <span style='color:#d97706'>Amber</span>: Moderate diff (80-120%)<br>"
-        "■ <span style='color:#d73027'>Red</span>: Significant diff (<80% or >120%)"
+        f"■ <span style='color:{palette.semantic.improvement}'>{competitive_label}</span>: Competitive (90-110%)<br>"
+        f"■ <span style='color:{palette.semantic.moderate_difference}'>Amber</span>: Moderate diff (80-120%)<br>"
+        f"■ <span style='color:{palette.semantic.regression}'>{significant_label}</span>: Significant diff (<80% or >120%)"
     )
     
     fig.add_annotation(

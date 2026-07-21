@@ -1438,6 +1438,6 @@ def test_peer_os_comparison_uses_colorblind_palette(peer_os_comparison_data):
     shapes = fig.layout.shapes
     if shapes:
         for shape in shapes:
-            if hasattr(shape, 'fillcolor'):
+            if hasattr(shape, 'fillcolor') and shape.fillcolor:
                 fillcolor = shape.fillcolor.lower()
                 assert fillcolor != "green", "Should not use literal 'green' fillcolor in colorblind mode"

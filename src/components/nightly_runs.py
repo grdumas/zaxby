@@ -49,16 +49,23 @@ def create_nightly_run_selector_dropdown(runs: List[NightlyRunSnapshot]) -> dcc.
     )
 
 
-def create_nightly_run_category_chart(run: Optional[NightlyRunSnapshot]) -> go.Figure:
+def create_nightly_run_category_chart(
+    run: Optional[NightlyRunSnapshot],
+    colorblind_mode: bool = False
+) -> go.Figure:
     """
     Create horizontal bar chart showing test counts by benchmark category.
 
     Args:
         run: NightlyRunSnapshot object with category breakdown.
+        colorblind_mode: If True, use colorblind-safe palette
 
     Returns:
         Plotly Figure with horizontal bar chart.
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
     if run is None or not run.category_breakdown:
         fig = go.Figure()
         fig.add_annotation(
@@ -89,7 +96,7 @@ def create_nightly_run_category_chart(run: Optional[NightlyRunSnapshot]) -> go.F
             x=counts,
             y=categories,
             orientation="h",
-            marker=dict(color="#7c3aed"),
+            marker=dict(color=palette.branding.nightly),
             hovertemplate="%{y}<br>Tests: %{x:,}<extra></extra>",
         )
     )

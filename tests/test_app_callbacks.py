@@ -67,6 +67,62 @@ def test_update_nightly_run_chart_out_of_range_respects_colorblind_false(monkeyp
     mock_chart_fn.assert_called_once_with(None, colorblind_mode=False)
 
 
+def test_update_nightly_run_chart_negative_index_returns_empty_chart(monkeypatch):
+    """
+    When selected_idx is -1 (negative), verify it returns the empty-data
+    fallback chart instead of indexing from the end of the list.
+
+    Bug: Negative indices are treated as valid Python list indices
+    (indexing from the end) rather than being rejected as invalid input.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    mock_chart_fn = MagicMock(return_value=MagicMock())
+
+    with patch('src.components.nightly_runs.create_nightly_run_category_chart', mock_chart_fn):
+        runs_data = [
+            {'timestamp': '2025-01-01T00:00:00', 'test_count': 10,
+             'pass_count': 8, 'fail_count': 2, 'category_breakdown': {},
+             'source': 'test'},
+            {'timestamp': '2025-01-02T00:00:00', 'test_count': 12,
+             'pass_count': 10, 'fail_count': 2, 'category_breakdown': {},
+             'source': 'test'}
+        ]
+        selected_idx = -1  # Negative index
+        colorblind_mode = True
+
+        app.update_nightly_run_chart(selected_idx, colorblind_mode, runs_data)
+
+    # Should call with None (empty data fallback), not use the negative index
+    mock_chart_fn.assert_called_once_with(None, colorblind_mode=True)
+
+
+def test_update_nightly_run_chart_large_negative_index_returns_empty_chart(monkeypatch):
+    """
+    When selected_idx is a large negative value like -5, verify it returns
+    the empty-data fallback chart.
+
+    This test ensures we guard against all negative values, not just -1.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    mock_chart_fn = MagicMock(return_value=MagicMock())
+
+    with patch('src.components.nightly_runs.create_nightly_run_category_chart', mock_chart_fn):
+        runs_data = [
+            {'timestamp': '2025-01-01T00:00:00', 'test_count': 10,
+             'pass_count': 8, 'fail_count': 2, 'category_breakdown': {},
+             'source': 'test'}
+        ]
+        selected_idx = -5  # Large negative index
+        colorblind_mode = False
+
+        app.update_nightly_run_chart(selected_idx, colorblind_mode, runs_data)
+
+    # Should call with None (empty data fallback), not attempt to use -5
+    mock_chart_fn.assert_called_once_with(None, colorblind_mode=False)
+
+
 def test_update_rhel9_sequential_passes_colorblind_mode(monkeypatch):
     """
     Verify update_rhel9_sequential accepts colorblind_mode parameter
@@ -521,3 +577,169 @@ def test_investigation_view_respects_colorblind_false(monkeypatch):
         assert mock_detail_chart.call_args.kwargs['colorblind_mode'] is False
         assert mock_time_series.call_args.kwargs['colorblind_mode'] is False
         assert mock_metrics_table.call_args.kwargs['colorblind_mode'] is False
+
+
+def test_update_question3_accepts_colorblind_mode(monkeypatch):
+    """
+    Verify update_question3 callback accepts colorblind_mode parameter.
+
+    The callback should have colorblind_mode as an Input from colorblind-mode-store
+    and accept it as a parameter without error.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock visualization function
+    mock_chart_fn = MagicMock(return_value=MagicMock())
+
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn), \
+         patch.object(app.processor, 'analyze_cloud_scaling', return_value={
+             'scaling_data': MagicMock(empty=False),
+             'summary': 'Test summary',
+             'linear_scaling_count': 5,
+             'total_benchmarks': 10
+         }):
+
+        # Prepare callback inputs
+        import pandas as pd
+        test_data = pd.DataFrame({
+            'cloud_provider': ['aws'] * 4,
+            'os_distribution': ['rhel'] * 4,
+            'os_version': ['9.0'] * 4,
+            'instance_type': ['m5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge'],
+            'benchmark_category': ['compute'] * 4
+        })
+        filtered_data_json = test_data.to_json(orient='split')
+
+        cloud_provider = 'aws'
+        instance_series = None
+        os_distribution = 'rhel'
+        os_version = '9.0'
+        benchmark_category = 'all'
+        colorblind_mode = True
+
+        # Should not raise an error
+        result = app.update_question3(
+            cloud_provider,
+            instance_series,
+            os_distribution,
+            os_version,
+            benchmark_category,
+            filtered_data_json,
+            colorblind_mode
+        )
+
+        # Verify result structure (2 outputs: figure and summary)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+
+def test_update_question3_passes_colorblind_mode_true(monkeypatch):
+    """
+    Verify update_question3 passes colorblind_mode=True to create_cloud_scaling_chart.
+
+    When colorblind mode is enabled, the chart function should receive True.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock visualization function
+    mock_chart_fn = MagicMock(return_value=MagicMock())
+
+    # Create test scaling data
+    import pandas as pd
+    scaling_data = pd.DataFrame({
+        'instance_type': ['m5.large', 'm5.xlarge'],
+        'vcpu_count': [2, 4],
+        'performance': [100, 200],
+        'benchmark_category': ['compute'] * 2
+    })
+
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn), \
+         patch.object(app.processor, 'analyze_cloud_scaling', return_value={
+             'scaling_data': scaling_data,
+             'summary': 'Test summary',
+             'linear_scaling_count': 1,
+             'total_benchmarks': 2
+         }):
+
+        # Prepare callback inputs
+        test_data = pd.DataFrame({
+            'cloud_provider': ['aws'] * 2,
+            'os_distribution': ['rhel'] * 2,
+            'os_version': ['9.0'] * 2,
+            'instance_type': ['m5.large', 'm5.xlarge'],
+            'benchmark_category': ['compute'] * 2
+        })
+        filtered_data_json = test_data.to_json(orient='split')
+
+        # Call the callback with colorblind_mode=True
+        app.update_question3(
+            cloud_provider='aws',
+            instance_series=None,
+            os_distribution='rhel',
+            os_version='9.0',
+            benchmark_category='all',
+            filtered_data_json=filtered_data_json,
+            colorblind_mode=True
+        )
+
+        # Verify create_cloud_scaling_chart was called with colorblind_mode=True
+        assert mock_chart_fn.called
+        call_kwargs = mock_chart_fn.call_args.kwargs
+        assert 'colorblind_mode' in call_kwargs
+        assert call_kwargs['colorblind_mode'] is True
+
+
+def test_update_question3_passes_colorblind_mode_false(monkeypatch):
+    """
+    Verify update_question3 passes colorblind_mode=False to create_cloud_scaling_chart.
+
+    When colorblind mode is disabled, the chart function should receive False.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock visualization function
+    mock_chart_fn = MagicMock(return_value=MagicMock())
+
+    # Create test scaling data
+    import pandas as pd
+    scaling_data = pd.DataFrame({
+        'instance_type': ['m5.large', 'm5.xlarge'],
+        'vcpu_count': [2, 4],
+        'performance': [100, 200],
+        'benchmark_category': ['compute'] * 2
+    })
+
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn), \
+         patch.object(app.processor, 'analyze_cloud_scaling', return_value={
+             'scaling_data': scaling_data,
+             'summary': 'Test summary',
+             'linear_scaling_count': 1,
+             'total_benchmarks': 2
+         }):
+
+        # Prepare callback inputs
+        test_data = pd.DataFrame({
+            'cloud_provider': ['aws'] * 2,
+            'os_distribution': ['rhel'] * 2,
+            'os_version': ['9.0'] * 2,
+            'instance_type': ['m5.large', 'm5.xlarge'],
+            'benchmark_category': ['compute'] * 2
+        })
+        filtered_data_json = test_data.to_json(orient='split')
+
+        # Call the callback with colorblind_mode=False
+        app.update_question3(
+            cloud_provider='aws',
+            instance_series=None,
+            os_distribution='rhel',
+            os_version='9.0',
+            benchmark_category='all',
+            filtered_data_json=filtered_data_json,
+            colorblind_mode=False
+        )
+
+        # Verify create_cloud_scaling_chart was called with colorblind_mode=False
+        assert mock_chart_fn.called
+        call_kwargs = mock_chart_fn.call_args.kwargs
+        assert 'colorblind_mode' in call_kwargs
+        assert call_kwargs['colorblind_mode'] is False

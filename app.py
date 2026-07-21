@@ -1364,7 +1364,7 @@ def update_nightly_run_chart(selected_idx, colorblind_mode, runs_data):
     if runs_data is None or selected_idx is None:
         return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
 
-    if selected_idx >= len(runs_data):
+    if selected_idx < 0 or selected_idx >= len(runs_data):
         return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
 
     # Deserialize selected run
@@ -2368,12 +2368,15 @@ def update_os_distribution_options(cloud_provider, instance_series, filtered_dat
      Input('q3-os-distribution', 'value'),
      Input('q3-os-version', 'value'),
      Input('q3-benchmark-category', 'value'),
-     Input('filtered-data-store', 'data')]
+     Input('filtered-data-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_question3(cloud_provider, instance_series, os_distribution, os_version, benchmark_category, filtered_data_json):
+def update_question3(cloud_provider, instance_series, os_distribution, os_version, benchmark_category, filtered_data_json, colorblind_mode):
     """Update Cloud Scaling section visualizations."""
     import pandas as pd
-    
+
+    colorblind_mode = bool(colorblind_mode)
+
     if not filtered_data_json or not cloud_provider or not os_version:
         empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
         return empty_fig, ""
@@ -2415,7 +2418,8 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
         
         fig = visualizations.create_cloud_scaling_chart(
             scaling_data,
-            title=chart_title
+            title=chart_title,
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No scaling data available for selected configuration")

@@ -404,6 +404,163 @@ def test_create_cloud_scaling_chart_handles_nan_memory_values():
     assert "Memory:" not in trace.customdata[2] or " GB" not in trace.customdata[2]
 
 
+def test_cloud_scaling_chart_colorblind_changes_colors(multi_benchmark_scaling_data):
+    """Cloud scaling chart uses colorblind-safe colors in colorblind mode."""
+    # Standard mode
+    fig_standard = create_cloud_scaling_chart(multi_benchmark_scaling_data, colorblind_mode=False)
+
+    # Colorblind mode
+    fig_colorblind = create_cloud_scaling_chart(multi_benchmark_scaling_data, colorblind_mode=True)
+
+    # Both should have traces
+    assert len(fig_standard.data) > 0, "Standard chart should have traces"
+    assert len(fig_colorblind.data) > 0, "Colorblind chart should have traces"
+
+    # Extract colors from first trace (excluding reference line and shapes)
+    standard_colors = []
+    colorblind_colors = []
+
+    for trace in fig_standard.data:
+        if hasattr(trace, 'line') and hasattr(trace.line, 'color') and trace.line.color:
+            standard_colors.append(trace.line.color)
+
+    for trace in fig_colorblind.data:
+        if hasattr(trace, 'line') and hasattr(trace.line, 'color') and trace.line.color:
+            colorblind_colors.append(trace.line.color)
+
+    # Should have at least one color in each mode
+    assert len(standard_colors) > 0, "Standard mode should have line colors"
+    assert len(colorblind_colors) > 0, "Colorblind mode should have line colors"
+
+    # Colors should be different between modes (at least some)
+    # This test verifies the palette is being applied
+    assert standard_colors != colorblind_colors, "Colorblind mode should use different colors"
+
+
+def test_cloud_scaling_chart_colorblind_adds_line_dashes(multi_benchmark_scaling_data):
+    """Cloud scaling chart uses line dashes for redundant encoding in colorblind mode."""
+    # Standard mode should use solid lines
+    fig_standard = create_cloud_scaling_chart(multi_benchmark_scaling_data, colorblind_mode=False)
+
+    # Colorblind mode should use varied line dashes
+    fig_colorblind = create_cloud_scaling_chart(multi_benchmark_scaling_data, colorblind_mode=True)
+
+    # Extract line dash patterns from non-reference traces (exclude the "Ideal Linear" reference line)
+    standard_dashes = []
+    colorblind_dashes = []
+
+    for trace in fig_standard.data:
+        # Skip the reference line (it has a dash pattern even in standard mode)
+        if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+            continue
+        if hasattr(trace, 'line') and hasattr(trace.line, 'dash'):
+            standard_dashes.append(trace.line.dash)
+
+    for trace in fig_colorblind.data:
+        # Skip the reference line
+        if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+            continue
+        if hasattr(trace, 'line') and hasattr(trace.line, 'dash'):
+            colorblind_dashes.append(trace.line.dash)
+
+    # Should have multiple traces
+    assert len(standard_dashes) >= 2, "Should have multiple data traces in standard mode"
+    assert len(colorblind_dashes) >= 2, "Should have multiple data traces in colorblind mode"
+
+    # Standard mode should use solid lines (None or 'solid')
+    for dash in standard_dashes:
+        assert dash is None or dash == 'solid', \
+            f"Standard mode should use solid lines, found dash={dash}"
+
+    # Colorblind mode should use varied line dashes (not all the same)
+    unique_dashes = set(colorblind_dashes)
+    assert len(unique_dashes) > 1, \
+        "Colorblind mode should use different line dash patterns for redundant encoding"
+
+
+def test_cloud_scaling_chart_colorblind_adds_marker_symbols(multi_benchmark_scaling_data):
+    """Cloud scaling chart uses marker symbols for redundant encoding in colorblind mode."""
+    # Standard mode
+    fig_standard = create_cloud_scaling_chart(multi_benchmark_scaling_data, colorblind_mode=False)
+
+    # Colorblind mode should use varied marker symbols
+    fig_colorblind = create_cloud_scaling_chart(multi_benchmark_scaling_data, colorblind_mode=True)
+
+    # Extract marker symbols from non-reference traces
+    standard_symbols = []
+    colorblind_symbols = []
+
+    for trace in fig_standard.data:
+        # Skip the reference line
+        if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+            continue
+        if hasattr(trace, 'marker') and hasattr(trace.marker, 'symbol'):
+            standard_symbols.append(trace.marker.symbol)
+
+    for trace in fig_colorblind.data:
+        # Skip the reference line
+        if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+            continue
+        if hasattr(trace, 'marker') and hasattr(trace.marker, 'symbol'):
+            colorblind_symbols.append(trace.marker.symbol)
+
+    # Should have multiple traces
+    assert len(standard_symbols) >= 2, "Should have multiple data traces in standard mode"
+    assert len(colorblind_symbols) >= 2, "Should have multiple data traces in colorblind mode"
+
+    # Colorblind mode should use varied marker symbols (not all the same)
+    unique_symbols = set(colorblind_symbols)
+    assert len(unique_symbols) > 1, \
+        "Colorblind mode should use different marker symbols for redundant encoding"
+
+
+def test_cloud_scaling_chart_colorblind_good_scaling_annotation():
+    """Good scaling annotation uses colorblind-safe colors in colorblind mode."""
+    # Create simple scaling data
+    data = pd.DataFrame([
+        {
+            "instance_type": "c2-standard-4",
+            "benchmark_category": "CPU",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "mean_performance": 100000.0,
+        },
+        {
+            "instance_type": "c2-standard-8",
+            "benchmark_category": "CPU",
+            "cpu_cores": 8,
+            "memory_gb": 32,
+            "mean_performance": 195000.0,
+        },
+    ])
+
+    # Standard mode
+    fig_standard = create_cloud_scaling_chart(data, colorblind_mode=False)
+
+    # Colorblind mode
+    fig_colorblind = create_cloud_scaling_chart(data, colorblind_mode=True)
+
+    # Check that both have the "Good scaling" shaded region
+    assert len(fig_standard.layout.shapes) > 0, "Standard mode should have shaded region"
+    assert len(fig_colorblind.layout.shapes) > 0, "Colorblind mode should have shaded region"
+
+    # Extract the fillcolor from the shaded regions
+    standard_fills = [shape.fillcolor for shape in fig_standard.layout.shapes if hasattr(shape, 'fillcolor')]
+    colorblind_fills = [shape.fillcolor for shape in fig_colorblind.layout.shapes if hasattr(shape, 'fillcolor')]
+
+    assert len(standard_fills) > 0, "Standard mode should have fill colors"
+    assert len(colorblind_fills) > 0, "Colorblind mode should have fill colors"
+
+    # The fill colors should be different (colorblind mode should not use green)
+    assert standard_fills != colorblind_fills, \
+        "Colorblind mode should use different fill color for good scaling region"
+
+    # Colorblind fill should not contain green (RGB values around 76, 175, 80)
+    for fill in colorblind_fills:
+        assert "76, 175, 80" not in fill, \
+            "Colorblind mode should not use green-only semantic colors"
+
+
 @pytest.fixture
 def comparison_data():
     """Sample comparison data for baseline vs comparison charts."""

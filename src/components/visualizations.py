@@ -1391,26 +1391,38 @@ def create_cloud_scaling_chart(
 ) -> go.Figure:
     """
     Create a line chart showing how performance scales with instance size.
-    
+
     Shows scaling efficiency as a percentage of ideal linear scaling, making it
     easy to compare different benchmarks regardless of their native units.
-    
+
     - 100% = Perfect linear scaling (performance doubles when cores double)
     - >100% = Super-linear scaling (better than expected)
     - <100% = Sub-linear scaling (diminishing returns)
-    
+
     Uses evenly-spaced categorical X-axis for readability (not linear by CPU cores).
-    
+
     Args:
         scaling_df: DataFrame with scaling analysis data
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette and redundant encoding
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if scaling_df.empty:
         return create_empty_figure("No scaling data available")
-    
+
+    palette = get_palette(colorblind_mode)
+
+    # Choose color sequence based on colorblind mode
+    # Plotly's Safe palette is specifically designed for colorblind accessibility
+    if colorblind_mode:
+        color_sequence = px.colors.qualitative.Safe
+    else:
+        color_sequence = px.colors.qualitative.Plotly
+
     fig = go.Figure()
     
     # Group by benchmark category or test name
@@ -1461,8 +1473,8 @@ def create_cloud_scaling_chart(
     
     # Track all efficiency values for dynamic y-axis range
     all_efficiency_values = []
-    
-    for category in categories:
+
+    for category_idx, category in enumerate(categories):
         cat_data = scaling_df[scaling_df[group_col] == category].copy()
         
         # Aggregate multiple test results per instance within each category
@@ -1565,13 +1577,16 @@ def create_cloud_scaling_chart(
                 y_values = perf_values
                 hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
         
+        # Get color for this trace from the color sequence
+        trace_color = color_sequence[category_idx % len(color_sequence)]
+
         fig.add_trace(go.Scatter(
             x=x_values,
             y=y_values,
             mode='lines+markers',
             name=category,
-            line=dict(width=3),
-            marker=dict(size=10),
+            line=dict(width=3, color=trace_color),
+            marker=dict(size=10, color=trace_color),
             hovertemplate='%{customdata}<extra></extra>',
             customdata=hover_texts
         ))
@@ -1590,15 +1605,50 @@ def create_cloud_scaling_chart(
         ))
         
         # Add shaded regions for context
+        # Use colorblind-safe color in colorblind mode (avoid green-only semantic)
+        if colorblind_mode:
+            # Use blue tint instead of green
+            fill_color = "rgba(33, 150, 243, 0.1)"  # Blue with low opacity
+            annotation_color = "rgba(33, 150, 243, 0.8)"  # Blue
+        else:
+            fill_color = "rgba(76, 175, 80, 0.1)"  # Green
+            annotation_color = "rgba(76, 175, 80, 0.8)"  # Green
+
         fig.add_hrect(
             y0=85, y1=115,
-            fillcolor="rgba(76, 175, 80, 0.1)",
+            fillcolor=fill_color,
             line_width=0,
             annotation_text="Good scaling (85-115%)",
             annotation_position="top right",
-            annotation=dict(font_size=10, font_color="rgba(76, 175, 80, 0.8)")
+            annotation=dict(font_size=10, font_color=annotation_color)
         )
-    
+
+    # Apply colorblind mode redundant encoding (line dashes and marker symbols)
+    # This provides additional visual cues beyond color to distinguish series
+    if colorblind_mode:
+        line_dashes = palette.patterns.line_dashes
+        marker_symbols = palette.patterns.marker_symbols
+
+        # Apply different line dash and marker symbol to each data trace
+        # Skip the reference line which should remain as-is
+        data_trace_index = 0
+        for trace in fig.data:
+            # Skip the reference line (identified by its name or dash pattern)
+            if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+                continue
+
+            if hasattr(trace, 'line'):
+                # Apply line dash pattern
+                dash_pattern = line_dashes[data_trace_index % len(line_dashes)]
+                trace.line.dash = dash_pattern
+
+            if hasattr(trace, 'marker'):
+                # Apply marker symbol
+                symbol = marker_symbols[data_trace_index % len(marker_symbols)]
+                trace.marker.symbol = symbol
+
+            data_trace_index += 1
+
     # Add annotation explaining the metric
     fig.add_annotation(
         text=(

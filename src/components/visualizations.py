@@ -43,6 +43,33 @@ from typing import Optional, List
 from src.benchmark_categories import benchmark_groups
 
 
+# Legend and margin constants
+# These values standardize chart legend positioning and spacing
+LEGEND_RIGHT_MARGIN = 200  # Right margin for discrete color legends and help annotations
+LEGEND_BOTTOM_MARGIN = 100  # Bottom margin for horizontal legends
+HEATMAP_HELP_MARGIN = 200  # Right margin for heatmap help annotations
+
+# Standard legend configurations
+LEGEND_HORIZONTAL_BOTTOM = {
+    'orientation': 'h',
+    'yanchor': 'top',
+    'y': -0.15,
+    'xanchor': 'center',
+    'x': 0.5
+}
+
+LEGEND_VERTICAL_TOPRIGHT = {
+    'orientation': 'v',
+    'xanchor': 'right',
+    'x': 0.99,
+    'yanchor': 'top',
+    'y': 0.99,
+    'bgcolor': 'rgba(255, 255, 255, 0.8)',
+    'bordercolor': 'rgba(0, 0, 0, 0.2)',
+    'borderwidth': 1
+}
+
+
 def create_comparison_chart(
     df: pd.DataFrame,
     group_by: str = 'test_name',

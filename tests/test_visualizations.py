@@ -639,6 +639,38 @@ def test_create_scatter_plot_legend_does_not_obscure_data(scatter_plot_data):
     assert fig.layout.margin.r >= 150, "Chart should have right margin for legend"
 
 
+def test_create_scatter_plot_with_only_size_has_minimal_margin(scatter_plot_data):
+    """Test that scatter plot with ONLY size encoding uses minimal right margin.
+
+    When only size_col is set (no color_col), Plotly doesn't create a discrete
+    legend that needs 200px of space. The margin should be minimal (default).
+    """
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        size_col='cost'
+    )
+
+    # Should NOT have large right margin when only size is used
+    # Default Plotly margin.r is typically much smaller (around 80 or auto)
+    margin_r = fig.layout.margin.r if fig.layout.margin.r is not None else 80
+    assert margin_r < 180, f"Right margin should be minimal without color legend, got {margin_r}"
+
+
+def test_create_scatter_plot_with_color_has_large_margin(scatter_plot_data):
+    """Test that scatter plot with color encoding has large right margin for discrete legend."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Should have large right margin for discrete color legend
+    assert fig.layout.margin.r >= 180, "Chart with color legend should have large right margin"
+
+
 @pytest.fixture
 def heatmap_data():
     """Sample data for heatmap."""

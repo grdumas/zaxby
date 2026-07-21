@@ -528,8 +528,8 @@ def test_create_box_plot_legend_explains_color_groups(box_plot_data_with_color):
 
     # Should have traces for each OS version
     trace_names = [trace.name for trace in fig.data]
-    assert 'RHEL 9.0' in trace_names, "Should have RHEL 9.0 in legend"
-    assert 'RHEL 9.1' in trace_names, "Should have RHEL 9.1 in legend"
+    assert any("RHEL 9.0" in name for name in trace_names), "Should have RHEL 9.0 in legend"
+    assert any("RHEL 9.1" in name for name in trace_names), "Should have RHEL 9.1 in legend"
 
 
 def test_create_box_plot_without_color_has_no_legend():

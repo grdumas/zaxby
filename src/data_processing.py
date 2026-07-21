@@ -1229,8 +1229,8 @@ class BenchmarkDataProcessor:
         
         # Group by instance type and benchmark
         scaling_results = []
-        
-        instance_types = sorted(filtered_df['instance_type'].unique())
+
+        instance_types = sorted(filtered_df['instance_type'].dropna().astype(str).unique())
         
         for category in filtered_df['benchmark_category'].unique():
             category_df = filtered_df[filtered_df['benchmark_category'] == category]

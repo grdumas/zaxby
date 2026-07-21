@@ -502,4 +502,35 @@ def test_analyze_cloud_scaling_instance_data_includes_cores(processor, cloud_sca
     assert len(core_counts) > 1  # Multiple instance sizes
 
 
+def test_analyze_cloud_scaling_handles_nan_instance_type(processor, cloud_scaling_data):
+    """Test that NaN/None instance_type values don't crash the analysis."""
+    # Add a row with NaN instance_type
+    import numpy as np
+    nan_row = pd.DataFrame([{
+        "cloud_provider": "gcp",
+        "os_version": "10.1",
+        "instance_type": np.nan,
+        "test_name": "coremark",
+        "benchmark_category": "CPU",
+        "cpu_cores": 4,
+        "memory_gb": 16,
+        "primary_metric_value": 100000.0,
+        "std_performance": 1000.0
+    }])
+
+    df_with_nan = pd.concat([cloud_scaling_data, nan_row], ignore_index=True)
+
+    # Should not raise TypeError when sorting instance types
+    result = processor.analyze_cloud_scaling(
+        df_with_nan,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    # Verify the result is valid
+    assert "scaling_data" in result
+    assert not result["scaling_data"].empty
+    assert result["total_benchmarks"] > 0
+
+
 

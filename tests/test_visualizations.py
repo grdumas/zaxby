@@ -8,7 +8,8 @@ import plotly.graph_objects as go
 from src.components.visualizations import (
     create_cloud_scaling_chart,
     create_comparison_chart,
-    create_box_plot
+    create_box_plot,
+    create_scatter_plot
 )
 
 
@@ -547,3 +548,89 @@ def test_create_box_plot_without_color_has_no_legend():
     # No color grouping, so legend can be hidden
     # (Not required, but acceptable to show trace names)
     assert isinstance(fig, go.Figure), "Should create valid figure"
+
+
+@pytest.fixture
+def scatter_plot_data():
+    """Sample data for scatter plots."""
+    return pd.DataFrame([
+        {"cpu_cores": 4, "performance": 100000, "instance_type": "c2-standard-4", "cost": 150},
+        {"cpu_cores": 8, "performance": 195000, "instance_type": "c2-standard-8", "cost": 300},
+        {"cpu_cores": 16, "performance": 380000, "instance_type": "c2-standard-16", "cost": 600},
+        {"cpu_cores": 4, "performance": 98000, "instance_type": "n2-standard-4", "cost": 140},
+        {"cpu_cores": 8, "performance": 190000, "instance_type": "n2-standard-8", "cost": 280},
+        {"cpu_cores": 16, "performance": 370000, "instance_type": "n2-standard-16", "cost": 560},
+    ])
+
+
+def test_create_scatter_plot_with_color_has_legend(scatter_plot_data):
+    """Test that scatter plot with color grouping has visible legend."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Legend should be visible when color_col is used
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+    assert hasattr(fig.layout, 'legend'), "Chart should have legend config"
+
+
+def test_create_scatter_plot_legend_positioned_right(scatter_plot_data):
+    """Test that scatter plot legend is positioned on right side."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Legend should be vertical on right side (better for scatter plots)
+    assert fig.layout.legend.orientation == 'v', "Legend should be vertical"
+    assert fig.layout.legend.xanchor == 'left', "Legend should anchor to left"
+    assert fig.layout.legend.x > 1.0, "Legend should be to right of chart"
+
+
+def test_create_scatter_plot_legend_explains_colors(scatter_plot_data):
+    """Test that legend explains what colors represent."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Should have traces for each instance type
+    trace_names = [trace.name for trace in fig.data]
+    assert 'c2-standard-4' in trace_names or 'instance_type=c2-standard-4' in str(trace_names)
+
+
+def test_create_scatter_plot_with_size_has_legend(scatter_plot_data):
+    """Test that scatter plot with size encoding has legend for both color and size."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type',
+        size_col='cost'
+    )
+
+    # Legend should be visible
+    assert fig.layout.showlegend is not False, "Legend should be visible for color/size"
+
+
+def test_create_scatter_plot_legend_does_not_obscure_data(scatter_plot_data):
+    """Test that legend is positioned outside plot area."""
+    fig = create_scatter_plot(
+        scatter_plot_data,
+        x_col='cpu_cores',
+        y_col='performance',
+        color_col='instance_type'
+    )
+
+    # Legend should be positioned to right (x > 1) to avoid obscuring data
+    assert fig.layout.legend.x > 1.0, "Legend should be outside plot area"
+
+    # Chart should have right margin for legend
+    assert fig.layout.margin.r >= 150, "Chart should have right margin for legend"

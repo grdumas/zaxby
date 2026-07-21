@@ -349,13 +349,29 @@ def create_scatter_plot(
         title=title,
         template='plotly_white'
     )
-    
-    fig.update_layout(
-        xaxis_title=x_col.replace('_', ' ').title(),
-        yaxis_title=y_col.replace('_', ' ').title(),
-        height=500
-    )
-    
+
+    # Configure legend positioning when color or size encoding is used
+    if color_col or size_col:
+        fig.update_layout(
+            xaxis_title=x_col.replace('_', ' ').title(),
+            yaxis_title=y_col.replace('_', ' ').title(),
+            height=500,
+            legend=dict(
+                orientation='v',
+                yanchor='top',
+                y=1.0,
+                xanchor='left',
+                x=1.02
+            ),
+            margin=dict(r=200)  # Right margin for legend
+        )
+    else:
+        fig.update_layout(
+            xaxis_title=x_col.replace('_', ' ').title(),
+            yaxis_title=y_col.replace('_', ' ').title(),
+            height=500
+        )
+
     return fig
 
 

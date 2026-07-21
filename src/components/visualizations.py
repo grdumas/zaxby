@@ -1078,12 +1078,17 @@ def create_cloud_scaling_chart(
     
     # Check if we have CPU cores data
     has_cpu_cores = 'cpu_cores' in scaling_df.columns and scaling_df['cpu_cores'].notna().any()
-    
+    has_memory = 'memory_gb' in scaling_df.columns
+
     # Build ordered list of unique instances sorted by CPU cores for even spacing
     # This creates categorical X-axis labels instead of numeric
     if has_cpu_cores and 'instance_type' in scaling_df.columns:
         # Get unique instances sorted by CPU cores
-        instance_order_df = scaling_df[['instance_type', 'cpu_cores', 'memory_gb']].drop_duplicates()
+        # Only include memory_gb column if it exists
+        columns_to_select = ['instance_type', 'cpu_cores']
+        if has_memory:
+            columns_to_select.append('memory_gb')
+        instance_order_df = scaling_df[columns_to_select].drop_duplicates()
         instance_order_df = instance_order_df.sort_values('cpu_cores')
         
         # Create tick labels with instance name, cores, and RAM
@@ -1116,17 +1121,20 @@ def create_cloud_scaling_chart(
         # This prevents multiple data points per instance causing confusing zigzag lines
         if has_cpu_cores and 'instance_type' in cat_data.columns:
             # Group by instance_type and aggregate performance values
-            agg_data = cat_data.groupby('instance_type').agg({
+            agg_dict = {
                 'mean_performance': 'mean',  # Average across tests in this category
                 'cpu_cores': 'first',
-                'memory_gb': 'first'
-            }).reset_index()
+            }
+            # Only aggregate memory_gb if the column exists
+            if has_memory:
+                agg_dict['memory_gb'] = 'first'
+            agg_data = cat_data.groupby('instance_type').agg(agg_dict).reset_index()
             agg_data = agg_data.sort_values('cpu_cores')
             
             x_values = [instance_to_index.get(inst, 0) for inst in agg_data['instance_type']]
             cores_values = agg_data['cpu_cores'].tolist()
             instance_types = agg_data['instance_type'].tolist()
-            memory_values = agg_data['memory_gb'].tolist()
+            memory_values = agg_data['memory_gb'].tolist() if has_memory else [None] * len(agg_data)
             perf_values = agg_data['mean_performance'].tolist()
         else:
             # Fallback for non-CPU-cores case

@@ -176,10 +176,8 @@ def test_create_cloud_scaling_chart_multi_benchmark(multi_benchmark_scaling_data
     assert len(fig.data) >= 2  # CPU and Memory categories
 
 
-def test_create_cloud_scaling_chart_requires_memory_field():
-    """Test that chart requires memory_gb field when cpu_cores present."""
-    # Note: Current implementation requires memory_gb column when cpu_cores exists
-    # This could be improved to handle missing memory_gb gracefully
+def test_create_cloud_scaling_chart_handles_missing_memory_field():
+    """Test that chart handles missing memory_gb field gracefully."""
     data_no_memory = pd.DataFrame([
         {
             "instance_type": "c2-standard-4",
@@ -197,9 +195,21 @@ def test_create_cloud_scaling_chart_requires_memory_field():
         },
     ])
 
-    # Should raise KeyError for missing memory_gb
-    with pytest.raises(KeyError, match="memory_gb"):
-        create_cloud_scaling_chart(data_no_memory)
+    # Should render without crashing when memory_gb is missing
+    fig = create_cloud_scaling_chart(data_no_memory)
+
+    # Verify chart was created
+    assert fig is not None
+    assert len(fig.data) > 0
+
+    # Verify tick labels contain CPU info but NOT memory info
+    tick_labels = fig.layout.xaxis.ticktext
+    assert len(tick_labels) == 2
+    assert "4 vCPU" in tick_labels[0]
+    assert "8 vCPU" in tick_labels[1]
+    # Should NOT contain GB (memory) in labels
+    assert "GB" not in tick_labels[0]
+    assert "GB" not in tick_labels[1]
 
 
 def test_create_cloud_scaling_chart_aggregates_per_instance(multi_benchmark_scaling_data):

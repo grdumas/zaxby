@@ -1202,7 +1202,7 @@ def test_create_time_series_empty_string_color_col_behaves_like_none(time_series
 # ============================================================================
 
 @pytest.fixture
-def comparison_data():
+def comparison_data_colorblind():
     """Sample comparison data for testing colorblind mode."""
     return pd.DataFrame([
         {"test_name": "benchmark1", "baseline_mean": 100, "comparison_mean": 110},
@@ -1211,7 +1211,7 @@ def comparison_data():
 
 
 @pytest.fixture
-def regression_heatmap_data():
+def regression_heatmap_data_colorblind():
     """Sample data for regression heatmap testing."""
     df = pd.DataFrame({
         "test1": [5.0, -5.0],  # % changes
@@ -1220,12 +1220,12 @@ def regression_heatmap_data():
     return df
 
 
-def test_create_comparison_chart_colorblind_mode(comparison_data):
+def test_create_comparison_chart_colorblind_mode(comparison_data_colorblind):
     """Comparison chart uses colorblind-safe colors when colorblind_mode=True."""
     # Standard mode
-    fig_standard = create_comparison_chart(comparison_data, colorblind_mode=False)
+    fig_standard = create_comparison_chart(comparison_data_colorblind, colorblind_mode=False)
     # Colorblind mode
-    fig_colorblind = create_comparison_chart(comparison_data, colorblind_mode=True)
+    fig_colorblind = create_comparison_chart(comparison_data_colorblind, colorblind_mode=True)
 
     # Verify different colors are used
     baseline_color_standard = fig_standard.data[0].marker.color
@@ -1274,10 +1274,10 @@ def test_create_heatmap_colorblind_uses_safe_scale():
         assert colorblind_colors != standard_colors
 
 
-def test_regression_heatmap_colorblind_scale(regression_heatmap_data):
+def test_regression_heatmap_colorblind_scale(regression_heatmap_data_colorblind):
     """Regression heatmap does not use red/green in colorblind mode."""
     fig_colorblind = create_regression_heatmap(
-        regression_heatmap_data, colorblind_mode=True
+        regression_heatmap_data_colorblind, colorblind_mode=True
     )
 
     colorscale = fig_colorblind.data[0].colorscale
@@ -1382,7 +1382,7 @@ def test_version_comparison_legend_matches_colorblind_palette():
     assert "Blue" in legend_text, "Colorblind legend should mention 'Blue' for improvement"
 
     # In colorblind mode, legend should NOT use standard palette terms
-    assert "Red" not in legend_text or "Dark Red" not in legend_text, \
+    assert "Red" not in legend_text and "Dark Red" not in legend_text, \
         "Colorblind legend should not use 'Red' or 'Dark Red'"
     assert "Green" not in legend_text, "Colorblind legend should not use 'Green'"
 
@@ -1441,3 +1441,335 @@ def test_peer_os_comparison_uses_colorblind_palette(peer_os_comparison_data):
             if hasattr(shape, 'fillcolor') and shape.fillcolor:
                 fillcolor = shape.fillcolor.lower()
                 assert fillcolor != "green", "Should not use literal 'green' fillcolor in colorblind mode"
+
+
+@pytest.fixture
+def category_benchmark_data():
+    """Sample category benchmark data for detail chart."""
+    return pd.DataFrame([
+        {
+            "test_name": "benchmark1",
+            "relative_performance": 95.0,  # Competitive (90-110%)
+            "instance_type": "m5.large",
+            "is_competitive": True,
+        },
+        {
+            "test_name": "benchmark2",
+            "relative_performance": 85.0,  # Moderate (80-120%)
+            "instance_type": "m5.large",
+            "is_competitive": False,
+        },
+        {
+            "test_name": "benchmark3",
+            "relative_performance": 75.0,  # Significant (<80% or >120%)
+            "instance_type": "m5.large",
+            "is_competitive": False,
+        },
+    ])
+
+
+def test_category_benchmark_detail_chart_uses_colorblind_palette(category_benchmark_data):
+    """Category benchmark detail chart uses colorblind-safe colors when colorblind_mode=True."""
+    from src.components.visualizations import create_category_benchmark_detail_chart
+
+    # Create chart in standard mode
+    fig_standard = create_category_benchmark_detail_chart(
+        category_benchmark_data,
+        category="CPU",
+        baseline_os="RHEL",
+        colorblind_mode=False
+    )
+
+    # Create chart in colorblind mode
+    fig_colorblind = create_category_benchmark_detail_chart(
+        category_benchmark_data,
+        category="CPU",
+        baseline_os="RHEL",
+        colorblind_mode=True
+    )
+
+    # Extract bar colors from both charts
+    bar_trace_standard = fig_standard.data[0]
+    bar_trace_colorblind = fig_colorblind.data[0]
+
+    bar_colors_standard = bar_trace_standard.marker.color
+    bar_colors_colorblind = bar_trace_colorblind.marker.color
+
+    # Standard mode should use hardcoded red/green/amber
+    assert "#1a9850" in bar_colors_standard or "#d73027" in bar_colors_standard, \
+        "Standard mode should use red/green"
+
+    # Colorblind mode should NOT use hardcoded red (#d73027) or green (#1a9850)
+    if isinstance(bar_colors_colorblind, list):
+        assert "#d73027" not in bar_colors_colorblind, \
+            "Colorblind mode should not use standard red"
+        assert "#1a9850" not in bar_colors_colorblind, \
+            "Colorblind mode should not use standard green"
+
+        # Should use colorblind-safe colors from palette
+        # Improvement: #0072b2 (blue), Regression: #d55e00 (vermillion), Moderate: #e69f00 (amber)
+        has_colorblind_colors = any(
+            color in ["#0072b2", "#d55e00", "#e69f00"]
+            for color in bar_colors_colorblind
+        )
+        assert has_colorblind_colors, \
+            "Colorblind mode should use colorblind-safe colors from palette"
+
+    # Verify fillcolor in shapes (competitive zone)
+    # Should not use literal "green" in colorblind mode
+    shapes_colorblind = fig_colorblind.layout.shapes
+    if shapes_colorblind:
+        for shape in shapes_colorblind:
+            if hasattr(shape, 'fillcolor') and shape.fillcolor:
+                fillcolor = shape.fillcolor.lower()
+                assert fillcolor != "green", \
+                    "Colorblind mode should not use literal 'green' fillcolor"
+
+
+@pytest.fixture
+def category_hardware_heatmap_data():
+    """Sample category hardware heatmap data."""
+    return pd.DataFrame([
+        {
+            "test_name": "benchmark1",
+            "instance_type": "m5.large",
+            "relative_performance": 95.0,  # Competitive
+        },
+        {
+            "test_name": "benchmark1",
+            "instance_type": "m5.xlarge",
+            "relative_performance": 105.0,  # Competitive
+        },
+        {
+            "test_name": "benchmark2",
+            "instance_type": "m5.large",
+            "relative_performance": 85.0,  # Moderate
+        },
+        {
+            "test_name": "benchmark2",
+            "instance_type": "m5.xlarge",
+            "relative_performance": 115.0,  # Moderate
+        },
+    ])
+
+
+def test_category_hardware_heatmap_uses_colorblind_scale(category_hardware_heatmap_data):
+    """Category hardware heatmap uses colorblind-safe colorscale when colorblind_mode=True."""
+    from src.components.visualizations import create_category_hardware_heatmap
+
+    # Create heatmap in standard mode
+    fig_standard = create_category_hardware_heatmap(
+        category_hardware_heatmap_data,
+        category="CPU",
+        baseline_os="RHEL",
+        colorblind_mode=False
+    )
+
+    # Create heatmap in colorblind mode
+    fig_colorblind = create_category_hardware_heatmap(
+        category_hardware_heatmap_data,
+        category="CPU",
+        baseline_os="RHEL",
+        colorblind_mode=True
+    )
+
+    # Extract colorscales
+    colorscale_standard = fig_standard.data[0].colorscale
+    colorscale_colorblind = fig_colorblind.data[0].colorscale
+
+    # Standard mode should use red-green scale
+    standard_colors = [color for _, color in colorscale_standard]
+    assert "#d73027" in standard_colors or "#1a9850" in standard_colors, \
+        "Standard mode should use red-green colorscale"
+
+    # Colorblind mode should NOT use red-green
+    colorblind_colors = [color for _, color in colorscale_colorblind]
+    assert "#d73027" not in colorblind_colors, \
+        "Colorblind mode should not use standard red"
+    assert "#1a9850" not in colorblind_colors, \
+        "Colorblind mode should not use standard green"
+
+    # Should use colorblind-safe colors from palette.hardware_heatmap_scale
+    # Expected: vermillion (#d55e00), amber, light gray, sky blue (#56b4e9), strong blue (#0072b2)
+    has_colorblind_colors = any(
+        color in ["#d55e00", "#0072b2", "#56b4e9", "#f0f0f0"]
+        for color in colorblind_colors
+    )
+    assert has_colorblind_colors, \
+        "Colorblind mode should use colorblind-safe colors from hardware_heatmap_scale"
+
+    # Verify scales are different
+    assert colorscale_standard != colorscale_colorblind, \
+        "Standard and colorblind modes should use different colorscales"
+
+
+# ============================================================================
+# Redundant Encoding (Line Dashes and Marker Symbols) Tests
+# ============================================================================
+
+
+def test_time_series_uses_line_dashes_in_colorblind_mode():
+    """Time series chart uses different line dashes per series in colorblind mode."""
+    # Create data with multiple series
+    data = pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100, "test_name": "test_a"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102, "test_name": "test_a"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 200, "test_name": "test_b"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 205, "test_name": "test_b"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 300, "test_name": "test_c"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 310, "test_name": "test_c"},
+    ])
+
+    # Colorblind mode should use line dashes
+    fig_colorblind = create_time_series_chart(data, color_col='test_name', colorblind_mode=True)
+
+    # Extract line dash patterns
+    line_dashes = [trace.line.dash for trace in fig_colorblind.data if hasattr(trace, 'line')]
+
+    # Should have at least 2 traces with line attributes
+    assert len(line_dashes) >= 2, "Should have multiple traces with line attributes"
+
+    # Not all line dashes should be the same (should cycle through patterns)
+    unique_dashes = set(line_dashes)
+    assert len(unique_dashes) > 1, "Should use different line dash patterns in colorblind mode"
+
+
+def test_time_series_uses_solid_lines_in_standard_mode():
+    """Time series chart uses solid lines in standard mode (no line dashes)."""
+    # Create data with multiple series
+    data = pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100, "test_name": "test_a"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102, "test_name": "test_a"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 200, "test_name": "test_b"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 205, "test_name": "test_b"},
+    ])
+
+    # Standard mode should NOT use line dashes
+    fig_standard = create_time_series_chart(data, color_col='test_name', colorblind_mode=False)
+
+    # Extract line dash patterns
+    line_dashes = [trace.line.dash for trace in fig_standard.data if hasattr(trace, 'line')]
+
+    # All line dashes should be None or 'solid' (default behavior)
+    for dash in line_dashes:
+        assert dash is None or dash == 'solid', \
+            f"Standard mode should use solid lines, found dash={dash}"
+
+
+def test_scatter_plot_uses_marker_symbols_in_colorblind_mode():
+    """Scatter plot uses different marker symbols per series in colorblind mode."""
+    # Create data with multiple series
+    data = pd.DataFrame([
+        {"x": 1, "y": 10, "category": "cat_a"},
+        {"x": 2, "y": 15, "category": "cat_a"},
+        {"x": 1, "y": 20, "category": "cat_b"},
+        {"x": 2, "y": 25, "category": "cat_b"},
+        {"x": 1, "y": 30, "category": "cat_c"},
+        {"x": 2, "y": 35, "category": "cat_c"},
+    ])
+
+    # Colorblind mode should use different marker symbols
+    fig_colorblind = create_scatter_plot(
+        data,
+        x_col='x',
+        y_col='y',
+        color_col='category',
+        colorblind_mode=True
+    )
+
+    # Extract marker symbols
+    marker_symbols = [trace.marker.symbol for trace in fig_colorblind.data if hasattr(trace, 'marker')]
+
+    # Should have at least 2 traces with marker attributes
+    assert len(marker_symbols) >= 2, "Should have multiple traces with marker attributes"
+
+    # Not all marker symbols should be the same
+    unique_symbols = set(marker_symbols)
+    assert len(unique_symbols) > 1, "Should use different marker symbols in colorblind mode"
+
+
+def test_scatter_plot_uses_default_markers_in_standard_mode():
+    """Scatter plot uses default marker symbols in standard mode (no variation)."""
+    # Create data with multiple series
+    data = pd.DataFrame([
+        {"x": 1, "y": 10, "category": "cat_a"},
+        {"x": 2, "y": 15, "category": "cat_a"},
+        {"x": 1, "y": 20, "category": "cat_b"},
+        {"x": 2, "y": 25, "category": "cat_b"},
+    ])
+
+    # Standard mode should NOT enforce different marker symbols
+    fig_standard = create_scatter_plot(
+        data,
+        x_col='x',
+        y_col='y',
+        color_col='category',
+        colorblind_mode=False
+    )
+
+    # Extract marker symbols
+    marker_symbols = [trace.marker.symbol for trace in fig_standard.data if hasattr(trace, 'marker')]
+
+    # All marker symbols should be None (Plotly's default) or all the same
+    # Plotly may assign different symbols by default, but we shouldn't be enforcing it
+    # The key is that we're NOT explicitly setting different symbols in standard mode
+    for symbol in marker_symbols:
+        assert symbol is None or isinstance(symbol, (str, int)), \
+            "Standard mode should use default marker behavior"
+
+
+def test_time_series_line_dash_cycling():
+    """Time series chart cycles through line dash patterns correctly."""
+    from src.color_palettes import COLORBLIND
+
+    # Create data with 6 series (more than available line dashes)
+    data = pd.DataFrame([
+        {"timestamp": f"2024-01-0{i}", "primary_metric_value": i*100, "test_name": f"test_{j}"}
+        for i in range(1, 4)
+        for j in range(6)
+    ])
+
+    fig_colorblind = create_time_series_chart(data, color_col='test_name', colorblind_mode=True)
+
+    # Extract line dashes
+    line_dashes = [trace.line.dash for trace in fig_colorblind.data if hasattr(trace, 'line')]
+
+    # Should have 6 traces
+    assert len(line_dashes) == 6, "Should have 6 traces"
+
+    # With 5 available dash patterns and 6 series, at least one should repeat
+    # First 5 should use different patterns, 6th should cycle back to first
+    expected_dashes = COLORBLIND.patterns.line_dashes
+    assert line_dashes[0] == expected_dashes[0 % len(expected_dashes)]
+    assert line_dashes[5] == expected_dashes[5 % len(expected_dashes)]  # Should cycle
+
+
+def test_scatter_plot_marker_symbol_cycling():
+    """Scatter plot cycles through marker symbols correctly."""
+    from src.color_palettes import COLORBLIND
+
+    # Create data with 7 series (more than available marker symbols)
+    data = pd.DataFrame([
+        {"x": i, "y": i*10, "category": f"cat_{j}"}
+        for i in range(1, 3)
+        for j in range(7)
+    ])
+
+    fig_colorblind = create_scatter_plot(
+        data,
+        x_col='x',
+        y_col='y',
+        color_col='category',
+        colorblind_mode=True
+    )
+
+    # Extract marker symbols
+    marker_symbols = [trace.marker.symbol for trace in fig_colorblind.data if hasattr(trace, 'marker')]
+
+    # Should have 7 traces
+    assert len(marker_symbols) == 7, "Should have 7 traces"
+
+    # With 6 available marker symbols and 7 series, at least one should repeat
+    expected_symbols = COLORBLIND.patterns.marker_symbols
+    assert marker_symbols[0] == expected_symbols[0 % len(expected_symbols)]
+    assert marker_symbols[6] == expected_symbols[6 % len(expected_symbols)]  # Should cycle

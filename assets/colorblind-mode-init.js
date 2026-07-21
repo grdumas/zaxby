@@ -15,6 +15,9 @@
     }
 
     // Listen for storage events from other tabs/windows
+    // NOTE: This only syncs the CSS class (toggle button appearance).
+    // Charts won't re-render in other tabs because the dcc.Store state
+    // is not updated here. For full sync, the user must refresh the other tabs.
     window.addEventListener('storage', function(e) {
         if (e.key === 'colorblind-mode-store') {
             const newValue = e.newValue;

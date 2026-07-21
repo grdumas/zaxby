@@ -10,7 +10,7 @@ guidelines to ensure accessibility for users with deuteranopia and protanopia
 """
 
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ class Palette:
     table: TableColors
     branding: BrandingColors
     regression_heatmap_scale: DivergingScale
-    performance_heatmap_scale: str | DivergingScale  # Named Plotly scale or DivergingScale
+    performance_heatmap_scale: Union[str, DivergingScale]  # Named Plotly scale or DivergingScale
     hardware_heatmap_scale: DivergingScale
     patterns: ChartPatterns
 

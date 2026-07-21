@@ -340,6 +340,7 @@ def serve_layout():
             dcc.Store(id='analysis-results-store'),
             dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
             dcc.Store(id='nightly-runs-store'),
+            dcc.Store(id='pulse-kpi-bundle-store'),
             dcc.Store(id='colorblind-mode-store', storage_type='local'),
 
             # Header
@@ -1036,18 +1037,19 @@ def create_investigation_layout(
 
 
 @app.callback(
-    Output("server-snapshot-content", "children"),
+    Output('pulse-kpi-bundle-store', 'data'),
     [Input("server-snapshot-init", "n_intervals"),
-     Input("btn-refresh-server-snapshot", "n_clicks"),
-     Input('colorblind-mode-store', 'data')],
+     Input("btn-refresh-server-snapshot", "n_clicks")],
     prevent_initial_call=True,
 )
-def update_server_snapshot(_n_intervals, _n_clicks, colorblind_mode):
-    """Load bounded snapshot via OpenSearch aggregation or synthetic groupby (not from dcc.Store).
+def fetch_server_snapshot(_n_intervals, _n_clicks):
+    """Fetch Pulse KPI bundle from OpenSearch or synthetic data.
 
     prevent_initial_call avoids doubling work with server-snapshot-init (initial n_intervals=0 plus first tick).
     First load runs once when the one-shot Interval increments n_intervals; Refresh triggers further loads.
     """
+    from dataclasses import asdict
+
     if DATA_MODE == "opensearch":
         try:
             client = BenchmarkDataSource()
@@ -1058,10 +1060,42 @@ def update_server_snapshot(_n_intervals, _n_clicks, colorblind_mode):
     else:
         bundle = aggregate_pulse_kpi_bundle_from_dataframe(df)
 
-    snap = bundle.overview
-    cat_snap = bundle.category_mix
-    timeline_snap = bundle.activity_timeline
-    scope_snap = bundle.scope
+    # Serialize bundle to JSON-compatible dict
+    return {
+        'overview': asdict(bundle.overview),
+        'category_mix': asdict(bundle.category_mix),
+        'activity_timeline': asdict(bundle.activity_timeline),
+        'scope': asdict(bundle.scope),
+        'policy_template_id': bundle.policy_template_id,
+        'definition_version': bundle.definition_version,
+    }
+
+
+@app.callback(
+    Output("server-snapshot-content", "children"),
+    [Input('pulse-kpi-bundle-store', 'data'),
+     Input('colorblind-mode-store', 'data')],
+)
+def render_server_snapshot(bundle_data, colorblind_mode):
+    """Render Pulse KPI panel from cached bundle data.
+
+    Colorblind toggle only triggers this render callback, not the expensive fetch.
+    """
+    from src.query_service import (
+        ResultsOverviewSnapshot,
+        CategoryKpiSnapshot,
+        ActivityTimelineSnapshot,
+        PulseScopeFootnote,
+    )
+
+    if not bundle_data:
+        return html.Div("Loading server snapshot...", className="text-muted")
+
+    # Deserialize bundle from JSON dict
+    snap = ResultsOverviewSnapshot(**bundle_data['overview'])
+    cat_snap = CategoryKpiSnapshot(**bundle_data['category_mix'])
+    timeline_snap = ActivityTimelineSnapshot(**bundle_data['activity_timeline'])
+    scope_snap = PulseScopeFootnote(**bundle_data['scope'])
 
     colorblind_mode = bool(colorblind_mode)
 
@@ -1072,8 +1106,8 @@ def update_server_snapshot(_n_intervals, _n_clicks, colorblind_mode):
         timeline_snap=timeline_snap,
         data_mode=DATA_MODE,
         results_index_label=results_index_name(),
-        kpi_definition_version=bundle.definition_version,
-        policy_template_id=bundle.policy_template_id,
+        kpi_definition_version=bundle_data['definition_version'],
+        policy_template_id=bundle_data['policy_template_id'],
         colorblind_mode=colorblind_mode,
     )
 
@@ -1271,7 +1305,7 @@ def update_nightly_run_chart(selected_idx, colorblind_mode, runs_data):
         return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
 
     if selected_idx >= len(runs_data):
-        return create_nightly_run_category_chart(None)
+        return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
 
     # Deserialize selected run
     run_dict = runs_data[selected_idx]
@@ -1656,9 +1690,10 @@ def update_q2_comparison_selector(filtered_data_json):
 @app.callback(
     [Output('q2-comparison', 'figure'),
      Output('q2-summary', 'children')],
-    Input('filtered-data-store', 'data')
+    [Input('filtered-data-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_question2(filtered_data_json):
+def update_question2(filtered_data_json, colorblind_mode):
     """Update Competitive Performance section with the latest comparison."""
     import pandas as pd
     
@@ -1698,9 +1733,10 @@ def update_question2(filtered_data_json):
     if not q2_result['comparison_data'].empty:
         comparison_df = q2_result['comparison_data']
         fig = visualizations.create_peer_os_comparison_chart(
-            comparison_df, 
+            comparison_df,
             baseline_os="RHEL",
-            title=f"Performance Comparison: {comp_config['label']}"
+            title=f"Performance Comparison: {comp_config['label']}",
+            colorblind_mode=colorblind_mode or False
         )
     else:
         fig = visualizations.create_empty_figure("No comparison data available for selected configuration")

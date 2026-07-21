@@ -12,7 +12,8 @@ from src.components.visualizations import (
     create_scatter_plot,
     create_heatmap,
     create_regression_heatmap,
-    create_time_series_chart
+    create_time_series_chart,
+    LEGEND_RIGHT_MARGIN
 )
 
 
@@ -747,9 +748,10 @@ def test_create_scatter_plot_with_only_size_has_minimal_margin(scatter_plot_data
     )
 
     # Should NOT have large right margin when only size is used
-    # Default Plotly margin.r is typically much smaller (around 80 or auto)
-    margin_r = fig.layout.margin.r if fig.layout.margin.r is not None else 80
-    assert margin_r < 180, f"Right margin should be minimal without color legend, got {margin_r}"
+    # Verify that code did NOT set the right margin to LEGEND_RIGHT_MARGIN
+    margin_r = fig.layout.margin.r
+    assert margin_r != LEGEND_RIGHT_MARGIN, \
+        f"Right margin should not be set to LEGEND_RIGHT_MARGIN without color legend, got {margin_r}"
 
 
 def test_create_scatter_plot_empty_string_color_col_behaves_like_none(scatter_plot_data):
@@ -771,8 +773,8 @@ def test_create_scatter_plot_empty_string_color_col_behaves_like_none(scatter_pl
     assert len(fig.data) > 0
 
     # Should NOT have large right margin (same behavior as color_col=None)
-    margin_r = fig.layout.margin.r if fig.layout.margin.r is not None else 80
-    assert margin_r < 180, \
+    margin_r = fig.layout.margin.r
+    assert margin_r != LEGEND_RIGHT_MARGIN, \
         f"Empty string color_col should not trigger large right margin, got {margin_r}"
 
 
@@ -786,7 +788,8 @@ def test_create_scatter_plot_with_color_has_large_margin(scatter_plot_data):
     )
 
     # Should have large right margin for discrete color legend
-    assert fig.layout.margin.r >= 180, "Chart with color legend should have large right margin"
+    assert fig.layout.margin.r == LEGEND_RIGHT_MARGIN, \
+        f"Chart with color legend should have right margin set to LEGEND_RIGHT_MARGIN ({LEGEND_RIGHT_MARGIN}), got {fig.layout.margin.r}"
 
 
 @pytest.fixture

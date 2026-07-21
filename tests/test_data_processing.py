@@ -416,7 +416,10 @@ def test_analyze_cloud_scaling_detects_poor_scaling(processor, cloud_scaling_dat
     )
 
     # STREAM has poor scaling (~65%), should be in summary
-    assert "streams" in result["summary"].lower() or "diminishing" in result["summary"].lower()
+    assert (
+        "streams" in result["summary"].lower()
+        or "diminishing" in result["summary"].lower()
+    )
 
 
 def test_analyze_cloud_scaling_includes_cpu_cores(processor, cloud_scaling_data):

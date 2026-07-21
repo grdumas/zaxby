@@ -400,6 +400,7 @@ def test_create_cloud_scaling_chart_handles_nan_memory_values():
     assert "Memory:" not in trace.customdata[2] or " GB" not in trace.customdata[2]
 
 
+<<<<<<< HEAD
 @pytest.fixture
 def comparison_data():
     """Sample comparison data for baseline vs comparison charts."""
@@ -541,10 +542,45 @@ def test_create_box_plot_without_color_has_no_legend():
         {"test_name": "streams", "primary_metric_value": 51000},
     ])
 
+=======
+def test_faceted_box_plot_disables_legend():
+    """Test that faceted box plots disable legend (redundant with facet labels).
+
+    According to the legend conventions documented in the module docstring,
+    faceted plots should have showlegend=False because facet labels already
+    identify each group, making the legend redundant.
+    """
+    # Create data with multiple test names and color grouping
+    data = pd.DataFrame([
+        {
+            "test_name": "coremark",
+            "config": "baseline",
+            "primary_metric_value": 100000.0,
+        },
+        {
+            "test_name": "coremark",
+            "config": "optimized",
+            "primary_metric_value": 120000.0,
+        },
+        {
+            "test_name": "streams",
+            "config": "baseline",
+            "primary_metric_value": 50000.0,
+        },
+        {
+            "test_name": "streams",
+            "config": "optimized",
+            "primary_metric_value": 55000.0,
+        },
+    ])
+
+    # Create faceted box plot with color grouping
+>>>>>>> 8038fb1 (test(viz): add test for faceted box plot legend behavior)
     fig = create_box_plot(
         data,
         x_col='test_name',
         y_col='primary_metric_value',
+<<<<<<< HEAD
         color_col=None
     )
 
@@ -940,3 +976,14 @@ def test_create_time_series_multi_trace_has_legend_config(time_series_data):
     assert legend.y == 0.99, "Legend should be at y=0.99"
     assert legend.bgcolor == 'rgba(255, 255, 255, 0.8)', \
         "Legend should have semi-transparent background"
+=======
+        color_col='config',
+        use_facets=True
+    )
+
+    # Legend should be disabled because facet labels already identify test names
+    assert fig.layout.showlegend is False, (
+        "Faceted box plots should have showlegend=False because "
+        "legend is redundant with facet labels"
+    )
+>>>>>>> 8038fb1 (test(viz): add test for faceted box plot legend behavior)

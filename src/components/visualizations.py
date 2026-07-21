@@ -1162,15 +1162,16 @@ def create_cloud_scaling_chart(
         if has_cpu_cores and len(cores_values) > 0 and len(perf_values) > 0:
             baseline_perf = perf_values[0]
             baseline_cores = cores_values[0]
-            
-            if baseline_cores and baseline_cores > 0 and baseline_perf and baseline_perf > 0:
+
+            if (pd.notna(baseline_cores) and baseline_cores > 0 and
+                pd.notna(baseline_perf) and baseline_perf > 0):
                 # Calculate efficiency: (actual / expected) * 100
                 # Expected = baseline_perf * (current_cores / baseline_cores)
                 efficiency_values = []
                 hover_texts = []
                 
                 for i, (perf, cores) in enumerate(zip(perf_values, cores_values)):
-                    if cores and cores > 0:
+                    if pd.notna(cores) and cores > 0:
                         expected_perf = baseline_perf * (cores / baseline_cores)
                         efficiency = (perf / expected_perf) * 100
                         efficiency_values.append(efficiency)

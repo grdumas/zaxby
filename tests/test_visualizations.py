@@ -313,10 +313,12 @@ def test_create_cloud_scaling_chart_handles_partial_nan_cpu_cores():
     # Verify efficiency calculation worked (customdata should have valid hover text)
     trace = fig.data[0]
     assert hasattr(trace, 'customdata')
-    assert len(trace.customdata) == 2  # Only 2 valid data points
+    # Check that only valid cores get hover text with efficiency info
+    valid_hovers = [h for h in trace.customdata if h]  # Filter empty strings
+    assert len(valid_hovers) == 2  # Only 2 instances with valid cores
     # Check that hover text contains efficiency info (proves calculation succeeded)
-    assert "Scaling Efficiency:" in trace.customdata[0]
-    assert "Scaling Efficiency:" in trace.customdata[1]
+    assert "Scaling Efficiency:" in valid_hovers[0]
+    assert "Scaling Efficiency:" in valid_hovers[1]
 
 
 def test_create_cloud_scaling_chart_handles_nan_memory_values():

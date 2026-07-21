@@ -261,8 +261,13 @@ def test_create_cloud_scaling_chart_dynamic_y_axis():
 
 
 def test_create_cloud_scaling_chart_handles_partial_nan_cpu_cores():
-    """Test that chart handles partially missing cpu_cores gracefully."""
+    """Test that chart handles partially missing cpu_cores gracefully.
+
+    This test specifically checks that pd.NA (nullable integer NA) values
+    don't cause TypeError during truthiness checks in efficiency calculation.
+    """
     # Create data where some instances have NaN cpu_cores
+    # Use nullable Int64 dtype to ensure pd.NA behavior
     data_partial_cores = pd.DataFrame([
         {
             "instance_type": "c2-standard-4",
@@ -284,13 +289,15 @@ def test_create_cloud_scaling_chart_handles_partial_nan_cpu_cores():
             "instance_type": "unknown-instance",
             "test_name": "coremark",
             "benchmark_category": "CPU",
-            "cpu_cores": pd.NA,  # Missing cpu_cores
+            "cpu_cores": pd.NA,  # Missing cpu_cores with pd.NA
             "memory_gb": 64,
             "mean_performance": 150000.0,
         },
     ])
+    # Explicitly convert to nullable integer to trigger pd.NA truthiness issues
+    data_partial_cores['cpu_cores'] = data_partial_cores['cpu_cores'].astype('Int64')
 
-    # Should render without crashing
+    # Should render without crashing (would fail with "boolean value of NA is ambiguous")
     fig = create_cloud_scaling_chart(data_partial_cores)
 
     # Verify chart was created
@@ -303,9 +310,21 @@ def test_create_cloud_scaling_chart_handles_partial_nan_cpu_cores():
     assert "4 vCPU" in tick_labels[0]
     assert "8 vCPU" in tick_labels[1]
 
+    # Verify efficiency calculation worked (customdata should have valid hover text)
+    trace = fig.data[0]
+    assert hasattr(trace, 'customdata')
+    assert len(trace.customdata) == 2  # Only 2 valid data points
+    # Check that hover text contains efficiency info (proves calculation succeeded)
+    assert "Scaling Efficiency:" in trace.customdata[0]
+    assert "Scaling Efficiency:" in trace.customdata[1]
+
 
 def test_create_cloud_scaling_chart_handles_nan_memory_values():
-    """Test that chart handles NaN memory_gb values gracefully."""
+    """Test that chart handles NaN memory_gb values gracefully.
+
+    Validates that hover text (stored in customdata) does not show "nan GB"
+    when memory_gb contains pd.NA values.
+    """
     # Create data where memory_gb column exists but some values are NaN
     data_nan_memory = pd.DataFrame([
         {
@@ -341,12 +360,31 @@ def test_create_cloud_scaling_chart_handles_nan_memory_values():
     assert fig is not None
     assert len(fig.data) > 0
 
-    # Check hover text doesn't contain "nan GB"
+    # Check customdata (which feeds hovertemplate) doesn't contain "nan GB"
     trace = fig.data[0]
-    hover_texts = trace.hovertext if hasattr(trace, 'hovertext') else []
+    assert hasattr(trace, 'customdata'), "Chart should use customdata for hover text"
 
-    # If hover text is available, verify no "nan GB" appears
-    if hover_texts:
-        for hover in hover_texts:
-            assert "nan GB" not in str(hover).lower()
-            assert "nan" not in str(hover).lower() or "nan" in str(hover).lower() and "GB" not in str(hover).lower()
+    # Verify all hover texts are valid and don't contain "nan GB"
+    for hover_text in trace.customdata:
+        hover_str = str(hover_text).lower()
+        # Should not contain "nan gb" or "nan" near "gb"
+        assert "nan gb" not in hover_str, f"Found 'nan GB' in hover text: {hover_text}"
+        assert "nan.0 gb" not in hover_str, f"Found 'nan.0 GB' in hover text: {hover_text}"
+
+        # More robust check: if "gb" appears, there shouldn't be "nan" before it
+        if " gb" in hover_str:
+            # Extract the part before " gb" (e.g., "16.0 gb" -> "16.0")
+            gb_parts = hover_str.split(" gb")
+            for part in gb_parts[:-1]:  # All parts except the last (after final "gb")
+                # Get the last token before "gb" (the number)
+                tokens = part.split()
+                if tokens:
+                    last_token = tokens[-1]
+                    assert "nan" not in last_token, f"Found 'nan' before GB in: {hover_text}"
+
+    # First instance should have memory in hover text
+    assert "16 GB" in trace.customdata[0] or "16.0 GB" in trace.customdata[0]
+
+    # Second and third instances should NOT have memory info
+    assert "Memory:" not in trace.customdata[1] or " GB" not in trace.customdata[1]
+    assert "Memory:" not in trace.customdata[2] or " GB" not in trace.customdata[2]

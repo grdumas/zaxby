@@ -1078,12 +1078,19 @@ def create_cloud_scaling_chart(
     
     # Check if we have CPU cores data
     has_cpu_cores = 'cpu_cores' in scaling_df.columns and scaling_df['cpu_cores'].notna().any()
-    
+    has_memory = 'memory_gb' in scaling_df.columns and scaling_df['memory_gb'].notna().any()
+
     # Build ordered list of unique instances sorted by CPU cores for even spacing
     # This creates categorical X-axis labels instead of numeric
     if has_cpu_cores and 'instance_type' in scaling_df.columns:
         # Get unique instances sorted by CPU cores
-        instance_order_df = scaling_df[['instance_type', 'cpu_cores', 'memory_gb']].drop_duplicates()
+        # Only include memory_gb column if it exists
+        columns_to_select = ['instance_type', 'cpu_cores']
+        if has_memory:
+            columns_to_select.append('memory_gb')
+        instance_order_df = scaling_df[columns_to_select].drop_duplicates()
+        # Drop rows with null cpu_cores to prevent int() cast errors
+        instance_order_df = instance_order_df.dropna(subset=['cpu_cores'])
         instance_order_df = instance_order_df.sort_values('cpu_cores')
         
         # Create tick labels with instance name, cores, and RAM
@@ -1092,7 +1099,7 @@ def create_cloud_scaling_chart(
             inst_name = row['instance_type']
             cores = int(row['cpu_cores'])
             memory = row.get('memory_gb', None)
-            if memory and not pd.isna(memory):
+            if memory is not None and pd.notna(memory):
                 label = f"{inst_name}<br>{cores} vCPU, {int(memory)} GB"
             else:
                 label = f"{inst_name}<br>{cores} vCPU"
@@ -1116,17 +1123,20 @@ def create_cloud_scaling_chart(
         # This prevents multiple data points per instance causing confusing zigzag lines
         if has_cpu_cores and 'instance_type' in cat_data.columns:
             # Group by instance_type and aggregate performance values
-            agg_data = cat_data.groupby('instance_type').agg({
+            agg_dict = {
                 'mean_performance': 'mean',  # Average across tests in this category
                 'cpu_cores': 'first',
-                'memory_gb': 'first'
-            }).reset_index()
+            }
+            # Only aggregate memory_gb if the column exists
+            if has_memory:
+                agg_dict['memory_gb'] = 'first'
+            agg_data = cat_data.groupby('instance_type').agg(agg_dict).reset_index()
             agg_data = agg_data.sort_values('cpu_cores')
             
             x_values = [instance_to_index.get(inst, 0) for inst in agg_data['instance_type']]
             cores_values = agg_data['cpu_cores'].tolist()
             instance_types = agg_data['instance_type'].tolist()
-            memory_values = agg_data['memory_gb'].tolist()
+            memory_values = agg_data['memory_gb'].tolist() if has_memory else [None] * len(agg_data)
             perf_values = agg_data['mean_performance'].tolist()
         else:
             # Fallback for non-CPU-cores case
@@ -1152,23 +1162,24 @@ def create_cloud_scaling_chart(
         if has_cpu_cores and len(cores_values) > 0 and len(perf_values) > 0:
             baseline_perf = perf_values[0]
             baseline_cores = cores_values[0]
-            
-            if baseline_cores and baseline_cores > 0 and baseline_perf and baseline_perf > 0:
+
+            if (pd.notna(baseline_cores) and baseline_cores > 0 and
+                pd.notna(baseline_perf) and baseline_perf > 0):
                 # Calculate efficiency: (actual / expected) * 100
                 # Expected = baseline_perf * (current_cores / baseline_cores)
                 efficiency_values = []
                 hover_texts = []
                 
                 for i, (perf, cores) in enumerate(zip(perf_values, cores_values)):
-                    if cores and cores > 0:
+                    if pd.notna(cores) and cores > 0:
                         expected_perf = baseline_perf * (cores / baseline_cores)
                         efficiency = (perf / expected_perf) * 100
                         efficiency_values.append(efficiency)
                         
                         # Get instance info for hover
                         inst_name = instance_types[i] if i < len(instance_types) else "Unknown"
-                        mem_gb = memory_values[i] if i < len(memory_values) and memory_values[i] else None
-                        mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb else ""
+                        mem_gb = memory_values[i] if i < len(memory_values) else None
+                        mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb is not None and pd.notna(mem_gb) else ""
                         
                         # Create detailed hover text
                         hover_texts.append(

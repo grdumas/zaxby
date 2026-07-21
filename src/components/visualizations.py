@@ -2,6 +2,37 @@
 Visualization components for the dashboard.
 
 Provides Plotly-based visualizations for benchmark data.
+
+## Legend and Help Text Conventions
+
+All charts include clear legends and help text to aid interpretation:
+
+**Legend Positioning:**
+- **Bottom horizontal** (y=-0.15): Used for simple charts with few traces
+  - Comparison charts (baseline vs comparison)
+  - Box plots with color grouping
+  - Bar charts with 2-3 categories
+
+- **Top-right corner** (x=0.99, y=0.99): Used for time series
+  - Vertical orientation
+  - Semi-transparent background
+  - Positioned inside plot area
+
+- **Right side** (x=1.02): Used for scatter plots and charts with many traces
+  - Vertical orientation
+  - Positioned outside plot area with right margin
+
+**Help Annotations:**
+- Heatmaps include color scale interpretation (green/yellow/red meaning)
+- Regression heatmaps explain red=regression, green=improvement
+- Complex charts (version comparison, peer OS) have detailed legends explaining
+  color schemes and patterns
+
+**Design Principles:**
+- Legends never obscure chart data
+- Consistent positioning within chart types
+- Color meanings are always explained
+- Tooltips provide additional context on hover
 """
 
 import plotly.graph_objects as go

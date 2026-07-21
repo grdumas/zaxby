@@ -1194,3 +1194,102 @@ def test_create_time_series_empty_string_color_col_behaves_like_none(time_series
         )
         assert not has_all_custom_props, \
             "Empty string color_col should not trigger custom legend config"
+
+
+# ============================================================================
+# Colorblind Mode Tests
+# ============================================================================
+
+@pytest.fixture
+def comparison_data():
+    """Sample comparison data for testing colorblind mode."""
+    return pd.DataFrame([
+        {"test_name": "benchmark1", "baseline_mean": 100, "comparison_mean": 110},
+        {"test_name": "benchmark2", "baseline_mean": 200, "comparison_mean": 195},
+    ])
+
+
+@pytest.fixture
+def regression_heatmap_data():
+    """Sample data for regression heatmap testing."""
+    df = pd.DataFrame({
+        "test1": [5.0, -5.0],  # % changes
+        "test2": [10.0, -10.0],
+    }, index=["rhel8_to_rhel9", "rhel9_to_rhel10"])
+    return df
+
+
+def test_create_comparison_chart_colorblind_mode(comparison_data):
+    """Comparison chart uses colorblind-safe colors when colorblind_mode=True."""
+    # Standard mode
+    fig_standard = create_comparison_chart(comparison_data, colorblind_mode=False)
+    # Colorblind mode
+    fig_colorblind = create_comparison_chart(comparison_data, colorblind_mode=True)
+
+    # Verify different colors are used
+    baseline_color_standard = fig_standard.data[0].marker.color
+    baseline_color_colorblind = fig_colorblind.data[0].marker.color
+
+    # Should not be the same
+    assert baseline_color_standard != baseline_color_colorblind
+
+    # Colorblind should use sky blue (#56b4e9) not lightblue
+    assert baseline_color_colorblind == "#56b4e9"
+
+
+def test_create_heatmap_colorblind_uses_safe_scale():
+    """Heatmap uses colorblind-safe scale instead of RdYlGn when colorblind_mode=True."""
+    df = pd.DataFrame({
+        "os_version": ["RHEL8", "RHEL8", "RHEL9", "RHEL9"],
+        "instance_type": ["m5.large", "m5.xlarge", "m5.large", "m5.xlarge"],
+        "primary_metric_value": [100, 110, 105, 115],
+    })
+
+    fig_standard = create_heatmap(df, colorblind_mode=False)
+    fig_colorblind = create_heatmap(df, colorblind_mode=True)
+
+    # Both will be lists of tuples after Plotly processes them
+    # But standard contains RdYlGn RGB values (red-green)
+    # Colorblind contains blue-orange values
+    standard_scale = fig_standard.data[0].colorscale
+    colorblind_scale = fig_colorblind.data[0].colorscale
+
+    assert isinstance(standard_scale, (list, tuple))
+    assert isinstance(colorblind_scale, (list, tuple))
+
+    # The scales should be different
+    assert standard_scale != colorblind_scale
+
+    # Colorblind scale should contain hex codes from the blue-orange palette
+    # Extract color values (second element of each tuple)
+    colorblind_colors = [c[1] for c in colorblind_scale if isinstance(c, tuple)]
+    # Should contain blue (#0072b2) or orange (#d55e00) in hex or rgb form
+    # At minimum, verify it doesn't match the standard RdYlGn RGB pattern
+    assert colorblind_colors != [c[1] for c in standard_scale if isinstance(c, tuple)]
+
+
+def test_regression_heatmap_colorblind_scale(regression_heatmap_data):
+    """Regression heatmap does not use red/green in colorblind mode."""
+    fig_colorblind = create_regression_heatmap(
+        regression_heatmap_data, colorblind_mode=True
+    )
+
+    colorscale = fig_colorblind.data[0].colorscale
+
+    # Extract all color hex codes from the scale
+    colors = [color for _, color in colorscale]
+
+    # Should NOT contain standard red or green
+    assert "#d73027" not in colors, "Colorblind heatmap should not use standard red"
+    assert "#1a9850" not in colors, "Colorblind heatmap should not use standard green"
+
+    # Should contain colorblind-safe colors
+    # The COLORBLIND palette uses #d55e00 (vermillion) and #0072b2 (blue)
+    # At minimum, verify it's using a different scale
+    assert colorscale != [
+        (0.0, "#d73027"),
+        (0.4, "#fee090"),
+        (0.5, "#e0e0e0"),
+        (0.6, "#e0f3db"),
+        (1.0, "#1a9850"),
+    ], "Colorblind mode should use a different scale than standard"

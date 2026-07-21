@@ -91,42 +91,56 @@ LEGEND_VERTICAL_TOPRIGHT = {
 def create_comparison_chart(
     df: pd.DataFrame,
     group_by: str = 'test_name',
-    title: str = "Performance Comparison"
+    title: str = "Performance Comparison",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a side-by-side bar chart for comparing configurations.
-    
+
     Args:
         df: DataFrame with comparison data (must have baseline_mean, comparison_mean)
         group_by: Column used for grouping
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for comparison")
-    
+
+    palette = get_palette(colorblind_mode)
+
     fig = go.Figure()
-    
+
     # Baseline bars
+    baseline_marker = dict(color=palette.comparison.baseline)
+    if colorblind_mode:
+        baseline_marker['pattern'] = dict(shape='/', solidity=0.3, fillmode='overlay')
+
     fig.add_trace(go.Bar(
         x=df[group_by],
         y=df['baseline_mean'],
         name='Baseline',
-        marker_color='lightblue',
+        marker=baseline_marker,
         error_y=dict(type='data', array=df['baseline_std']) if 'baseline_std' in df.columns else None
     ))
-    
+
     # Comparison bars
+    comparison_marker = dict(color=palette.comparison.comparison)
+    if colorblind_mode:
+        comparison_marker['pattern'] = dict(shape='\\', solidity=0.3, fillmode='overlay')
+
     fig.add_trace(go.Bar(
         x=df[group_by],
         y=df['comparison_mean'],
         name='Comparison',
-        marker_color='lightcoral',
+        marker=comparison_marker,
         error_y=dict(type='data', array=df['comparison_std']) if 'comparison_std' in df.columns else None
     ))
-    
+
     fig.update_layout(
         title=title,
         xaxis_title=group_by.replace('_', ' ').title(),
@@ -229,11 +243,12 @@ def create_heatmap(
     col_dim: str = 'instance_type',
     value_col: str = 'primary_metric_value',
     title: str = "Performance Heatmap",
-    normalize_by_test: bool = True
+    normalize_by_test: bool = True,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a heatmap for regression analysis.
-    
+
     Args:
         df: DataFrame with benchmark data
         row_dim: Dimension for rows
@@ -241,12 +256,17 @@ def create_heatmap(
         value_col: Column containing values for heatmap
         title: Chart title
         normalize_by_test: If True and data contains multiple test types, normalize within each test
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for heatmap")
+
+    palette = get_palette(colorblind_mode)
     
     # If we have multiple test types with different scales, normalize within each test
     if normalize_by_test and 'test_name' in df.columns and len(df['test_name'].unique()) > 1:
@@ -285,12 +305,22 @@ def create_heatmap(
     
     # Create hover text with formatted values
     hover_text = [[f"{val:.1f}{text_suffix}" for val in row] for row in pivot.values]
-    
+
+    # Determine colorscale
+    if colorblind_mode:
+        # Use colorblind-safe scale from palette
+        if isinstance(palette.performance_heatmap_scale, str):
+            colorscale = palette.performance_heatmap_scale
+        else:
+            colorscale = palette.performance_heatmap_scale.scale
+    else:
+        colorscale = 'RdYlGn'
+
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values,
         x=pivot.columns,
         y=pivot.index,
-        colorscale='RdYlGn',
+        colorscale=colorscale,
         text=pivot.values.round(1),
         hovertext=hover_text,
         hovertemplate='%{y} × %{x}<br>%{hovertext}<extra></extra>',
@@ -303,7 +333,7 @@ def create_heatmap(
             thickness=18
         )
     ))
-    
+
     fig.update_layout(
         title=title,
         xaxis_title=col_dim.replace('_', ' ').title(),
@@ -315,13 +345,23 @@ def create_heatmap(
 
     # Add help annotation explaining color scale
     # Position to right of colorbar using xshift to avoid collision
-    fig.add_annotation(
-        text=(
+    if colorblind_mode:
+        help_text = (
+            "<b>How to read:</b><br>"
+            "🔵 Blue = Higher performance<br>"
+            "⚪ Gray = Medium performance<br>"
+            "🟠 Orange = Lower performance"
+        )
+    else:
+        help_text = (
             "<b>How to read:</b><br>"
             "🟢 Green = Higher performance<br>"
             "🟡 Yellow = Medium performance<br>"
             "🔴 Red = Lower performance"
-        ),
+        )
+
+    fig.add_annotation(
+        text=help_text,
         xref="paper", yref="paper",
         x=1.02, y=0.5,
         xshift=100,  # Shift right by 100px to avoid colorbar collision
@@ -501,25 +541,31 @@ def create_scatter_plot(
 def create_performance_delta_chart(
     df: pd.DataFrame,
     x_col: str = 'test_name',
-    title: str = "Performance Change (%)"
+    title: str = "Performance Change (%)",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a bar chart showing percentage changes with color coding.
-    
+
     Uses the same 5-color + pattern scheme as version comparison charts
     when is_regression data is available.
-    
+
     Args:
         df: DataFrame with percent_change column (and optionally is_regression)
         x_col: Column for x-axis labels
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty or 'percent_change' not in df.columns:
         return create_empty_figure("No comparison data available")
-    
+
+    palette = get_palette(colorblind_mode)
+
     # Determine colors and patterns
     # If we have is_regression info, use the 5-color scheme
     if 'is_regression' in df.columns:
@@ -529,7 +575,9 @@ def create_performance_delta_chart(
             pct = row['percent_change']
             is_reg = row['is_regression']
             # For simple delta chart, assume single config (any == all)
-            color, pattern = _get_regression_color_and_pattern(pct, is_reg, is_reg)
+            color, pattern = _get_regression_color_and_pattern(
+                pct, is_reg, is_reg, colorblind_mode=colorblind_mode
+            )
             colors.append(color)
             patterns.append(pattern)
         
@@ -541,9 +589,13 @@ def create_performance_delta_chart(
             pattern_solidity=0.3
         )
     else:
-        # Fallback to simple color coding
-        colors = ['#d73027' if x < -5 else '#1a9850' if x > 5 else '#e0e0e0' 
-                  for x in df['percent_change']]
+        # Fallback to simple color coding using palette
+        colors = [
+            palette.semantic.regression if x < -5
+            else palette.semantic.improvement if x > 5
+            else '#e0e0e0'
+            for x in df['percent_change']
+        ]
         marker_config = dict(color=colors)
     
     fig = go.Figure(data=[
@@ -746,29 +798,29 @@ def create_summary_cards_data(df: pd.DataFrame) -> dict:
 
 def create_regression_heatmap(
     pct_change_df: pd.DataFrame,
-    title: str = "OS Version Regressions by Benchmark"
+    title: str = "OS Version Regressions by Benchmark",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a heatmap showing percentage changes between OS versions.
-    
+
     Args:
         pct_change_df: DataFrame with test_name as index, version transitions as columns
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if pct_change_df.empty:
         return create_empty_figure("No regression data available")
-    
-    # Define color scale: red for regressions, green for improvements, gray for stable
-    colorscale = [
-        [0.0, '#d73027'],    # Strong regression (red)
-        [0.4, '#fee090'],    # Mild regression (yellow)
-        [0.5, '#e0e0e0'],    # Stable (gray)
-        [0.6, '#e0f3db'],    # Mild improvement (light green)
-        [1.0, '#1a9850']     # Strong improvement (green)
-    ]
+
+    palette = get_palette(colorblind_mode)
+
+    # Use palette's regression heatmap scale
+    colorscale = palette.regression_heatmap_scale.scale
     
     # Create hover text
     hover_text = []
@@ -828,13 +880,23 @@ def create_regression_heatmap(
 
     # Add help annotation explaining color scale
     # Position to right of colorbar using xshift to avoid collision
-    fig.add_annotation(
-        text=(
+    if colorblind_mode:
+        help_text = (
+            "<b>How to read:</b><br>"
+            "🟠 Orange = Regression (slower)<br>"
+            "⚪ Gray = Stable/No change<br>"
+            "🔵 Blue = Improvement (faster)"
+        )
+    else:
+        help_text = (
             "<b>How to read:</b><br>"
             "🔴 Red = Regression (slower)<br>"
             "⚪ Gray = Stable/No change<br>"
             "🟢 Green = Improvement (faster)"
-        ),
+        )
+
+    fig.add_annotation(
+        text=help_text,
         xref="paper", yref="paper",
         x=1.02, y=0.5,
         xshift=100,  # Shift right by 100px to avoid colorbar collision
@@ -856,65 +918,74 @@ def _get_regression_color_and_pattern(
     percent_change: float,
     is_any_regression: bool,
     is_all_regression: bool,
-    stable_threshold: float = 5.0
+    stable_threshold: float = 5.0,
+    colorblind_mode: bool = False
 ) -> tuple:
     """
     Determine bar color and pattern based on change and consistency across runs.
-    
+
     Returns a 5-color + pattern scheme:
-    - Solid Dark Red: All runs regressed, average is negative
-    - Striped Orange: Mixed results, net regression  
+    - Solid Dark Red/Vermillion: All runs regressed, average is negative
+    - Striped Orange/Amber: Mixed results, net regression
     - Gray: Stable (within threshold)
-    - Striped Amber: Mixed results, net improvement
-    - Solid Green: All runs improved, average is positive
-    
+    - Striped Amber/Blue: Mixed results, net improvement
+    - Solid Green/Blue: All runs improved, average is positive
+
+    In colorblind mode, amplifies pattern usage for redundant encoding.
+
     Args:
         percent_change: Average percent change across runs
         is_any_regression: True if ANY run showed regression
         is_all_regression: True if ALL runs showed regression
         stable_threshold: Threshold for stable zone (default ±5%)
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Tuple of (color hex, pattern shape or empty string)
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
+
     if percent_change is None or (isinstance(percent_change, float) and pd.isna(percent_change)):
-        return '#bdbdbd', ''  # Neutral gray if undefined
+        return palette.semantic.undefined, ''  # Neutral gray if undefined
 
     # Stable zone: within threshold
     if abs(percent_change) <= stable_threshold:
-        return '#9ca3af', ''  # Gray, no pattern (darker for readability)
-    
+        return palette.semantic.stable, palette.patterns.stable
+
     if percent_change < 0:
         # Net regression
         if is_all_regression:
-            return '#d73027', ''  # Dark red, solid - unanimous regression
+            return palette.semantic.regression, palette.patterns.regression
         else:
-            return '#f46d43', '/'  # Orange, striped - mixed, net regression
+            return palette.semantic.mixed_regression, palette.patterns.mixed_regression
     else:
         # Net improvement
         if not is_any_regression:
-            return '#1a9850', ''  # Green, solid - unanimous improvement
+            return palette.semantic.improvement, palette.patterns.improvement
         else:
-            return '#fdae61', '/'  # Amber, striped - mixed, net improvement
+            return palette.semantic.mixed_improvement, palette.patterns.mixed_improvement
 
 
 def create_version_comparison_bar_chart(
     comparison_df: pd.DataFrame,
     baseline_version: str,
     comparison_version: str,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a bar chart comparing performance between two OS versions.
-    
+
     Uses a 5-color + pattern scheme to communicate both the net result AND
     consistency across hardware configurations:
-    - Solid Dark Red: All configs regressed
-    - Striped Orange: Mixed results, net regression
+    - Solid Dark Red/Vermillion: All configs regressed
+    - Striped Orange/Amber: Mixed results, net regression
     - Gray: Stable (within ±5%)
-    - Striped Amber: Mixed results, net improvement
-    - Solid Green: All configs improved
-    
+    - Striped Amber/Blue: Mixed results, net improvement
+    - Solid Green/Blue: All configs improved
+
     Args:
         comparison_df: DataFrame with comparison data (must have columns:
                       test_name, baseline_mean, comparison_mean, percent_change, is_regression,
@@ -922,7 +993,8 @@ def create_version_comparison_bar_chart(
         baseline_version: Baseline version name
         comparison_version: Comparison version name
         title: Chart title (auto-generated if None)
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
@@ -976,7 +1048,8 @@ def create_version_comparison_bar_chart(
         color, pattern = _get_regression_color_and_pattern(
             row['percent_change'],
             row['is_any_regression'],
-            row['is_all_regression']
+            row['is_all_regression'],
+            colorblind_mode=colorblind_mode
         )
         colors.append(color)
         patterns.append(pattern)

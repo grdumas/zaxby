@@ -310,4 +310,193 @@ def test_analyze_os_version_regressions_empty_comparison_matrix_no_keyerror(proc
     assert out["regressions"] == []
 
 
+# Cloud Scaling Analysis Tests
+
+
+@pytest.fixture
+def cloud_scaling_data():
+    """Create sample data for cloud scaling analysis."""
+    return pd.DataFrame([
+        {
+            "cloud_provider": "gcp",
+            "os_version": "10.1",
+            "instance_type": "c2-standard-4",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "primary_metric_value": 100000.0,
+            "std_performance": 1000.0
+        },
+        {
+            "cloud_provider": "gcp",
+            "os_version": "10.1",
+            "instance_type": "c2-standard-8",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 8,
+            "memory_gb": 32,
+            "primary_metric_value": 195000.0,  # ~97.5% linear scaling
+            "std_performance": 2000.0
+        },
+        {
+            "cloud_provider": "gcp",
+            "os_version": "10.1",
+            "instance_type": "c2-standard-16",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 16,
+            "memory_gb": 64,
+            "primary_metric_value": 380000.0,  # ~95% linear scaling
+            "std_performance": 3000.0
+        },
+        {
+            "cloud_provider": "gcp",
+            "os_version": "10.1",
+            "instance_type": "c2-standard-4",
+            "test_name": "streams",
+            "benchmark_category": "Memory",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "primary_metric_value": 50000.0,
+            "std_performance": 500.0
+        },
+        {
+            "cloud_provider": "gcp",
+            "os_version": "10.1",
+            "instance_type": "c2-standard-8",
+            "test_name": "streams",
+            "benchmark_category": "Memory",
+            "cpu_cores": 8,
+            "memory_gb": 32,
+            "primary_metric_value": 65000.0,  # ~65% linear scaling (poor)
+            "std_performance": 800.0
+        },
+    ])
+
+
+def test_analyze_cloud_scaling_basic(processor, cloud_scaling_data):
+    """Test basic cloud scaling analysis."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    # Verify result structure
+    assert "scaling_data" in result
+    assert "summary" in result
+    assert "linear_scaling_count" in result
+    assert "total_benchmarks" in result
+
+    # Verify scaling data is not empty
+    assert not result["scaling_data"].empty
+    assert len(result["scaling_data"]) > 0
+
+
+def test_analyze_cloud_scaling_detects_linear_scaling(processor, cloud_scaling_data):
+    """Test that linear scaling is correctly detected (>85% efficiency)."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    # CoreMark should show linear scaling (~95% efficiency)
+    assert result["linear_scaling_count"] >= 1
+    assert result["total_benchmarks"] == 2  # coremark and streams
+
+
+def test_analyze_cloud_scaling_detects_poor_scaling(processor, cloud_scaling_data):
+    """Test that poor scaling is detected and reported (<70% efficiency)."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    # STREAM has poor scaling (~65%), should be in summary
+    assert "streams" in result["summary"].lower() or "diminishing" in result["summary"].lower()
+
+
+def test_analyze_cloud_scaling_includes_cpu_cores(processor, cloud_scaling_data):
+    """Test that CPU cores are included in scaling data."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    scaling_df = result["scaling_data"]
+    assert "cpu_cores" in scaling_df.columns
+    assert scaling_df["cpu_cores"].notna().any()
+
+
+def test_analyze_cloud_scaling_includes_memory(processor, cloud_scaling_data):
+    """Test that memory_gb is included in scaling data (multi-dimensional)."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    scaling_df = result["scaling_data"]
+    assert "memory_gb" in scaling_df.columns
+    assert scaling_df["memory_gb"].notna().any()
+
+
+def test_analyze_cloud_scaling_filters_by_instance_family(processor, cloud_scaling_data):
+    """Test filtering by instance family."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1",
+        instance_family="c2-standard"
+    )
+
+    scaling_df = result["scaling_data"]
+    assert not scaling_df.empty
+    # All instances should match the family filter
+    assert all("c2-standard" in inst for inst in scaling_df["instance_type"].unique())
+
+
+def test_analyze_cloud_scaling_empty_data(processor):
+    """Test cloud scaling with no matching data."""
+    # Create empty DataFrame with required columns
+    empty_df = pd.DataFrame(columns=[
+        'cloud_provider', 'os_version', 'instance_type', 'test_name',
+        'benchmark_category', 'cpu_cores', 'memory_gb', 'primary_metric_value'
+    ])
+
+    result = processor.analyze_cloud_scaling(
+        empty_df,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    assert result["scaling_data"].empty
+    assert "No data available" in result["summary"]
+    assert result["linear_scaling_count"] == 0
+    assert result["total_benchmarks"] == 0
+
+
+def test_analyze_cloud_scaling_instance_data_includes_cores(processor, cloud_scaling_data):
+    """Test that instance data includes CPU cores for proper ordering."""
+    result = processor.analyze_cloud_scaling(
+        cloud_scaling_data,
+        cloud_provider="gcp",
+        os_version="10.1"
+    )
+
+    scaling_df = result["scaling_data"]
+
+    # Verify all instances have CPU core data
+    assert "cpu_cores" in scaling_df.columns
+    assert scaling_df["cpu_cores"].notna().all()
+
+    # Verify different instance sizes have different core counts
+    core_counts = scaling_df["cpu_cores"].unique()
+    assert len(core_counts) > 1  # Multiple instance sizes
+
+
 

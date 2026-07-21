@@ -50,7 +50,7 @@ def test_get_palette_returns_standard_by_default():
 def test_get_palette_returns_colorblind_when_true():
     """get_palette() returns COLORBLIND when colorblind_mode=True."""
     palette = get_palette(colorblind_mode=True)
-    assert COLORBLIND is COLORBLIND
+    assert palette is COLORBLIND
 
 
 def test_colorblind_no_red_green_confusion():

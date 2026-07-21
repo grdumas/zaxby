@@ -13,6 +13,7 @@ from src.components.visualizations import (
     create_heatmap,
     create_regression_heatmap,
     create_time_series_chart,
+    create_version_comparison_bar_chart,
     LEGEND_RIGHT_MARGIN
 )
 
@@ -1248,13 +1249,17 @@ def test_create_heatmap_colorblind_uses_safe_scale():
     fig_standard = create_heatmap(df, colorblind_mode=False)
     fig_colorblind = create_heatmap(df, colorblind_mode=True)
 
-    # Both will be lists of tuples after Plotly processes them
-    # But standard contains RdYlGn RGB values (red-green)
-    # Colorblind contains blue-orange values
     standard_scale = fig_standard.data[0].colorscale
     colorblind_scale = fig_colorblind.data[0].colorscale
 
-    assert isinstance(standard_scale, (list, tuple))
+    # Standard mode: Plotly may keep it as the string 'RdYlGn' or expand to RGB values
+    if isinstance(standard_scale, str):
+        assert standard_scale == 'RdYlGn'
+    else:
+        # If expanded, verify it's a list/tuple
+        assert isinstance(standard_scale, (list, tuple))
+
+    # Colorblind mode: should be a list/tuple with blue-orange scale
     assert isinstance(colorblind_scale, (list, tuple))
 
     # The scales should be different
@@ -1263,9 +1268,10 @@ def test_create_heatmap_colorblind_uses_safe_scale():
     # Colorblind scale should contain hex codes from the blue-orange palette
     # Extract color values (second element of each tuple)
     colorblind_colors = [c[1] for c in colorblind_scale if isinstance(c, tuple)]
-    # Should contain blue (#0072b2) or orange (#d55e00) in hex or rgb form
-    # At minimum, verify it doesn't match the standard RdYlGn RGB pattern
-    assert colorblind_colors != [c[1] for c in standard_scale if isinstance(c, tuple)]
+    # Verify it doesn't match the standard RdYlGn RGB pattern
+    if isinstance(standard_scale, (list, tuple)):
+        standard_colors = [c[1] for c in standard_scale if isinstance(c, tuple)]
+        assert colorblind_colors != standard_colors
 
 
 def test_regression_heatmap_colorblind_scale(regression_heatmap_data):
@@ -1293,3 +1299,145 @@ def test_regression_heatmap_colorblind_scale(regression_heatmap_data):
         (0.6, "#e0f3db"),
         (1.0, "#1a9850"),
     ], "Colorblind mode should use a different scale than standard"
+
+
+def test_version_comparison_legend_matches_colorblind_palette():
+    """
+    Test that version comparison chart legend uses colorblind palette labels
+    when colorblind_mode=True.
+
+    The legend should show "Vermillion" and "Blue" in colorblind mode, not
+    "Red" and "Green" from the standard palette.
+    """
+    # Create fixture data with all types of results
+    comparison_df = pd.DataFrame([
+        {
+            "test_name": "all_regressed",
+            "baseline_mean": 100.0,
+            "comparison_mean": 80.0,
+            "percent_change": -20.0,
+            "is_regression": True,
+            "hardware_config": "config1"
+        },
+        {
+            "test_name": "all_regressed",
+            "baseline_mean": 100.0,
+            "comparison_mean": 85.0,
+            "percent_change": -15.0,
+            "is_regression": True,
+            "hardware_config": "config2"
+        },
+        {
+            "test_name": "all_improved",
+            "baseline_mean": 100.0,
+            "comparison_mean": 120.0,
+            "percent_change": 20.0,
+            "is_regression": False,
+            "hardware_config": "config1"
+        },
+        {
+            "test_name": "all_improved",
+            "baseline_mean": 100.0,
+            "comparison_mean": 125.0,
+            "percent_change": 25.0,
+            "is_regression": False,
+            "hardware_config": "config2"
+        },
+        {
+            "test_name": "mixed_net_regression",
+            "baseline_mean": 100.0,
+            "comparison_mean": 90.0,
+            "percent_change": -10.0,
+            "is_regression": True,
+            "hardware_config": "config1"
+        },
+        {
+            "test_name": "mixed_net_regression",
+            "baseline_mean": 100.0,
+            "comparison_mean": 105.0,
+            "percent_change": 5.0,
+            "is_regression": False,
+            "hardware_config": "config2"
+        }
+    ])
+
+    fig = create_version_comparison_bar_chart(
+        comparison_df=comparison_df,
+        baseline_version="v1.0",
+        comparison_version="v2.0",
+        colorblind_mode=True
+    )
+
+    # Extract legend annotation text from fig.layout.annotations
+    legend_annotations = [
+        ann for ann in fig.layout.annotations
+        if hasattr(ann, 'text') and 'Legend:' in ann.text
+    ]
+
+    assert len(legend_annotations) == 1, "Should have exactly one legend annotation"
+    legend_text = legend_annotations[0].text
+
+    # In colorblind mode, legend should use colorblind palette terms
+    assert "Vermillion" in legend_text, "Colorblind legend should mention 'Vermillion' for regression"
+    assert "Blue" in legend_text, "Colorblind legend should mention 'Blue' for improvement"
+
+    # In colorblind mode, legend should NOT use standard palette terms
+    assert "Red" not in legend_text or "Dark Red" not in legend_text, \
+        "Colorblind legend should not use 'Red' or 'Dark Red'"
+    assert "Green" not in legend_text, "Colorblind legend should not use 'Green'"
+
+
+@pytest.fixture
+def peer_os_comparison_data():
+    """Sample peer OS comparison data with competitive, moderate, and significant differences."""
+    return pd.DataFrame([
+        {
+            "peer_os": "Ubuntu",
+            "benchmark_category": "CPU",
+            "relative_performance": 95.0,  # Competitive (90-110%)
+            "test_name": "coremark"
+        },
+        {
+            "peer_os": "Ubuntu",
+            "benchmark_category": "Memory",
+            "relative_performance": 85.0,  # Moderate (80-120%)
+            "test_name": "streams"
+        },
+        {
+            "peer_os": "Ubuntu",
+            "benchmark_category": "Network",
+            "relative_performance": 75.0,  # Significant (<80% or >120%)
+            "test_name": "iperf"
+        },
+    ])
+
+
+def test_peer_os_comparison_uses_colorblind_palette(peer_os_comparison_data):
+    """Peer OS comparison chart uses colorblind-safe colors when colorblind_mode=True."""
+    from src.components.visualizations import create_peer_os_comparison_chart
+
+    fig = create_peer_os_comparison_chart(
+        peer_os_comparison_data,
+        baseline_os="RHEL",
+        colorblind_mode=True
+    )
+
+    # Verify chart was created
+    assert len(fig.data) > 0
+
+    # Extract bar colors
+    bar_trace = fig.data[0]
+    bar_colors = bar_trace.marker.color
+
+    # Should NOT use hardcoded red (#d73027) or green (#1a9850)
+    assert "#d73027" not in bar_colors, "Should not use standard red in colorblind mode"
+    assert "#1a9850" not in bar_colors, "Should not use standard green in colorblind mode"
+
+    # Verify fillcolor in shapes (competitive zone)
+    # Should not use literal "green"
+    shapes = fig.layout.shapes
+    if shapes:
+        for shape in shapes:
+            if hasattr(shape, 'fillcolor'):
+                fillcolor = shape.fillcolor.lower()
+                assert fillcolor != "green", "Should not use literal 'green' fillcolor in colorblind mode"

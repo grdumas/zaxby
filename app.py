@@ -340,6 +340,7 @@ def serve_layout():
             dcc.Store(id='analysis-results-store'),
             dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
             dcc.Store(id='nightly-runs-store'),
+            dcc.Store(id='colorblind-mode-store', storage_type='local'),
 
             # Header
             dbc.Card([
@@ -381,6 +382,17 @@ def serve_layout():
                                         "padding": "0"
                                     },
                                     **{"aria-label": "Toggle dark mode"}
+                                ),
+                                html.Button(
+                                    id="colorblind-mode-toggle",
+                                    className="me-3",
+                                    style={
+                                        "border": "none",
+                                        "background": "transparent",
+                                        "cursor": "pointer",
+                                        "padding": "0"
+                                    },
+                                    **{"aria-label": "Toggle colorblind-friendly mode"}
                                 ),
                                 dbc.Badge(
                                     f"📊 {len(df):,} Records",
@@ -504,6 +516,41 @@ app.clientside_callback(
     """,
     Output('dark-mode-toggle', 'data-dummy'),  # Dummy output
     Input('dark-mode-toggle', 'n_clicks')
+)
+
+
+# Clientside callback for colorblind mode toggle
+# Toggles the colorblind-mode-store value when button is clicked
+app.clientside_callback(
+    """
+    function(n_clicks, current_data) {
+        if (n_clicks) {
+            // Toggle the colorblind mode
+            const current = current_data || false;
+            return !current;
+        }
+        // On initial load, return stored value or false
+        return current_data || false;
+    }
+    """,
+    Output('colorblind-mode-store', 'data'),
+    Input('colorblind-mode-toggle', 'n_clicks'),
+    State('colorblind-mode-store', 'data')
+)
+
+
+# Clientside callback to sync colorblind mode to body class
+# This allows CSS styling based on colorblind mode
+app.clientside_callback(
+    """
+    function(is_colorblind) {
+        // Update body class for CSS styling
+        document.body.classList.toggle('colorblind-mode', !!is_colorblind);
+        return '';
+    }
+    """,
+    Output('colorblind-mode-toggle', 'data-dummy'),  # Dummy output
+    Input('colorblind-mode-store', 'data')
 )
 
 
@@ -990,10 +1037,12 @@ def create_investigation_layout(
 
 @app.callback(
     Output("server-snapshot-content", "children"),
-    [Input("server-snapshot-init", "n_intervals"), Input("btn-refresh-server-snapshot", "n_clicks")],
+    [Input("server-snapshot-init", "n_intervals"),
+     Input("btn-refresh-server-snapshot", "n_clicks"),
+     Input('colorblind-mode-store', 'data')],
     prevent_initial_call=True,
 )
-def update_server_snapshot(_n_intervals, _n_clicks):
+def update_server_snapshot(_n_intervals, _n_clicks, colorblind_mode):
     """Load bounded snapshot via OpenSearch aggregation or synthetic groupby (not from dcc.Store).
 
     prevent_initial_call avoids doubling work with server-snapshot-init (initial n_intervals=0 plus first tick).
@@ -1014,6 +1063,8 @@ def update_server_snapshot(_n_intervals, _n_clicks):
     timeline_snap = bundle.activity_timeline
     scope_snap = bundle.scope
 
+    colorblind_mode = bool(colorblind_mode)
+
     return render_pulse_v1_panel(
         snap=snap,
         scope_snap=scope_snap,
@@ -1023,6 +1074,7 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         results_index_label=results_index_name(),
         kpi_definition_version=bundle.definition_version,
         policy_template_id=bundle.policy_template_id,
+        colorblind_mode=colorblind_mode,
     )
 
 
@@ -1201,10 +1253,11 @@ def update_nightly_runs(start_date, end_date):
 
 @app.callback(
     Output('nightly-run-chart', 'figure'),
-    [Input('nightly-run-selector', 'value')],
+    [Input('nightly-run-selector', 'value'),
+     Input('colorblind-mode-store', 'data')],
     [State('nightly-runs-store', 'data')],
 )
-def update_nightly_run_chart(selected_idx, runs_data):
+def update_nightly_run_chart(selected_idx, colorblind_mode, runs_data):
     """
     Update category breakdown chart when user selects a different nightly run.
     """
@@ -1212,8 +1265,10 @@ def update_nightly_run_chart(selected_idx, runs_data):
     from src.query_service import NightlyRunSnapshot
     from datetime import datetime
 
+    colorblind_mode = bool(colorblind_mode)
+
     if runs_data is None or selected_idx is None:
-        return create_nightly_run_category_chart(None)
+        return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
 
     if selected_idx >= len(runs_data):
         return create_nightly_run_category_chart(None)
@@ -1230,7 +1285,7 @@ def update_nightly_run_chart(selected_idx, runs_data):
         error=run_dict.get('error'),
     )
 
-    return create_nightly_run_category_chart(run)
+    return create_nightly_run_category_chart(run, colorblind_mode=colorblind_mode)
 
 
 def parse_os_version_filters(os_vers):
@@ -1409,12 +1464,15 @@ def update_q1_overall_summary(analysis_json):
 @app.callback(
     [Output('q1-major-graph', 'figure'),
      Output('q1-major-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    [Input('analysis-results-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_major_release_comparison(analysis_json):
+def update_major_release_comparison(analysis_json, colorblind_mode):
     """Update major release comparison (9.X vs 10.X)."""
     import pandas as pd
-    
+
+    colorblind_mode = bool(colorblind_mode)
+
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
     
@@ -1432,7 +1490,8 @@ def update_major_release_comparison(analysis_json):
         fig = visualizations.create_version_comparison_bar_chart(
             comparison_df,
             comp_data['baseline_version'],
-            comp_data['comparison_version']
+            comp_data['comparison_version'],
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No data available")
@@ -1483,7 +1542,8 @@ def update_rhel9_sequential(analysis_json):
         fig = visualizations.create_version_comparison_bar_chart(
             comparison_df,
             comp_data['baseline_version'],
-            comp_data['comparison_version']
+            comp_data['comparison_version'],
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No data available")
@@ -1534,7 +1594,8 @@ def update_rhel10_sequential(analysis_json):
         fig = visualizations.create_version_comparison_bar_chart(
             comparison_df,
             comp_data['baseline_version'],
-            comp_data['comparison_version']
+            comp_data['comparison_version'],
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No data available")

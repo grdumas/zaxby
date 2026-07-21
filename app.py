@@ -359,6 +359,8 @@ def serve_layout():
             dcc.Store(id='nightly-runs-store'),
             dcc.Store(id='pulse-kpi-bundle-store'),
             dcc.Store(id='colorblind-mode-store', storage_type='local'),
+            dcc.Store(id='dark-mode-callback-dummy'),  # Dummy output for dark mode clientside callback
+            dcc.Store(id='colorblind-callback-dummy'),  # Dummy output for colorblind clientside callback
 
             # Header
             dbc.Card([
@@ -536,7 +538,7 @@ app.clientside_callback(
         return '';
     }
     """,
-    Output('dark-mode-toggle', 'data-dummy'),  # Dummy output
+    Output('dark-mode-callback-dummy', 'data'),  # Dummy output
     Input('dark-mode-toggle', 'n_clicks')
 )
 
@@ -577,7 +579,7 @@ app.clientside_callback(
         return window.dash_clientside.no_update;
     }
     """,
-    Output('colorblind-mode-toggle', 'data-dummy'),  # Dummy output
+    Output('colorblind-callback-dummy', 'data'),  # Dummy output
     Input('colorblind-mode-store', 'data')
 )
 

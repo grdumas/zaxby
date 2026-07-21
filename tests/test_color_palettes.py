@@ -1,5 +1,6 @@
 """Tests for centralized color palette module."""
 
+import dataclasses
 import pytest
 from src.color_palettes import (
     STANDARD,
@@ -141,14 +142,43 @@ def test_line_dashes_list_nonempty():
     assert len(COLORBLIND.patterns.line_dashes) >= 3
 
 
+def test_chart_patterns_fields_are_immutable():
+    """ChartPatterns frozen dataclass has immutable tuple fields, not mutable lists."""
+    # marker_symbols and line_dashes should be tuples for true immutability
+    assert isinstance(STANDARD.patterns.marker_symbols, tuple), \
+        "marker_symbols should be a tuple for immutability in frozen dataclass"
+    assert isinstance(STANDARD.patterns.line_dashes, tuple), \
+        "line_dashes should be a tuple for immutability in frozen dataclass"
+
+    assert isinstance(COLORBLIND.patterns.marker_symbols, tuple), \
+        "marker_symbols should be a tuple for immutability in frozen dataclass"
+    assert isinstance(COLORBLIND.patterns.line_dashes, tuple), \
+        "line_dashes should be a tuple for immutability in frozen dataclass"
+
+
 def test_standard_and_colorblind_palettes_same_structure():
     """Standard and colorblind palettes have the same attribute structure."""
     # This ensures we can swap palettes without code changes
-    assert dir(STANDARD.semantic) == dir(COLORBLIND.semantic)
-    assert dir(STANDARD.comparison) == dir(COLORBLIND.comparison)
-    assert dir(STANDARD.table) == dir(COLORBLIND.table)
-    assert dir(STANDARD.branding) == dir(COLORBLIND.branding)
-    assert dir(STANDARD.patterns) == dir(COLORBLIND.patterns)
+    # Use dataclasses.fields() instead of dir() to avoid brittle dunder attributes
+    standard_semantic_fields = {f.name for f in dataclasses.fields(STANDARD.semantic)}
+    colorblind_semantic_fields = {f.name for f in dataclasses.fields(COLORBLIND.semantic)}
+    assert standard_semantic_fields == colorblind_semantic_fields
+
+    standard_comparison_fields = {f.name for f in dataclasses.fields(STANDARD.comparison)}
+    colorblind_comparison_fields = {f.name for f in dataclasses.fields(COLORBLIND.comparison)}
+    assert standard_comparison_fields == colorblind_comparison_fields
+
+    standard_table_fields = {f.name for f in dataclasses.fields(STANDARD.table)}
+    colorblind_table_fields = {f.name for f in dataclasses.fields(COLORBLIND.table)}
+    assert standard_table_fields == colorblind_table_fields
+
+    standard_branding_fields = {f.name for f in dataclasses.fields(STANDARD.branding)}
+    colorblind_branding_fields = {f.name for f in dataclasses.fields(COLORBLIND.branding)}
+    assert standard_branding_fields == colorblind_branding_fields
+
+    standard_patterns_fields = {f.name for f in dataclasses.fields(STANDARD.patterns)}
+    colorblind_patterns_fields = {f.name for f in dataclasses.fields(COLORBLIND.patterns)}
+    assert standard_patterns_fields == colorblind_patterns_fields
 
 
 def test_diverging_scale_has_5_stops():
@@ -164,3 +194,30 @@ def test_comparison_colors_are_different():
     """Baseline and comparison colors are visually distinct."""
     for palette in [STANDARD, COLORBLIND]:
         assert palette.comparison.baseline != palette.comparison.comparison
+
+
+def test_colorblind_performance_heatmap_scale_semantics():
+    """
+    Colorblind performance heatmap scale maps low→orange and high→blue.
+
+    In Plotly heatmaps, higher z-values map to the 1.0 end of the scale.
+    The help text in create_heatmap() says "blue = higher performance, orange = lower performance".
+    Therefore:
+    - scale[0] (position 0.0) should be orange/vermillion (low performance)
+    - scale[-1] (position 1.0) should be blue (high performance)
+    """
+    scale = COLORBLIND.performance_heatmap_scale.scale
+
+    # First stop (0.0) should be orange/vermillion
+    first_position, first_color = scale[0]
+    assert first_position == 0.0
+    # Vermillion is #d55e00
+    assert first_color.lower() == "#d55e00", \
+        f"Scale start (0.0) should be vermillion/orange for low performance, got {first_color}"
+
+    # Last stop (1.0) should be blue
+    last_position, last_color = scale[-1]
+    assert last_position == 1.0
+    # Blue is #0072b2
+    assert last_color.lower() == "#0072b2", \
+        f"Scale end (1.0) should be blue for high performance, got {last_color}"

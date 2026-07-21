@@ -1381,3 +1381,45 @@ def test_q3_render_handles_none_store_gracefully(monkeypatch):
         # Should return empty figure
         assert fig is not None
         assert mock_empty.called
+
+
+def test_clientside_callbacks_use_valid_output_components():
+    """
+    Verify clientside callbacks output to valid dcc.Store components, not invalid Button.data-dummy props.
+
+    Problem: dbc.Button may not accept arbitrary data-* props, causing runtime errors.
+    Solution: Use dedicated dcc.Store components as dummy outputs.
+    """
+    from app import app as dash_app
+
+    # Verify no callbacks output to Button.data-dummy (invalid pattern)
+    for callback in dash_app.callback_map.values():
+        outputs = callback['output']
+        if not isinstance(outputs, list):
+            outputs = [outputs]
+
+        for output in outputs:
+            output_id = output['id'] if isinstance(output, dict) else output.component_id
+            output_prop = output['property'] if isinstance(output, dict) else output.component_property
+
+            # No callback should output to data-dummy on buttons
+            if output_id in ['dark-mode-toggle', 'colorblind-mode-toggle']:
+                assert output_prop != 'data-dummy', f"Callback should not output to {output_id}.data-dummy (invalid prop)"
+
+    # Verify dummy Store outputs exist in callbacks
+    dummy_outputs_found = []
+    for callback in dash_app.callback_map.values():
+        outputs = callback['output']
+        if not isinstance(outputs, list):
+            outputs = [outputs]
+
+        for output in outputs:
+            output_id = output['id'] if isinstance(output, dict) else output.component_id
+            output_prop = output['property'] if isinstance(output, dict) else output.component_property
+
+            if output_id in ['dark-mode-callback-dummy', 'colorblind-callback-dummy'] and output_prop == 'data':
+                dummy_outputs_found.append(output_id)
+
+    # Both dummy stores should be used as outputs
+    assert 'dark-mode-callback-dummy' in dummy_outputs_found, "dark-mode-callback-dummy.data should be used as callback output"
+    assert 'colorblind-callback-dummy' in dummy_outputs_found, "colorblind-callback-dummy.data should be used as callback output"

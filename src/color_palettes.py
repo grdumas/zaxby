@@ -68,19 +68,19 @@ class ChartPatterns:
     mixed_improvement: str  # e.g., '/'
     improvement: str  # e.g., ''
     # Marker symbols for scatter/line charts
-    marker_symbols: List[str] = field(
-        default_factory=lambda: [
+    marker_symbols: tuple = field(
+        default_factory=lambda: (
             "circle",
             "square",
             "diamond",
             "triangle-up",
             "star",
             "hexagon",
-        ]
+        )
     )
     # Line dash styles for time series
-    line_dashes: List[str] = field(
-        default_factory=lambda: ["solid", "dash", "dot", "dashdot", "longdash"]
+    line_dashes: tuple = field(
+        default_factory=lambda: ("solid", "dash", "dot", "dashdot", "longdash")
     )
 
 
@@ -195,11 +195,11 @@ COLORBLIND = Palette(
     ),
     performance_heatmap_scale=DivergingScale(
         scale=[
-            (0.0, "#0072b2"),  # Blue (improvement)
-            (0.3, "#56b4e9"),  # Light blue
+            (0.0, "#d55e00"),  # Vermillion (low performance)
+            (0.3, "#e69f00"),  # Amber
             (0.5, "#f0f0f0"),  # Neutral gray
-            (0.7, "#e69f00"),  # Amber
-            (1.0, "#d55e00"),  # Vermillion (regression)
+            (0.7, "#56b4e9"),  # Light blue
+            (1.0, "#0072b2"),  # Blue (high performance)
         ]
     ),
     hardware_heatmap_scale=DivergingScale(

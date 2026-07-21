@@ -333,14 +333,11 @@ def create_heatmap(
     
     # If we have multiple test types with different scales, normalize within each test
     if normalize_by_test and 'test_name' in df.columns and len(df['test_name'].unique()) > 1:
-        # Calculate mean baseline for each test
+        # Calculate mean baseline for each test using groupby transform for performance
         df_normalized = df.copy()
-        for test_name in df_normalized['test_name'].unique():
-            test_mask = df_normalized['test_name'] == test_name
-            test_mean = df_normalized.loc[test_mask, value_col].mean()
-            if test_mean > 0:
-                # Convert to percentage of mean (100 = average performance)
-                df_normalized.loc[test_mask, value_col] = (df_normalized.loc[test_mask, value_col] / test_mean) * 100
+        df_normalized[value_col] = df_normalized.groupby('test_name')[value_col].transform(
+            lambda x: (x / x.mean() * 100) if x.mean() > 0 else x
+        )
         
         # Create pivot table from normalized data
         pivot = df_normalized.pivot_table(
@@ -369,6 +366,10 @@ def create_heatmap(
     # Create hover text with formatted values
     hover_text = [[f"{val:.1f}{text_suffix}" for val in row] for row in pivot.values]
 
+    # Escape column and row labels for safe display in hovertemplate
+    escaped_columns = [_escape_html(str(col)) for col in pivot.columns]
+    escaped_index = [_escape_html(str(idx)) for idx in pivot.index]
+
     # Determine colorscale
     if colorblind_mode:
         # Use colorblind-safe scale from palette
@@ -381,8 +382,8 @@ def create_heatmap(
 
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values,
-        x=pivot.columns,
-        y=pivot.index,
+        x=escaped_columns,
+        y=escaped_index,
         colorscale=colorscale,
         text=pivot.values.round(1),
         hovertext=hover_text,
@@ -1527,7 +1528,7 @@ def create_cloud_scaling_chart(
         # Create tick labels with instance name, cores, and RAM
         tick_labels = []
         for _, row in instance_order_df.iterrows():
-            inst_name = row['instance_type']
+            inst_name = _escape_html(row['instance_type'])
             cores = int(row['cpu_cores'])
             memory = row.get('memory_gb', None)
             if memory is not None and pd.notna(memory):
@@ -1907,7 +1908,7 @@ def create_category_benchmark_detail_chart(
     for _, row in benchmark_summary.iterrows():
         competitive_pct = row['is_competitive'] * 100
         hover_texts.append(
-            f"<b>{row['test_name']}</b><br>"
+            f"<b>{_escape_html(row['test_name'])}</b><br>"
             f"Relative Performance: {row['relative_performance']:.1f}%<br>"
             f"Hardware Configs Tested: {int(row['instance_type'])}<br>"
             f"Competitive on {competitive_pct:.0f}% of hardware"
@@ -2001,9 +2002,9 @@ def create_category_hardware_heatmap(
             val = pivot_df.loc[test, hw]
             if pd.notna(val):
                 status = "✓ Competitive" if 90 <= val <= 110 else ("⚠ Moderate" if 80 <= val <= 120 else "✗ Significant diff")
-                row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>Relative Perf: {val:.1f}%<br>{status}")
+                row_text.append(f"<b>{_escape_html(test)}</b><br>Hardware: {_escape_html(hw)}<br>Relative Perf: {val:.1f}%<br>{status}")
             else:
-                row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>No data")
+                row_text.append(f"<b>{_escape_html(test)}</b><br>Hardware: {_escape_html(hw)}<br>No data")
         hover_text.append(row_text)
 
     # Use colorblind-safe colorscale from palette

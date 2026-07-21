@@ -2587,6 +2587,158 @@ def test_cloud_scaling_chart_escapes_category_names():
         assert "<svg onload" not in all_hover_text
 
 
+def test_cloud_scaling_chart_escapes_instance_type_in_axis_ticktext():
+    """Test that cloud scaling chart escapes instance_type in axis tick labels."""
+    malicious_df = pd.DataFrame([
+        {
+            "instance_type": "<script>alert('xss')</script>",
+            "benchmark_category": "CPU",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "mean_performance": 100000.0
+        },
+        {
+            "instance_type": "<img src=x onerror=alert('xss')>",
+            "benchmark_category": "CPU",
+            "cpu_cores": 8,
+            "memory_gb": 32,
+            "mean_performance": 195000.0
+        }
+    ])
+
+    fig = create_cloud_scaling_chart(malicious_df)
+
+    # Extract tick labels from x-axis
+    if fig.layout.xaxis.ticktext:
+        all_tick_text = " ".join([str(t) for t in fig.layout.xaxis.ticktext])
+
+        # Should contain escaped versions
+        assert "&lt;script&gt;" in all_tick_text
+        assert "&lt;img" in all_tick_text
+
+        # Should NOT contain unescaped versions
+        assert "<script>alert" not in all_tick_text
+        assert "<img src=x" not in all_tick_text
+
+
+def test_category_benchmark_detail_chart_escapes_test_name():
+    """Test that category benchmark detail chart escapes test_name in hover text."""
+    malicious_df = pd.DataFrame([
+        {
+            "test_name": "<script>alert('xss')</script>",
+            "relative_performance": 95.0,
+            "instance_type": "c2-standard-4",
+            "is_competitive": 1.0
+        },
+        {
+            "test_name": "<script>alert('xss')</script>",
+            "relative_performance": 98.0,
+            "instance_type": "c2-standard-8",
+            "is_competitive": 1.0
+        }
+    ])
+
+    from src.components.visualizations import create_category_benchmark_detail_chart
+    fig = create_category_benchmark_detail_chart(malicious_df, "CPU")
+
+    # Extract hover text from customdata
+    trace = fig.data[0]
+    if hasattr(trace, 'customdata'):
+        all_hover_text = " ".join([str(h) for h in trace.customdata if h])
+
+        # Should contain escaped version
+        assert "&lt;script&gt;" in all_hover_text
+
+        # Should NOT contain unescaped version
+        assert "<script>alert" not in all_hover_text
+
+
+def test_category_hardware_heatmap_escapes_test_and_hardware():
+    """Test that category hardware heatmap escapes test and hardware names in hover text."""
+    malicious_df = pd.DataFrame([
+        {
+            "test_name": "<script>alert('xss')</script>",
+            "instance_type": "<img src=x onerror=alert('xss')>",
+            "relative_performance": 95.0
+        },
+        {
+            "test_name": "<script>alert('xss')</script>",
+            "instance_type": "c2-standard-8",
+            "relative_performance": 105.0
+        },
+        {
+            "test_name": "streams",
+            "instance_type": "<img src=x onerror=alert('xss')>",
+            "relative_performance": 110.0
+        }
+    ])
+
+    from src.components.visualizations import create_category_hardware_heatmap
+    fig = create_category_hardware_heatmap(malicious_df, "Memory")
+
+    # Extract hover text from customdata
+    trace = fig.data[0]
+    if hasattr(trace, 'customdata'):
+        # customdata is a 2D array for heatmaps
+        all_hover_text = " ".join([
+            str(cell) for row in trace.customdata
+            for cell in (row if isinstance(row, (list, tuple)) else [row])
+            if cell
+        ])
+
+        # Should contain escaped versions
+        assert "&lt;script&gt;" in all_hover_text
+        assert "&lt;img" in all_hover_text
+
+        # Should NOT contain unescaped versions
+        assert "<script>alert" not in all_hover_text
+        assert "<img src=x" not in all_hover_text
+
+
+def test_heatmap_escapes_row_and_column_dimensions():
+    """Test that heatmap escapes row and column dimension values in hover template."""
+    malicious_df = pd.DataFrame([
+        {
+            "os_version": "<script>alert('xss')</script>",
+            "instance_type": "<img src=x onerror=alert('xss')>",
+            "primary_metric_value": 100.0,
+            "test_name": "coremark"
+        },
+        {
+            "os_version": "<script>alert('xss')</script>",
+            "instance_type": "c2-standard-8",
+            "primary_metric_value": 105.0,
+            "test_name": "coremark"
+        },
+        {
+            "os_version": "rhel-9.0",
+            "instance_type": "<img src=x onerror=alert('xss')>",
+            "primary_metric_value": 110.0,
+            "test_name": "coremark"
+        }
+    ])
+
+    fig = create_heatmap(malicious_df)
+
+    # Extract the hovertemplate to check if it references escaped data
+    trace = fig.data[0]
+    hovertemplate = trace.hovertemplate
+
+    # The hovertemplate uses %{y} and %{x} which pull from pivot.index and pivot.columns
+    # These need to be escaped at the data source
+    # Check if the x and y arrays contain escaped data
+    x_values = " ".join([str(v) for v in trace.x])
+    y_values = " ".join([str(v) for v in trace.y])
+
+    # Should contain escaped versions
+    assert "&lt;script&gt;" in y_values
+    assert "&lt;img" in x_values
+
+    # Should NOT contain unescaped versions
+    assert "<script>alert" not in y_values
+    assert "<img src=x" not in x_values
+
+
 # ============================================================================
 # Pattern Index Helper Tests (Defensive Coding)
 # ============================================================================
@@ -2666,3 +2818,126 @@ def test_pattern_index_helper_deterministic_with_same_inputs():
 
     # Should be a valid index
     assert 0 <= index1 < 10
+
+
+def test_heatmap_normalize_by_test_produces_correct_output():
+    """Heatmap normalization by test produces correct percentage values."""
+    # Create test data with two tests that have very different scales
+    df = pd.DataFrame([
+        {"test_name": "test_A", "os_version": "RHEL8", "instance_type": "m5.large", "primary_metric_value": 1000},
+        {"test_name": "test_A", "os_version": "RHEL8", "instance_type": "m5.xlarge", "primary_metric_value": 1200},
+        {"test_name": "test_A", "os_version": "RHEL9", "instance_type": "m5.large", "primary_metric_value": 800},
+        {"test_name": "test_B", "os_version": "RHEL8", "instance_type": "m5.large", "primary_metric_value": 100},
+        {"test_name": "test_B", "os_version": "RHEL8", "instance_type": "m5.xlarge", "primary_metric_value": 120},
+        {"test_name": "test_B", "os_version": "RHEL9", "instance_type": "m5.large", "primary_metric_value": 80},
+    ])
+
+    # Test_A mean: (1000 + 1200 + 800) / 3 = 1000
+    # Test_B mean: (100 + 120 + 80) / 3 = 100
+    # After normalization, all values should be percentages of their test's mean
+
+    fig = create_heatmap(
+        df,
+        row_dim="os_version",
+        col_dim="instance_type",
+        value_col="primary_metric_value",
+        normalize_by_test=True
+    )
+
+    # Extract the heatmap data
+    heatmap_trace = fig.data[0]
+    z_values = heatmap_trace.z
+
+    # Verify that normalized values are present (percentages around 80-120)
+    # The normalized values should be: test_A: 100%, 120%, 80%; test_B: 100%, 120%, 80%
+    # After pivoting and averaging (if multiple entries per cell), should still show percentage scale
+    assert z_values is not None
+    # Verify we're working with percentage scale (values around 100)
+    assert any(50 < val < 150 for row in z_values for val in row), \
+        "Normalized heatmap should have percentage values around 100"
+
+    # Colorbar title should indicate percentage (in the heatmap trace)
+    assert heatmap_trace.colorbar.title.text == "% of Avg"
+
+
+def test_heatmap_normalize_by_test_groupby_equivalence():
+    """Groupby transform approach produces same output as loop approach for normalization."""
+    # Create test data with multiple tests
+    df = pd.DataFrame([
+        {"test_name": "test_A", "os_version": "RHEL8", "instance_type": "m5.large", "primary_metric_value": 1000},
+        {"test_name": "test_A", "os_version": "RHEL8", "instance_type": "m5.xlarge", "primary_metric_value": 1200},
+        {"test_name": "test_A", "os_version": "RHEL9", "instance_type": "m5.large", "primary_metric_value": 800},
+        {"test_name": "test_B", "os_version": "RHEL8", "instance_type": "m5.large", "primary_metric_value": 100},
+        {"test_name": "test_B", "os_version": "RHEL8", "instance_type": "m5.xlarge", "primary_metric_value": 120},
+        {"test_name": "test_B", "os_version": "RHEL9", "instance_type": "m5.large", "primary_metric_value": 80},
+    ])
+
+    value_col = "primary_metric_value"
+
+    # Loop approach (current implementation)
+    df_loop = df.copy()
+    for test_name in df_loop['test_name'].unique():
+        test_mask = df_loop['test_name'] == test_name
+        test_mean = df_loop.loc[test_mask, value_col].mean()
+        if test_mean > 0:
+            df_loop.loc[test_mask, value_col] = (df_loop.loc[test_mask, value_col] / test_mean) * 100
+
+    # Groupby transform approach (optimized implementation)
+    df_groupby = df.copy()
+    df_groupby[value_col] = df_groupby.groupby('test_name')[value_col].transform(
+        lambda x: (x / x.mean() * 100) if x.mean() > 0 else x
+    )
+
+    # Results should be identical in values (dtype may differ slightly due to transform)
+    pd.testing.assert_frame_equal(df_loop, df_groupby, check_dtype=False)
+
+
+def test_heatmap_colorblind_high_values_appear_blue():
+    """
+    Integration test: colorblind heatmap maps high values to blue, low to orange.
+
+    The help text says "blue = higher performance, orange = lower performance".
+    In Plotly, higher z-values map to the 1.0 end of the colorscale.
+    Therefore the scale must have orange at 0.0 and blue at 1.0.
+
+    This test verifies the scale is wired correctly by creating a heatmap
+    with known high/low values and checking the colorscale endpoints.
+    """
+    # Create test data with known high and low values
+    test_df = pd.DataFrame([
+        {"os_version": "OS1", "instance_type": "small", "primary_metric_value": 10.0},
+        {"os_version": "OS1", "instance_type": "large", "primary_metric_value": 100.0},
+        {"os_version": "OS2", "instance_type": "small", "primary_metric_value": 20.0},
+        {"os_version": "OS2", "instance_type": "large", "primary_metric_value": 90.0},
+    ])
+
+    fig = create_heatmap(
+        test_df,
+        row_dim='os_version',
+        col_dim='instance_type',
+        value_col='primary_metric_value',
+        title="Test Heatmap",
+        normalize_by_test=False,
+        colorblind_mode=True
+    )
+
+    # Get the colorscale from the heatmap trace
+    assert len(fig.data) > 0, "Heatmap should have at least one trace"
+    heatmap_trace = fig.data[0]
+    colorscale = heatmap_trace.colorscale
+
+    # Verify colorscale is a list or tuple of (position, color) tuples
+    assert isinstance(colorscale, (list, tuple)), "Colorscale should be a list or tuple"
+    assert len(colorscale) > 0, "Colorscale should not be empty"
+
+    # First stop (0.0) should be orange/vermillion for low performance
+    first_position, first_color = colorscale[0]
+    assert first_position == 0.0, f"First position should be 0.0, got {first_position}"
+    assert first_color.lower() == "#d55e00", \
+        f"First color (low values) should be vermillion/orange #d55e00, got {first_color}"
+
+    # Last stop (1.0) should be blue for high performance
+    last_position, last_color = colorscale[-1]
+    assert last_position == 1.0, f"Last position should be 1.0, got {last_position}"
+    assert last_color.lower() == "#0072b2", \
+        f"Last color (high values) should be blue #0072b2, got {last_color}"

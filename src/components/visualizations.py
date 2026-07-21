@@ -43,6 +43,24 @@ from typing import Optional, List
 from src.benchmark_categories import benchmark_groups
 
 
+def _normalize_color_col(color_col: Optional[str]) -> Optional[str]:
+    """
+    Normalize empty string color_col values to None.
+
+    Defends against UI passing empty strings instead of None, which would
+    crash Plotly Express with "Value of 'color' is not the name of a column".
+
+    Args:
+        color_col: Color column name (may be empty string)
+
+    Returns:
+        None if color_col is falsy (None, empty string, whitespace), otherwise color_col
+    """
+    if not color_col or (isinstance(color_col, str) and not color_col.strip()):
+        return None
+    return color_col
+
+
 # Legend and margin constants
 # These values standardize chart legend positioning and spacing
 LEGEND_RIGHT_MARGIN = 200  # Right margin for discrete color legends and help annotations
@@ -134,7 +152,7 @@ def create_time_series_chart(
 ) -> go.Figure:
     """
     Create a time series line chart.
-    
+
     Args:
         df: DataFrame with time series data
         x_col: Column for x-axis (timestamp)
@@ -142,12 +160,15 @@ def create_time_series_chart(
         color_col: Column to use for line colors
         title: Chart title
         use_facets: If True and color_col='test_name', create separate subplots with independent y-axes
-        
+
     Returns:
         Plotly Figure
     """
     if df.empty:
         return create_empty_figure("No time series data available")
+
+    # Normalize empty string to None to prevent Plotly crash
+    color_col = _normalize_color_col(color_col)
     
     # If color_col is test_name and we have multiple tests with different scales, use facets
     if use_facets and color_col == 'test_name' and len(df[color_col].unique()) > 1:
@@ -275,7 +296,12 @@ def create_heatmap(
         hovertemplate='%{y} × %{x}<br>%{hovertext}<extra></extra>',
         texttemplate='%{text}' + text_suffix,
         textfont={"size": 10},
-        colorbar=dict(title=colorbar_title)
+        colorbar=dict(
+            title=colorbar_title,
+            x=1.02,
+            xanchor='left',
+            thickness=18
+        )
     ))
     
     fig.update_layout(
@@ -288,6 +314,7 @@ def create_heatmap(
     )
 
     # Add help annotation explaining color scale
+    # Position to right of colorbar using xshift to avoid collision
     fig.add_annotation(
         text=(
             "<b>How to read:</b><br>"
@@ -297,6 +324,7 @@ def create_heatmap(
         ),
         xref="paper", yref="paper",
         x=1.02, y=0.5,
+        xshift=100,  # Shift right by 100px to avoid colorbar collision
         showarrow=False,
         font=dict(size=10, color="gray"),
         align="left",
@@ -349,14 +377,30 @@ def create_box_plot(
             facet_col=x_col,
             facet_col_wrap=3
         )
-        
+
         # Update each facet to have independent y-axis
         fig.update_yaxes(matches=None, showticklabels=True)
 
-        fig.update_layout(
-            height=500,
-            showlegend=False  # Legend is redundant with facet labels
-        )
+        # Determine if legend is needed
+        # Legend is only redundant when:
+        # 1. No color grouping (color_col is None), OR
+        # 2. Color represents the same dimension as facets (color_col == x_col)
+        # Otherwise, color represents a different dimension and legend is needed
+        legend_is_redundant = color_col is None or color_col == x_col
+
+        if legend_is_redundant:
+            # Hide legend when it's redundant with facet labels
+            fig.update_layout(
+                height=500,
+                showlegend=False
+            )
+        else:
+            # Show legend with consistent positioning when it provides unique information
+            fig.update_layout(
+                height=500,
+                legend=LEGEND_HORIZONTAL_BOTTOM,
+                margin=dict(b=LEGEND_BOTTOM_MARGIN)
+            )
     else:
         fig = px.box(
             df,
@@ -398,7 +442,7 @@ def create_scatter_plot(
 ) -> go.Figure:
     """
     Create a scatter plot for exploring relationships.
-    
+
     Args:
         df: DataFrame with benchmark data
         x_col: Column for x-axis
@@ -407,12 +451,15 @@ def create_scatter_plot(
         size_col: Optional column for point sizes
         hover_data: Additional columns to show in hover
         title: Chart title
-        
+
     Returns:
         Plotly Figure
     """
     if df.empty:
         return create_empty_figure("No data available for scatter plot")
+
+    # Normalize empty string to None to prevent Plotly crash
+    color_col = _normalize_color_col(color_col)
     
     fig = px.scatter(
         df,
@@ -761,7 +808,10 @@ def create_regression_heatmap(
         textfont={"size": 11, "color": "black"},
         colorbar=dict(
             title="% Change",
-            ticksuffix="%"
+            ticksuffix="%",
+            x=1.02,
+            xanchor='left',
+            thickness=18
         )
     ))
     
@@ -777,6 +827,7 @@ def create_regression_heatmap(
     )
 
     # Add help annotation explaining color scale
+    # Position to right of colorbar using xshift to avoid collision
     fig.add_annotation(
         text=(
             "<b>How to read:</b><br>"
@@ -786,6 +837,7 @@ def create_regression_heatmap(
         ),
         xref="paper", yref="paper",
         x=1.02, y=0.5,
+        xshift=100,  # Shift right by 100px to avoid colorbar collision
         showarrow=False,
         font=dict(size=10, color="gray"),
         align="left",

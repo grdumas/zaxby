@@ -1078,7 +1078,7 @@ def create_cloud_scaling_chart(
     
     # Check if we have CPU cores data
     has_cpu_cores = 'cpu_cores' in scaling_df.columns and scaling_df['cpu_cores'].notna().any()
-    has_memory = 'memory_gb' in scaling_df.columns
+    has_memory = 'memory_gb' in scaling_df.columns and scaling_df['memory_gb'].notna().any()
 
     # Build ordered list of unique instances sorted by CPU cores for even spacing
     # This creates categorical X-axis labels instead of numeric
@@ -1089,6 +1089,8 @@ def create_cloud_scaling_chart(
         if has_memory:
             columns_to_select.append('memory_gb')
         instance_order_df = scaling_df[columns_to_select].drop_duplicates()
+        # Drop rows with null cpu_cores to prevent int() cast errors
+        instance_order_df = instance_order_df.dropna(subset=['cpu_cores'])
         instance_order_df = instance_order_df.sort_values('cpu_cores')
         
         # Create tick labels with instance name, cores, and RAM
@@ -1097,7 +1099,7 @@ def create_cloud_scaling_chart(
             inst_name = row['instance_type']
             cores = int(row['cpu_cores'])
             memory = row.get('memory_gb', None)
-            if memory and not pd.isna(memory):
+            if memory is not None and pd.notna(memory):
                 label = f"{inst_name}<br>{cores} vCPU, {int(memory)} GB"
             else:
                 label = f"{inst_name}<br>{cores} vCPU"
@@ -1175,8 +1177,8 @@ def create_cloud_scaling_chart(
                         
                         # Get instance info for hover
                         inst_name = instance_types[i] if i < len(instance_types) else "Unknown"
-                        mem_gb = memory_values[i] if i < len(memory_values) and memory_values[i] else None
-                        mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb else ""
+                        mem_gb = memory_values[i] if i < len(memory_values) else None
+                        mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb is not None and pd.notna(mem_gb) else ""
                         
                         # Create detailed hover text
                         hover_texts.append(

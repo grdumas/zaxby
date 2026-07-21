@@ -258,3 +258,95 @@ def test_create_cloud_scaling_chart_dynamic_y_axis():
     # Y-axis should accommodate values >100%
     y_range = fig.layout.yaxis.range
     assert y_range is None or y_range[1] > 100  # None means auto-range
+
+
+def test_create_cloud_scaling_chart_handles_partial_nan_cpu_cores():
+    """Test that chart handles partially missing cpu_cores gracefully."""
+    # Create data where some instances have NaN cpu_cores
+    data_partial_cores = pd.DataFrame([
+        {
+            "instance_type": "c2-standard-4",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "mean_performance": 100000.0,
+        },
+        {
+            "instance_type": "c2-standard-8",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 8,
+            "memory_gb": 32,
+            "mean_performance": 195000.0,
+        },
+        {
+            "instance_type": "unknown-instance",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": pd.NA,  # Missing cpu_cores
+            "memory_gb": 64,
+            "mean_performance": 150000.0,
+        },
+    ])
+
+    # Should render without crashing
+    fig = create_cloud_scaling_chart(data_partial_cores)
+
+    # Verify chart was created
+    assert fig is not None
+    assert len(fig.data) > 0
+
+    # Only instances with valid cpu_cores should appear in tick labels
+    tick_labels = fig.layout.xaxis.ticktext
+    assert len(tick_labels) == 2  # Only 2 instances with valid cores
+    assert "4 vCPU" in tick_labels[0]
+    assert "8 vCPU" in tick_labels[1]
+
+
+def test_create_cloud_scaling_chart_handles_nan_memory_values():
+    """Test that chart handles NaN memory_gb values gracefully."""
+    # Create data where memory_gb column exists but some values are NaN
+    data_nan_memory = pd.DataFrame([
+        {
+            "instance_type": "c2-standard-4",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "mean_performance": 100000.0,
+        },
+        {
+            "instance_type": "c2-standard-8",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 8,
+            "memory_gb": pd.NA,  # Missing memory
+            "mean_performance": 195000.0,
+        },
+        {
+            "instance_type": "c2-standard-16",
+            "test_name": "coremark",
+            "benchmark_category": "CPU",
+            "cpu_cores": 16,
+            "memory_gb": pd.NA,  # Missing memory
+            "mean_performance": 380000.0,
+        },
+    ])
+
+    # Should render without crashing
+    fig = create_cloud_scaling_chart(data_nan_memory)
+
+    # Verify chart was created
+    assert fig is not None
+    assert len(fig.data) > 0
+
+    # Check hover text doesn't contain "nan GB"
+    trace = fig.data[0]
+    hover_texts = trace.hovertext if hasattr(trace, 'hovertext') else []
+
+    # If hover text is available, verify no "nan GB" appears
+    if hover_texts:
+        for hover in hover_texts:
+            assert "nan GB" not in str(hover).lower()
+            assert "nan" not in str(hover).lower() or "nan" in str(hover).lower() and "GB" not in str(hover).lower()

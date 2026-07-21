@@ -707,6 +707,7 @@ def create_overview_layout():
                             html.Strong("Click any category bar to see individual benchmarks.", style={"color": "#0e7490"})
                         ], className="text-muted mb-3"),
                         html.Div(id='q2-comparison-selector', className="mb-4"),
+                        dcc.Store(id='q2-analysis-store'),
                     ]),
                     dbc.Row([
                         dbc.Col([
@@ -1034,6 +1035,47 @@ def create_investigation_layout(
 # Callbacks
 
 
+def _validate_pulse_bundle_structure(bundle_data):
+    """Validate Pulse KPI bundle structure before deserialization.
+
+    Args:
+        bundle_data: Data from pulse-kpi-bundle-store (expected to be dict).
+
+    Returns:
+        str: Error message if validation fails, None if valid.
+    """
+    # Check that bundle_data is a dict
+    if not isinstance(bundle_data, dict):
+        return f"Bundle data must be a dict, got {type(bundle_data).__name__}"
+
+    # Check for required top-level keys
+    required_keys = [
+        'overview',
+        'category_mix',
+        'activity_timeline',
+        'scope',
+        'policy_template_id',
+        'definition_version',
+    ]
+    missing_keys = [key for key in required_keys if key not in bundle_data]
+    if missing_keys:
+        return f"Bundle missing required keys: {', '.join(missing_keys)}"
+
+    # Check that snapshot fields are dicts (they will be unpacked with **)
+    snapshot_keys = ['overview', 'category_mix', 'activity_timeline', 'scope']
+    for key in snapshot_keys:
+        if not isinstance(bundle_data[key], dict):
+            return f"Bundle['{key}'] must be a dict, got {type(bundle_data[key]).__name__}"
+
+    # Check that metadata fields are strings
+    if not isinstance(bundle_data['policy_template_id'], str):
+        return f"Bundle['policy_template_id'] must be a str, got {type(bundle_data['policy_template_id']).__name__}"
+    if not isinstance(bundle_data['definition_version'], str):
+        return f"Bundle['definition_version'] must be a str, got {type(bundle_data['definition_version']).__name__}"
+
+    return None
+
+
 @app.callback(
     Output('pulse-kpi-bundle-store', 'data'),
     [Input("server-snapshot-init", "n_intervals"),
@@ -1089,11 +1131,31 @@ def render_server_snapshot(bundle_data, colorblind_mode):
     if not bundle_data:
         return html.Div("Loading server snapshot...", className="text-muted")
 
+    # Validate bundle structure before deserializing
+    validation_error = _validate_pulse_bundle_structure(bundle_data)
+    if validation_error:
+        return html.Div(
+            [
+                html.P("Error loading Pulse KPI data:", className="text-danger fw-bold"),
+                html.P(validation_error, className="text-muted"),
+            ],
+            className="alert alert-danger",
+        )
+
     # Deserialize bundle from JSON dict
-    snap = ResultsOverviewSnapshot(**bundle_data['overview'])
-    cat_snap = CategoryKpiSnapshot(**bundle_data['category_mix'])
-    timeline_snap = ActivityTimelineSnapshot(**bundle_data['activity_timeline'])
-    scope_snap = PulseScopeFootnote(**bundle_data['scope'])
+    try:
+        snap = ResultsOverviewSnapshot(**bundle_data['overview'])
+        cat_snap = CategoryKpiSnapshot(**bundle_data['category_mix'])
+        timeline_snap = ActivityTimelineSnapshot(**bundle_data['activity_timeline'])
+        scope_snap = PulseScopeFootnote(**bundle_data['scope'])
+    except (TypeError, ValueError) as exc:
+        return html.Div(
+            [
+                html.P("Error deserializing Pulse KPI bundle:", className="text-danger fw-bold"),
+                html.P(str(exc), className="text-muted"),
+            ],
+            className="alert alert-danger",
+        )
 
     colorblind_mode = bool(colorblind_mode)
 
@@ -1692,36 +1754,39 @@ def update_q2_comparison_selector(filtered_data_json):
 
 
 @app.callback(
-    [Output('q2-comparison', 'figure'),
-     Output('q2-summary', 'children')],
-    [Input('filtered-data-store', 'data'),
-     Input('colorblind-mode-store', 'data')]
+    Output('q2-analysis-store', 'data'),
+    Input('filtered-data-store', 'data')
 )
-def update_question2(filtered_data_json, colorblind_mode):
-    """Update Competitive Performance section with the latest comparison."""
+def update_q2_analysis(filtered_data_json):
+    """Run Q2 competitive analysis and cache results.
+
+    This callback performs the expensive analyze_peer_os_comparison operation
+    and stores the result. Colorblind mode changes do not trigger this callback,
+    avoiding redundant analysis.
+    """
     import pandas as pd
-    
+
     if not filtered_data_json:
-        empty_fig = visualizations.create_empty_figure("Loading comparison data...")
-        return empty_fig, ""
-    
+        return None
+
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
-    
+
     # Get available comparisons and use the latest one
     available_comparisons = processor._get_available_comparisons(filtered_df, 'rhel')
-    
+
     if not available_comparisons:
-        empty_fig = visualizations.create_empty_figure("No competitive comparisons available")
-        return empty_fig, dbc.Alert([
-            html.Strong("⚠️ No competitive comparisons available"),
-            html.Br(),
-            html.Small("Competitive comparisons require both RHEL and peer OS data on the same hardware.", 
-                      className="text-muted")
-        ], color="warning")
-    
+        return {
+            'comparison_data': None,
+            'summary': 'No summary available',
+            'competitive_count': 0,
+            'total_benchmarks': 0,
+            'comparison_config': None,
+            'has_data': False
+        }
+
     # Use the latest comparison (first in the sorted list)
     comp_config = available_comparisons[0]
-    
+
     # Run targeted competitive analysis
     q2_result = processor.analyze_peer_os_comparison(
         filtered_df,
@@ -1732,24 +1797,66 @@ def update_question2(filtered_data_json, colorblind_mode):
         cloud_provider=comp_config['cloud_provider'],
         instance_type=None  # Don't filter to single HW, show all common HW
     )
-    
+
+    # Serialize comparison_data to JSON for storage
+    comparison_df = q2_result['comparison_data']
+    has_data = not comparison_df.empty
+
+    return {
+        'comparison_data': comparison_df.to_json(orient='split') if has_data else None,
+        'summary': q2_result.get('summary', 'No summary available'),
+        'competitive_count': q2_result.get('competitive_count', 0),
+        'total_benchmarks': q2_result.get('total_benchmarks', 0),
+        'comparison_config': comp_config,
+        'has_data': has_data
+    }
+
+
+@app.callback(
+    [Output('q2-comparison', 'figure'),
+     Output('q2-summary', 'children')],
+    [Input('q2-analysis-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
+)
+def update_q2_figure(analysis_data, colorblind_mode):
+    """Render Q2 figure from cached analysis data.
+
+    This callback only creates the visualization from pre-computed results.
+    Colorblind mode toggle only triggers this render callback, not the expensive
+    analysis callback.
+    """
+    import pandas as pd
+
+    if not analysis_data:
+        empty_fig = visualizations.create_empty_figure("Loading comparison data...")
+        return empty_fig, ""
+
+    if not analysis_data['has_data']:
+        empty_fig = visualizations.create_empty_figure("No competitive comparisons available")
+        return empty_fig, dbc.Alert([
+            html.Strong("⚠️ No competitive comparisons available"),
+            html.Br(),
+            html.Small("Competitive comparisons require both RHEL and peer OS data on the same hardware.",
+                      className="text-muted")
+        ], color="warning")
+
+    # Deserialize comparison_data from JSON
+    comparison_df = pd.read_json(StringIO(analysis_data['comparison_data']), orient='split')
+    comp_config = analysis_data['comparison_config']
+
     # Create visualization
-    if not q2_result['comparison_data'].empty:
-        comparison_df = q2_result['comparison_data']
-        fig = visualizations.create_peer_os_comparison_chart(
-            comparison_df,
-            baseline_os="RHEL",
-            title=f"Performance Comparison: {comp_config['label']}",
-            colorblind_mode=colorblind_mode or False
-        )
-    else:
-        fig = visualizations.create_empty_figure("No comparison data available for selected configuration")
-    
+    fig = visualizations.create_peer_os_comparison_chart(
+        comparison_df,
+        baseline_os="RHEL",
+        title=f"Performance Comparison: {comp_config['label']}",
+        colorblind_mode=bool(colorblind_mode)
+    )
+
     # Format summary
-    summary_text = q2_result.get('summary', 'No summary available')
-    competitive_count = q2_result.get('competitive_count', 0)
-    total_benchmarks = q2_result.get('total_benchmarks', 0)
-    
+    summary_text = analysis_data['summary']
+    competitive_count = analysis_data['competitive_count']
+    total_benchmarks = analysis_data['total_benchmarks']
+
     # Determine status based on data availability and competitiveness
     if total_benchmarks == 0:
         # No data available - show warning status
@@ -1760,12 +1867,12 @@ def update_question2(filtered_data_json, colorblind_mode):
         is_competitive = competitive_count >= (total_benchmarks * 0.7)
         status_icon = get_status_icon(0 if is_competitive else 3)
         alert_color = "success" if is_competitive else "info"
-    
+
     summary_component = dbc.Alert([
         html.H5([status_icon, " Summary"], className="mb-2"),
         dcc.Markdown(summary_text)
     ], color=alert_color)
-    
+
     return fig, summary_component
 
 
@@ -2471,12 +2578,16 @@ def handle_back_to_overview(investigation_back, track_back):
      Output('investigation-timeline-chart', 'figure'),
      Output('investigation-table', 'children')],
     [Input('navigation-state', 'data'),
-     Input('filtered-data-store', 'data')],
+     Input('filtered-data-store', 'data'),
+     Input('colorblind-mode-store', 'data')],
     prevent_initial_call=True
 )
-def update_investigation_view(nav_state, filtered_data_json):
+def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     """Update investigation drill-down view."""
     import pandas as pd
+
+    # Normalize colorblind_mode to bool
+    colorblind_mode = bool(colorblind_mode)
 
     empty_fig = visualizations.create_empty_figure("No investigation data")
 
@@ -2560,9 +2671,10 @@ def update_investigation_view(nav_state, filtered_data_json):
     
     # Create comparison chart
     comparison_fig = visualizations.create_investigation_detail_chart(
-        baseline_df, comparison_df, test_name, baseline_version, comparison_version
+        baseline_df, comparison_df, test_name, baseline_version, comparison_version,
+        colorblind_mode=colorblind_mode
     )
-    
+
     # Create timeline chart
     timeline_fig = visualizations.create_time_series_chart(
         test_df,
@@ -2570,18 +2682,20 @@ def update_investigation_view(nav_state, filtered_data_json):
         y_col='primary_metric_value',
         color_col='os_version',
         title=f"Performance Trend: {test_name}",
-        use_facets=False
+        use_facets=False,
+        colorblind_mode=colorblind_mode
     )
-    
+
     # Create detailed table
     table_df = test_df[[
         'timestamp', 'os_version', 'instance_type', 'cloud_provider',
         'primary_metric_value', 'primary_metric_unit', 'status'
     ]].sort_values('timestamp', ascending=False).head(50)
-    
+
     table_fig = visualizations.create_metrics_table(
         table_df,
-        title=f"Recent Test Runs (showing {len(table_df)} of {len(test_df)} total)"
+        title=f"Recent Test Runs (showing {len(table_df)} of {len(test_df)} total)",
+        colorblind_mode=colorblind_mode
     )
 
     dashboards_base = (os.getenv("OPENSEARCH_DASHBOARDS_BASE_URL") or "").strip()

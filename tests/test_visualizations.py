@@ -14,6 +14,8 @@ from src.components.visualizations import (
     create_regression_heatmap,
     create_time_series_chart,
     create_version_comparison_bar_chart,
+    create_investigation_detail_chart,
+    create_metrics_table,
     LEGEND_RIGHT_MARGIN
 )
 
@@ -1773,3 +1775,200 @@ def test_scatter_plot_marker_symbol_cycling():
     expected_symbols = COLORBLIND.patterns.marker_symbols
     assert marker_symbols[0] == expected_symbols[0 % len(expected_symbols)]
     assert marker_symbols[6] == expected_symbols[6 % len(expected_symbols)]  # Should cycle
+
+
+# ============================================================================
+# Box Plot Tests for TDD Fixes
+# ============================================================================
+
+
+def test_create_box_plot_empty_color_col():
+    """Test that box plot handles empty string color_col without crashing."""
+    data = pd.DataFrame([
+        {"test_name": "coremark", "primary_metric_value": 100000},
+        {"test_name": "coremark", "primary_metric_value": 102000},
+        {"test_name": "streams", "primary_metric_value": 50000},
+        {"test_name": "streams", "primary_metric_value": 51000},
+    ])
+
+    # Empty string should be normalized to None and not crash
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col=""
+    )
+
+    # Chart should be created successfully (no crash)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+def test_create_box_plot_whitespace_color_col():
+    """Test that box plot handles whitespace-only color_col without crashing."""
+    data = pd.DataFrame([
+        {"test_name": "coremark", "primary_metric_value": 100000},
+        {"test_name": "coremark", "primary_metric_value": 102000},
+        {"test_name": "streams", "primary_metric_value": 50000},
+        {"test_name": "streams", "primary_metric_value": 51000},
+    ])
+
+    # Whitespace should be normalized to None and not crash
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col="   "
+    )
+
+    # Chart should be created successfully (no crash)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+
+def test_create_box_plot_colorblind_changes_colors():
+    """Test that box plot uses different colors when colorblind_mode=True."""
+    data = pd.DataFrame([
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 100000},
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 102000},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 105000},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 107000},
+    ])
+
+    # Create box plots in both modes
+    fig_standard = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version',
+        colorblind_mode=False
+    )
+
+    fig_colorblind = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version',
+        colorblind_mode=True
+    )
+
+    # Extract marker colors from traces
+    standard_colors = []
+    colorblind_colors = []
+
+    for trace in fig_standard.data:
+        if hasattr(trace, 'marker') and hasattr(trace.marker, 'color'):
+            standard_colors.append(trace.marker.color)
+
+    for trace in fig_colorblind.data:
+        if hasattr(trace, 'marker') and hasattr(trace.marker, 'color'):
+            colorblind_colors.append(trace.marker.color)
+
+    # Should have colors in both modes
+    assert len(standard_colors) > 0, "Standard mode should have colors"
+    assert len(colorblind_colors) > 0, "Colorblind mode should have colors"
+
+    # Colors should be different between modes
+    assert standard_colors != colorblind_colors, \
+        "Colorblind mode should use different colors than standard mode"
+
+
+def test_investigation_detail_chart_uses_colorblind_palette():
+    """Test that investigation detail chart uses colorblind-safe colors when colorblind_mode=True."""
+    baseline_df = pd.DataFrame({
+        'primary_metric_value': [100, 105, 102, 98, 101]
+    })
+    comparison_df = pd.DataFrame({
+        'primary_metric_value': [110, 115, 112, 108, 111]
+    })
+
+    # Create charts in both modes
+    fig_standard = create_investigation_detail_chart(
+        baseline_df,
+        comparison_df,
+        test_name="coremark",
+        baseline_label="Baseline",
+        comparison_label="Comparison",
+        colorblind_mode=False
+    )
+
+    fig_colorblind = create_investigation_detail_chart(
+        baseline_df,
+        comparison_df,
+        test_name="coremark",
+        baseline_label="Baseline",
+        comparison_label="Comparison",
+        colorblind_mode=True
+    )
+
+    # Extract marker colors from both charts
+    standard_colors = [trace.marker.color for trace in fig_standard.data]
+    colorblind_colors = [trace.marker.color for trace in fig_colorblind.data]
+
+    # Both should have 2 traces (baseline and comparison)
+    assert len(standard_colors) == 2, "Should have 2 traces in standard mode"
+    assert len(colorblind_colors) == 2, "Should have 2 traces in colorblind mode"
+
+    # Standard mode should use the old hardcoded colors
+    assert standard_colors[0] == 'lightblue', "Standard baseline should be lightblue"
+    assert standard_colors[1] == 'lightcoral', "Standard comparison should be lightcoral"
+
+    # Colorblind mode should use palette.comparison colors
+    from src.color_palettes import COLORBLIND
+    assert colorblind_colors[0] == COLORBLIND.comparison.baseline, \
+        f"Colorblind baseline should be {COLORBLIND.comparison.baseline}"
+    assert colorblind_colors[1] == COLORBLIND.comparison.comparison, \
+        f"Colorblind comparison should be {COLORBLIND.comparison.comparison}"
+
+    # Colors should be different between modes
+    assert standard_colors != colorblind_colors, \
+        "Colorblind mode should use different colors than standard mode"
+
+
+def test_metrics_table_uses_colorblind_palette():
+    """Test that metrics table uses colorblind-safe colors when colorblind_mode=True."""
+    test_df = pd.DataFrame({
+        'test_name': ['coremark', 'dhrystone', 'whetstone'],
+        'baseline_mean': [100.5, 200.3, 150.7],
+        'comparison_mean': [105.2, 198.1, 155.3],
+        'percent_change': [4.7, -1.1, 3.1]
+    })
+
+    # Create tables in both modes
+    fig_standard = create_metrics_table(
+        test_df,
+        columns=['test_name', 'baseline_mean', 'comparison_mean', 'percent_change'],
+        title="Test Metrics",
+        colorblind_mode=False
+    )
+
+    fig_colorblind = create_metrics_table(
+        test_df,
+        columns=['test_name', 'baseline_mean', 'comparison_mean', 'percent_change'],
+        title="Test Metrics",
+        colorblind_mode=True
+    )
+
+    # Extract table colors from both figures
+    standard_header = fig_standard.data[0].header.fill.color
+    standard_cells = fig_standard.data[0].cells.fill.color
+
+    colorblind_header = fig_colorblind.data[0].header.fill.color
+    colorblind_cells = fig_colorblind.data[0].cells.fill.color
+
+    # Standard mode should use the old hardcoded colors
+    assert standard_header == 'paleturquoise', "Standard header should be paleturquoise"
+    assert standard_cells == 'lavender', "Standard cells should be lavender"
+
+    # Colorblind mode should use palette.table colors
+    from src.color_palettes import COLORBLIND
+    assert colorblind_header == COLORBLIND.table.header, \
+        f"Colorblind header should be {COLORBLIND.table.header}"
+    assert colorblind_cells == COLORBLIND.table.cells, \
+        f"Colorblind cells should be {COLORBLIND.table.cells}"
+
+    # Colors should be different between modes
+    assert standard_header != colorblind_header, \
+        "Colorblind mode should use different header color than standard mode"
+    assert standard_cells != colorblind_cells, \
+        "Colorblind mode should use different cell color than standard mode"

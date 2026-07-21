@@ -405,7 +405,7 @@ def create_box_plot(
 ) -> go.Figure:
     """
     Create a box plot showing distribution of performance metrics.
-    
+
     Args:
         df: DataFrame with benchmark data
         x_col: Column for x-axis categories
@@ -413,13 +413,34 @@ def create_box_plot(
         color_col: Optional column for color grouping
         title: Chart title
         use_facets: If True and x_col='test_name', create separate subplots with independent y-axes
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
+    # Normalize color_col to handle empty strings
+    color_col = _normalize_color_col(color_col)
+
+    # Get palette for colorblind mode
+    palette = get_palette(colorblind_mode)
+
     if df.empty:
         return create_empty_figure("No data available for distribution plot")
-    
+
+    # Use colorblind-safe discrete colors when in colorblind mode
+    # Wong palette: blue, vermillion, sky blue, amber, purple, red-purple
+    colorblind_discrete = [
+        "#0072b2",  # Blue
+        "#d55e00",  # Vermillion
+        "#56b4e9",  # Sky blue
+        "#e69f00",  # Amber
+        "#cc79a7",  # Red-purple
+        "#009e73",  # Bluish green
+        "#f0e442",  # Yellow
+    ]
+
     # If x_col is test_name and we have multiple tests with different scales, use facets
     if use_facets and x_col == 'test_name' and len(df[x_col].unique()) > 1:
         fig = px.box(
@@ -431,7 +452,8 @@ def create_box_plot(
             template='plotly_white',
             points='all',
             facet_col=x_col,
-            facet_col_wrap=3
+            facet_col_wrap=3,
+            color_discrete_sequence=colorblind_discrete if colorblind_mode else None
         )
 
         # Update each facet to have independent y-axis
@@ -465,7 +487,8 @@ def create_box_plot(
             color=color_col,
             title=title,
             template='plotly_white',
-            points='all'
+            points='all',
+            color_discrete_sequence=colorblind_discrete if colorblind_mode else None
         )
 
         # Configure legend positioning when color grouping is used
@@ -665,48 +688,53 @@ def create_metrics_table(
 ) -> go.Figure:
     """
     Create a table visualization for detailed metrics.
-    
+
     Args:
         df: DataFrame with metric data
         columns: Specific columns to display (None = all)
         title: Table title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with table
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for table")
-    
+
+    palette = get_palette(colorblind_mode)
+
     if columns:
         display_df = df[columns].copy()
     else:
         display_df = df.copy()
-    
+
     # Round numeric columns
     numeric_cols = display_df.select_dtypes(include=['float64', 'int64']).columns
     for col in numeric_cols:
         display_df[col] = display_df[col].round(2)
-    
+
     fig = go.Figure(data=[go.Table(
         header=dict(
             values=[f"<b>{col}</b>" for col in display_df.columns],
-            fill_color='paleturquoise',
+            fill_color=palette.table.header,
             align='left',
             font=dict(size=12)
         ),
         cells=dict(
             values=[display_df[col] for col in display_df.columns],
-            fill_color='lavender',
+            fill_color=palette.table.cells,
             align='left',
             font=dict(size=11)
         )
     )])
-    
+
     fig.update_layout(
         title=title,
         height=400
     )
-    
+
     return fig
 
 
@@ -1649,37 +1677,41 @@ def create_investigation_detail_chart(
 ) -> go.Figure:
     """
     Create a detailed comparison chart for investigation drill-down.
-    
+
     Args:
         baseline_df: DataFrame with baseline data
         comparison_df: DataFrame with comparison data
         test_name: Name of the test being investigated
         baseline_label: Label for baseline data
         comparison_label: Label for comparison data
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with side-by-side box plots
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
     fig = go.Figure()
-    
+
     # Baseline box plot
     if not baseline_df.empty and 'primary_metric_value' in baseline_df.columns:
         fig.add_trace(go.Box(
             y=baseline_df['primary_metric_value'],
             name=baseline_label,
-            marker_color='lightblue',
+            marker_color=palette.comparison.baseline,
             boxmean='sd'
         ))
-    
+
     # Comparison box plot
     if not comparison_df.empty and 'primary_metric_value' in comparison_df.columns:
         fig.add_trace(go.Box(
             y=comparison_df['primary_metric_value'],
             name=comparison_label,
-            marker_color='lightcoral',
+            marker_color=palette.comparison.comparison,
             boxmean='sd'
         ))
-    
+
     fig.update_layout(
         title=f"Performance Distribution: {test_name}",
         yaxis_title="Performance Metric",
@@ -1687,7 +1719,7 @@ def create_investigation_detail_chart(
         height=400,
         showlegend=True
     )
-    
+
     return fig
 
 

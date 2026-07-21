@@ -286,13 +286,29 @@ def create_box_plot(
             template='plotly_white',
             points='all'
         )
-        
-        fig.update_layout(
-            xaxis_title=x_col.replace('_', ' ').title(),
-            yaxis_title="Performance Metric",
-            height=500
-        )
-    
+
+        # Configure legend positioning when color grouping is used
+        if color_col:
+            fig.update_layout(
+                xaxis_title=x_col.replace('_', ' ').title(),
+                yaxis_title="Performance Metric",
+                height=500,
+                legend=dict(
+                    orientation='h',
+                    yanchor='top',
+                    y=-0.15,
+                    xanchor='center',
+                    x=0.5
+                ),
+                margin=dict(b=100)  # Bottom margin for legend
+            )
+        else:
+            fig.update_layout(
+                xaxis_title=x_col.replace('_', ' ').title(),
+                yaxis_title="Performance Metric",
+                height=500
+            )
+
     return fig
 
 

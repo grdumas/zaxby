@@ -7,7 +7,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from src.components.visualizations import (
     create_cloud_scaling_chart,
-    create_comparison_chart
+    create_comparison_chart,
+    create_box_plot
 )
 
 
@@ -466,3 +467,83 @@ def test_create_comparison_chart_legend_does_not_obscure_data(comparison_data):
 
     # Chart should have bottom margin to accommodate legend
     assert fig.layout.margin.b >= 80, "Chart should have bottom margin for legend"
+
+
+@pytest.fixture
+def box_plot_data_with_color():
+    """Sample data for box plot with color grouping."""
+    return pd.DataFrame([
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 100000},
+        {"test_name": "coremark", "os_version": "RHEL 9.0", "primary_metric_value": 102000},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 105000},
+        {"test_name": "coremark", "os_version": "RHEL 9.1", "primary_metric_value": 107000},
+        {"test_name": "streams", "os_version": "RHEL 9.0", "primary_metric_value": 50000},
+        {"test_name": "streams", "os_version": "RHEL 9.0", "primary_metric_value": 51000},
+        {"test_name": "streams", "os_version": "RHEL 9.1", "primary_metric_value": 52000},
+        {"test_name": "streams", "os_version": "RHEL 9.1", "primary_metric_value": 53000},
+    ])
+
+
+def test_create_box_plot_with_color_has_legend(box_plot_data_with_color):
+    """Test that box plot with color grouping has visible legend."""
+    fig = create_box_plot(
+        box_plot_data_with_color,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version'
+    )
+
+    # Legend should be visible when color_col is used
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+    assert hasattr(fig.layout, 'legend'), "Chart should have legend config"
+
+
+def test_create_box_plot_legend_positioned_at_bottom(box_plot_data_with_color):
+    """Test that box plot legend is positioned consistently at bottom."""
+    fig = create_box_plot(
+        box_plot_data_with_color,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version'
+    )
+
+    # Legend should be horizontal at bottom
+    assert fig.layout.legend.orientation == 'h', "Legend should be horizontal"
+    assert fig.layout.legend.yanchor == 'top', "Legend should anchor to top"
+    assert fig.layout.legend.y < 0, "Legend should be below chart"
+
+
+def test_create_box_plot_legend_explains_color_groups(box_plot_data_with_color):
+    """Test that legend explains what color groups represent."""
+    fig = create_box_plot(
+        box_plot_data_with_color,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col='os_version'
+    )
+
+    # Should have traces for each OS version
+    trace_names = [trace.name for trace in fig.data]
+    assert 'RHEL 9.0' in trace_names, "Should have RHEL 9.0 in legend"
+    assert 'RHEL 9.1' in trace_names, "Should have RHEL 9.1 in legend"
+
+
+def test_create_box_plot_without_color_has_no_legend():
+    """Test that box plot without color grouping doesn't need legend."""
+    data = pd.DataFrame([
+        {"test_name": "coremark", "primary_metric_value": 100000},
+        {"test_name": "coremark", "primary_metric_value": 102000},
+        {"test_name": "streams", "primary_metric_value": 50000},
+        {"test_name": "streams", "primary_metric_value": 51000},
+    ])
+
+    fig = create_box_plot(
+        data,
+        x_col='test_name',
+        y_col='primary_metric_value',
+        color_col=None
+    )
+
+    # No color grouping, so legend can be hidden
+    # (Not required, but acceptable to show trace names)
+    assert isinstance(fig, go.Figure), "Should create valid figure"

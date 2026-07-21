@@ -14,10 +14,14 @@
         document.body.classList.add('colorblind-mode');
     }
 
-    // Listen for storage events from other tabs/windows
-    // NOTE: This only syncs the CSS class (toggle button appearance).
-    // Charts won't re-render in other tabs because the dcc.Store state
-    // is not updated here. For full sync, the user must refresh the other tabs.
+    // Cross-tab sync: Update body class when localStorage changes in another tab
+    // LIMITATION: This only syncs the CSS class (toggle appearance), NOT the dcc.Store state.
+    // Charts in background tabs will not re-render until the page is refreshed, because
+    // Dash callbacks depend on colorblind-mode-store.data which we don't update here.
+    // To achieve full cross-tab chart re-rendering, we would need to:
+    // 1. Update the dcc.Store value in the storage event handler, OR
+    // 2. Add a dcc.Interval that polls localStorage and writes to the store
+    // Current behavior: Toggle indicator syncs, charts sync on next refresh.
     window.addEventListener('storage', function(e) {
         if (e.key === 'colorblind-mode-store') {
             if (e.newValue === 'true') {

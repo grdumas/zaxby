@@ -905,6 +905,7 @@ def create_overview_layout():
                         ], width=3),
                         dbc.Col([], width=9)  # Empty column for spacing
                     ], className="mb-3"),
+                    dcc.Store(id='q3-analysis-store'),
                     dbc.Alert([
                         html.Strong("How Scaling Efficiency is Measured: "),
                         html.Span(
@@ -2378,53 +2379,113 @@ def update_os_distribution_options(cloud_provider, instance_series, filtered_dat
 
 
 @app.callback(
-    [Output('q3-scaling', 'figure'),
-     Output('q3-summary', 'children')],
-    [Input('q3-cloud-provider', 'value'),
+    Output('q3-analysis-store', 'data'),
+    [Input('filtered-data-store', 'data'),
+     Input('q3-cloud-provider', 'value'),
      Input('q3-instance-series', 'value'),
      Input('q3-os-distribution', 'value'),
-     Input('q3-os-version', 'value'),
-     Input('q3-benchmark-category', 'value'),
-     Input('filtered-data-store', 'data'),
-     Input('colorblind-mode-store', 'data')]
+     Input('q3-os-version', 'value')],
+    prevent_initial_call=True
 )
-def update_question3(cloud_provider, instance_series, os_distribution, os_version, benchmark_category, filtered_data_json, colorblind_mode):
-    """Update Cloud Scaling section visualizations."""
+def update_q3_analysis(filtered_data_json, cloud_provider, instance_series, os_distribution, os_version):
+    """Run Q3 cloud scaling analysis and cache results.
+
+    This callback performs the expensive analyze_cloud_scaling operation
+    and stores the result. Colorblind mode changes and benchmark category
+    filters do not trigger this callback, avoiding redundant analysis.
+    """
     import pandas as pd
 
-    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
-
     if not filtered_data_json or not cloud_provider or not os_version:
-        empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
-        return empty_fig, ""
-    
+        return {
+            'scaling_data': None,
+            'summary': 'No summary available',
+            'linear_scaling_count': 0,
+            'total_benchmarks': 0,
+            'cloud_provider': cloud_provider,
+            'os_version': os_version,
+            'os_distribution': os_distribution,
+            'instance_series': instance_series,
+            'has_data': False
+        }
+
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
-    
+
     # Apply additional filters for OS distribution and instance series
     if os_distribution:
         filtered_df = filtered_df[filtered_df['os_distribution'] == os_distribution]
-    
+
     if instance_series:
         # Filter by instance series (match instances that belong to this series)
         filtered_df = filtered_df[filtered_df['instance_type'].apply(
             lambda x: extract_instance_series(x, cloud_provider) == instance_series if pd.notna(x) else False
         )]
-    
+
     # Run scaling analysis
     q3_result = processor.analyze_cloud_scaling(
         filtered_df,
         cloud_provider=cloud_provider,
         os_version=os_version
     )
-    
-    # Filter scaling data by benchmark category if specified
+
+    # Serialize scaling_data to JSON for storage
     scaling_data = q3_result['scaling_data']
+    has_data = not scaling_data.empty
+
+    return {
+        'scaling_data': scaling_data.to_json(orient='split') if has_data else None,
+        'summary': q3_result.get('summary', 'No summary available'),
+        'linear_scaling_count': q3_result.get('linear_scaling_count', 0),
+        'total_benchmarks': q3_result.get('total_benchmarks', 0),
+        'cloud_provider': cloud_provider,
+        'os_version': os_version,
+        'os_distribution': os_distribution,
+        'instance_series': instance_series,
+        'has_data': has_data
+    }
+
+
+@app.callback(
+    [Output('q3-scaling', 'figure'),
+     Output('q3-summary', 'children')],
+    [Input('q3-analysis-store', 'data'),
+     Input('q3-benchmark-category', 'value'),
+     Input('colorblind-mode-store', 'data')]
+)
+def render_q3_figure(analysis_data, benchmark_category, colorblind_mode):
+    """Render Q3 figure from cached analysis data.
+
+    This callback only creates the visualization from pre-computed results.
+    Colorblind mode toggle and benchmark category filter only trigger this
+    render callback, not the expensive analysis callback.
+    """
+    import pandas as pd
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
+
+    if not analysis_data:
+        empty_fig = visualizations.create_empty_figure("Loading...")
+        return empty_fig, ""
+
+    if not analysis_data['has_data']:
+        empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
+        return empty_fig, ""
+
+    # Deserialize scaling_data from JSON
+    scaling_data = pd.read_json(StringIO(analysis_data['scaling_data']), orient='split')
+
+    # Filter scaling data by benchmark category if specified
     if not scaling_data.empty and benchmark_category and benchmark_category != 'all':
         scaling_data = scaling_data[scaling_data['benchmark_category'] == benchmark_category]
-    
+
     # Create visualization
     if not scaling_data.empty:
         # Build descriptive title
+        cloud_provider = analysis_data['cloud_provider']
+        os_version = analysis_data['os_version']
+        os_distribution = analysis_data['os_distribution']
+        instance_series = analysis_data['instance_series']
+
         title_parts = [f"Performance Scaling: {(os_distribution or 'ALL').upper()} {os_version}"]
         title_parts.append(f"on {cloud_provider.upper()}")
         if instance_series:
@@ -2432,7 +2493,7 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
         if benchmark_category and benchmark_category != 'all':
             title_parts.append(f"- {benchmark_category}")
         chart_title = " ".join(title_parts)
-        
+
         fig = visualizations.create_cloud_scaling_chart(
             scaling_data,
             title=chart_title,
@@ -2440,12 +2501,12 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
         )
     else:
         fig = visualizations.create_empty_figure("No scaling data available for selected configuration")
-    
+
     # Format summary
-    summary_text = format_scaling_summary(q3_result)
-    linear_count = q3_result.get('linear_scaling_count', 0)
-    total = q3_result.get('total_benchmarks', 0)
-    
+    summary_text = analysis_data['summary']
+    linear_count = analysis_data.get('linear_scaling_count', 0)
+    total = analysis_data.get('total_benchmarks', 0)
+
     # Determine status based on data availability and scaling quality
     if total == 0:
         # No data available - show warning status
@@ -2456,12 +2517,12 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
         good_scaling = linear_count >= (total * 0.7)
         status_icon = get_status_icon(0 if good_scaling else 2)
         alert_color = "success" if good_scaling else "info"
-    
+
     summary_component = dbc.Alert([
         html.H5([status_icon, " Summary"], className="mb-2"),
         dcc.Markdown(summary_text)
     ], color=alert_color)
-    
+
     return fig, summary_component
 
 

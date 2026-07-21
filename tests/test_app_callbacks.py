@@ -125,60 +125,53 @@ def test_update_nightly_run_chart_large_negative_index_returns_empty_chart(monke
 
 def test_update_question3_handles_none_os_distribution(monkeypatch):
     """
-    When os_distribution is None, verify update_question3 does not crash
+    When os_distribution is None, verify render_q3_figure does not crash
     when building the chart title.
 
-    Bug: app.py:2428 calls os_distribution.upper() without checking if it's None,
+    Bug: Previously called os_distribution.upper() without checking if it's None,
     causing AttributeError during initial load or dropdown refresh.
     """
     import pandas as pd
 
     app = _import_app_fresh(monkeypatch)
 
-    # Create minimal filtered data
-    test_data = pd.DataFrame({
-        'cloud_provider': ['AWS'],
-        'os_distribution': ['ubuntu'],
-        'os_version': ['22.04'],
-        'instance_type': ['t3.medium'],
-        'benchmark_category': ['CPU'],
-        'score': [100.0]
-    })
-    filtered_data_json = test_data.to_json(orient='split')
-
-    # Mock the processor to return scaling data so we reach the title-building code
+    # Mock the processor to return scaling data
     mock_scaling_data = pd.DataFrame({
         'instance_type': ['t3.small', 't3.medium'],
         'benchmark_category': ['CPU', 'CPU'],
         'score': [50.0, 100.0]
     })
-    mock_result = {
-        'scaling_data': mock_scaling_data,
-        'summary': 'Test summary'
-    }
 
     mock_fig = MagicMock()
 
-    with patch('src.data_processing.BenchmarkDataProcessor.analyze_cloud_scaling', return_value=mock_result):
-        with patch('src.components.visualizations.create_cloud_scaling_chart', return_value=mock_fig):
-            # Call with os_distribution=None
-            # Should not raise AttributeError
-            try:
-                fig, title = app.update_question3(
-                    cloud_provider='AWS',
-                    instance_series=None,
-                    os_distribution=None,  # This is the bug trigger
-                    os_version='22.04',
-                    benchmark_category='all',
-                    filtered_data_json=filtered_data_json,
-                    colorblind_mode=False
-                )
-                # If we get here, the bug is fixed
-                assert fig is not None
-            except AttributeError as e:
-                if "'NoneType' object has no attribute 'upper'" in str(e):
-                    pytest.fail(f"update_question3 crashed on None os_distribution: {e}")
-                raise
+    # Simulate cached analysis data with None os_distribution
+    analysis_data = {
+        'scaling_data': mock_scaling_data.to_json(orient='split'),
+        'summary': 'Test summary',
+        'linear_scaling_count': 1,
+        'total_benchmarks': 2,
+        'cloud_provider': 'aws',
+        'os_version': '22.04',
+        'os_distribution': None,  # This is the bug trigger
+        'instance_series': None,
+        'has_data': True
+    }
+
+    with patch('src.components.visualizations.create_cloud_scaling_chart', return_value=mock_fig):
+        # Call render callback with os_distribution=None
+        # Should not raise AttributeError
+        try:
+            fig, summary = app.render_q3_figure(
+                analysis_data,
+                benchmark_category='all',
+                colorblind_mode=False
+            )
+            # If we get here, the bug is fixed
+            assert fig is not None
+        except AttributeError as e:
+            if "'NoneType' object has no attribute 'upper'" in str(e):
+                pytest.fail(f"render_q3_figure crashed on None os_distribution: {e}")
+            raise
 
 
 def test_update_rhel9_sequential_passes_colorblind_mode(monkeypatch):
@@ -458,6 +451,110 @@ def test_q2_colorblind_toggle_no_reanalysis(monkeypatch):
         assert summary is not None
 
 
+def test_q3_analysis_store_caches_results(monkeypatch):
+    """
+    Verify Q3 analysis callback runs once and caches results in store.
+
+    The analysis callback should trigger when data inputs change
+    and output to q3-analysis-store, not directly to the figure.
+    This test should FAIL initially because q3-analysis-store doesn't exist yet.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock the processor's analyze_cloud_scaling method
+    mock_analysis = MagicMock(return_value={
+        'scaling_data': MagicMock(
+            empty=False,
+            to_json=MagicMock(return_value='{"columns":["instance_size","score"],"index":[0],"data":[["small",100]]}')
+        ),
+        'summary': 'Test scaling summary',
+        'linear_scaling_count': 8,
+        'total_benchmarks': 10
+    })
+
+    with patch.object(app.processor, 'analyze_cloud_scaling', mock_analysis):
+        # Simulate data inputs changing with proper columns
+        filtered_data_json = '{"columns":["os_name","os_distribution","os_version","benchmark","cloud_provider","instance_type"],"index":[0],"data":[["rhel","rhel","9.0","test1","aws","m5.large"]]}'
+        cloud_provider = 'aws'
+        os_distribution = 'rhel'
+        os_version = '9.0'
+        instance_series = None
+
+        # Call the analysis callback (should exist as update_q3_analysis)
+        # Parameters: filtered_data_json, cloud_provider, instance_series, os_distribution, os_version
+        result = app.update_q3_analysis(
+            filtered_data_json,
+            cloud_provider,
+            instance_series,
+            os_distribution,
+            os_version
+        )
+
+        # Verify the analysis was called once
+        assert mock_analysis.call_count == 1
+
+        # Verify the result is stored data (not a figure)
+        assert result is not None
+        assert isinstance(result, dict)
+        assert 'scaling_data' in result
+
+
+def test_q3_colorblind_toggle_no_reanalysis(monkeypatch):
+    """
+    Verify colorblind mode toggle does NOT trigger Q3 re-analysis.
+
+    The render callback should take data from q3-analysis-store and
+    colorblind-mode-store, and should NOT call analyze_cloud_scaling.
+    This test should FAIL initially because the callback isn't split yet.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock the processor's analyze method - it should NOT be called
+    mock_analysis = MagicMock(return_value={
+        'scaling_data': MagicMock(empty=False),
+        'summary': 'Test summary',
+        'linear_scaling_count': 8,
+        'total_benchmarks': 10
+    })
+
+    # Mock the visualization function
+    mock_viz = MagicMock(return_value=MagicMock())
+
+    with patch.object(app.processor, 'analyze_cloud_scaling', mock_analysis), \
+         patch('src.components.visualizations.create_cloud_scaling_chart', mock_viz):
+
+        # Simulate cached analysis data
+        analysis_data = {
+            'scaling_data': '{"columns":["instance_size","score","benchmark_category"],"index":[0],"data":[["small",100,"System"]]}',
+            'summary': 'Test scaling summary',
+            'linear_scaling_count': 8,
+            'total_benchmarks': 10,
+            'cloud_provider': 'aws',
+            'os_version': '9.0',
+            'os_distribution': 'rhel',
+            'instance_series': None,
+            'has_data': True
+        }
+
+        # Call the render callback (should exist as render_q3_figure)
+        # Parameters: analysis_data, benchmark_category, colorblind_mode
+        benchmark_category = 'all'
+        colorblind_mode = True
+        fig, summary = app.render_q3_figure(analysis_data, benchmark_category, colorblind_mode)
+
+        # Verify the analysis method was NOT called
+        assert mock_analysis.call_count == 0
+
+        # Verify the visualization was created with colorblind mode
+        assert mock_viz.called
+        call_kwargs = mock_viz.call_args.kwargs
+        assert call_kwargs['colorblind_mode'] is True
+
+        # Verify outputs are returned
+        assert fig is not None
+        assert summary is not None
+
+
 def test_investigation_view_accepts_colorblind_mode(monkeypatch):
     """
     Verify update_investigation_view callback accepts colorblind_mode parameter.
@@ -639,7 +736,7 @@ def test_investigation_view_respects_colorblind_false(monkeypatch):
 
 def test_update_question3_accepts_colorblind_mode(monkeypatch):
     """
-    Verify update_question3 callback accepts colorblind_mode parameter.
+    Verify render_q3_figure callback accepts colorblind_mode parameter.
 
     The callback should have colorblind_mode as an Input from colorblind-mode-store
     and accept it as a parameter without error.
@@ -649,41 +746,32 @@ def test_update_question3_accepts_colorblind_mode(monkeypatch):
     # Mock visualization function
     mock_chart_fn = MagicMock(return_value=MagicMock())
 
-    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn), \
-         patch.object(app.processor, 'analyze_cloud_scaling', return_value={
-             'scaling_data': MagicMock(empty=False),
-             'summary': 'Test summary',
-             'linear_scaling_count': 5,
-             'total_benchmarks': 10
-         }):
+    import pandas as pd
+    scaling_data = pd.DataFrame({
+        'instance_type': ['m5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge'],
+        'vcpu_count': [2, 4, 8, 16],
+        'performance': [100, 200, 400, 800],
+        'benchmark_category': ['compute'] * 4
+    })
 
-        # Prepare callback inputs
-        import pandas as pd
-        test_data = pd.DataFrame({
-            'cloud_provider': ['aws'] * 4,
-            'os_distribution': ['rhel'] * 4,
-            'os_version': ['9.0'] * 4,
-            'instance_type': ['m5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge'],
-            'benchmark_category': ['compute'] * 4
-        })
-        filtered_data_json = test_data.to_json(orient='split')
+    analysis_data = {
+        'scaling_data': scaling_data.to_json(orient='split'),
+        'summary': 'Test summary',
+        'linear_scaling_count': 5,
+        'total_benchmarks': 10,
+        'cloud_provider': 'aws',
+        'os_version': '9.0',
+        'os_distribution': 'rhel',
+        'instance_series': None,
+        'has_data': True
+    }
 
-        cloud_provider = 'aws'
-        instance_series = None
-        os_distribution = 'rhel'
-        os_version = '9.0'
-        benchmark_category = 'all'
-        colorblind_mode = True
-
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn):
         # Should not raise an error
-        result = app.update_question3(
-            cloud_provider,
-            instance_series,
-            os_distribution,
-            os_version,
-            benchmark_category,
-            filtered_data_json,
-            colorblind_mode
+        result = app.render_q3_figure(
+            analysis_data,
+            benchmark_category='all',
+            colorblind_mode=True
         )
 
         # Verify result structure (2 outputs: figure and summary)
@@ -693,7 +781,7 @@ def test_update_question3_accepts_colorblind_mode(monkeypatch):
 
 def test_update_question3_passes_colorblind_mode_true(monkeypatch):
     """
-    Verify update_question3 passes colorblind_mode=True to create_cloud_scaling_chart.
+    Verify render_q3_figure passes colorblind_mode=True to create_cloud_scaling_chart.
 
     When colorblind mode is enabled, the chart function should receive True.
     """
@@ -711,32 +799,23 @@ def test_update_question3_passes_colorblind_mode_true(monkeypatch):
         'benchmark_category': ['compute'] * 2
     })
 
-    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn), \
-         patch.object(app.processor, 'analyze_cloud_scaling', return_value={
-             'scaling_data': scaling_data,
-             'summary': 'Test summary',
-             'linear_scaling_count': 1,
-             'total_benchmarks': 2
-         }):
+    analysis_data = {
+        'scaling_data': scaling_data.to_json(orient='split'),
+        'summary': 'Test summary',
+        'linear_scaling_count': 1,
+        'total_benchmarks': 2,
+        'cloud_provider': 'aws',
+        'os_version': '9.0',
+        'os_distribution': 'rhel',
+        'instance_series': None,
+        'has_data': True
+    }
 
-        # Prepare callback inputs
-        test_data = pd.DataFrame({
-            'cloud_provider': ['aws'] * 2,
-            'os_distribution': ['rhel'] * 2,
-            'os_version': ['9.0'] * 2,
-            'instance_type': ['m5.large', 'm5.xlarge'],
-            'benchmark_category': ['compute'] * 2
-        })
-        filtered_data_json = test_data.to_json(orient='split')
-
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn):
         # Call the callback with colorblind_mode=True
-        app.update_question3(
-            cloud_provider='aws',
-            instance_series=None,
-            os_distribution='rhel',
-            os_version='9.0',
+        app.render_q3_figure(
+            analysis_data,
             benchmark_category='all',
-            filtered_data_json=filtered_data_json,
             colorblind_mode=True
         )
 
@@ -749,7 +828,7 @@ def test_update_question3_passes_colorblind_mode_true(monkeypatch):
 
 def test_update_question3_passes_colorblind_mode_false(monkeypatch):
     """
-    Verify update_question3 passes colorblind_mode=False to create_cloud_scaling_chart.
+    Verify render_q3_figure passes colorblind_mode=False to create_cloud_scaling_chart.
 
     When colorblind mode is disabled, the chart function should receive False.
     """
@@ -767,32 +846,23 @@ def test_update_question3_passes_colorblind_mode_false(monkeypatch):
         'benchmark_category': ['compute'] * 2
     })
 
-    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn), \
-         patch.object(app.processor, 'analyze_cloud_scaling', return_value={
-             'scaling_data': scaling_data,
-             'summary': 'Test summary',
-             'linear_scaling_count': 1,
-             'total_benchmarks': 2
-         }):
+    analysis_data = {
+        'scaling_data': scaling_data.to_json(orient='split'),
+        'summary': 'Test summary',
+        'linear_scaling_count': 1,
+        'total_benchmarks': 2,
+        'cloud_provider': 'aws',
+        'os_version': '9.0',
+        'os_distribution': 'rhel',
+        'instance_series': None,
+        'has_data': True
+    }
 
-        # Prepare callback inputs
-        test_data = pd.DataFrame({
-            'cloud_provider': ['aws'] * 2,
-            'os_distribution': ['rhel'] * 2,
-            'os_version': ['9.0'] * 2,
-            'instance_type': ['m5.large', 'm5.xlarge'],
-            'benchmark_category': ['compute'] * 2
-        })
-        filtered_data_json = test_data.to_json(orient='split')
-
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_chart_fn):
         # Call the callback with colorblind_mode=False
-        app.update_question3(
-            cloud_provider='aws',
-            instance_series=None,
-            os_distribution='rhel',
-            os_version='9.0',
+        app.render_q3_figure(
+            analysis_data,
             benchmark_category='all',
-            filtered_data_json=filtered_data_json,
             colorblind_mode=False
         )
 

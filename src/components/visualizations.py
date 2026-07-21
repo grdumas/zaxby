@@ -1144,11 +1144,19 @@ def create_version_comparison_bar_chart(
         colors.append(color)
         patterns.append(pattern)
     
+    # Determine icons based on colorblind mode
+    if colorblind_mode:
+        regression_icon = "🟠"  # Orange for regression
+        improvement_icon = "🔵"  # Blue for improvement
+    else:
+        regression_icon = "🔴"  # Red for regression
+        improvement_icon = "🟢"  # Green for improvement
+
     # Build hover template with consistency info
     hover_texts = []
     for idx, row in comparison_df_sorted.iterrows():
         test_name = row['test_name']
-        
+
         # Determine consistency status for hover
         if row['is_all_regression']:
             consistency = "All configs regressed"
@@ -1158,13 +1166,13 @@ def create_version_comparison_bar_chart(
             consistency = "All configs improved"
         else:
             consistency = "Stable across configs"
-        
+
         if has_hardware:
             # Show all hardware configs for this test
             test_hw_data = comparison_df[comparison_df['test_name'] == test_name]
             hw_lines = []
             for _, hw_row in test_hw_data.iterrows():
-                status_icon = "🔴" if hw_row['is_regression'] else "🟢" if hw_row['percent_change'] > 5 else "⚪"
+                status_icon = regression_icon if hw_row['is_regression'] else improvement_icon if hw_row['percent_change'] > 5 else "⚪"
                 hw_lines.append(
                     f"  {status_icon} {hw_row['hardware_config']}: {hw_row['percent_change']:+.1f}% "
                     f"({hw_row['baseline_mean']:.2f} → {hw_row['comparison_mean']:.2f})"

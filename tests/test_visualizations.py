@@ -1546,6 +1546,90 @@ def test_version_comparison_legend_matches_colorblind_palette():
     assert "Green" not in legend_text, "Colorblind legend should not use 'Green'"
 
 
+def test_version_comparison_hover_icons_respect_colorblind_mode():
+    """
+    Test that version comparison hover icons change from red/green to blue/orange
+    in colorblind mode.
+
+    The hover tooltips should use 🔵/🟠 in colorblind mode instead of 🔴/🟢.
+    """
+    # Create fixture data with multiple hardware configs
+    comparison_df = pd.DataFrame([
+        {
+            "test_name": "test_with_regression",
+            "baseline_mean": 100.0,
+            "comparison_mean": 80.0,
+            "percent_change": -20.0,
+            "is_regression": True,
+            "hardware_config": "config1"
+        },
+        {
+            "test_name": "test_with_regression",
+            "baseline_mean": 100.0,
+            "comparison_mean": 85.0,
+            "percent_change": -15.0,
+            "is_regression": True,
+            "hardware_config": "config2"
+        },
+        {
+            "test_name": "test_with_improvement",
+            "baseline_mean": 100.0,
+            "comparison_mean": 120.0,
+            "percent_change": 20.0,
+            "is_regression": False,
+            "hardware_config": "config1"
+        },
+        {
+            "test_name": "test_with_improvement",
+            "baseline_mean": 100.0,
+            "comparison_mean": 125.0,
+            "percent_change": 25.0,
+            "is_regression": False,
+            "hardware_config": "config2"
+        }
+    ])
+
+    # Test colorblind mode
+    fig_colorblind = create_version_comparison_bar_chart(
+        comparison_df=comparison_df,
+        baseline_version="v1.0",
+        comparison_version="v2.0",
+        colorblind_mode=True
+    )
+
+    # Extract hover text from customdata
+    hover_data = fig_colorblind.data[0].customdata
+    all_hover_text = " ".join(hover_data)
+
+    # In colorblind mode, should use blue/orange emoji
+    assert "🔵" in all_hover_text, "Colorblind mode should use blue emoji 🔵 for improvement"
+    assert "🟠" in all_hover_text, "Colorblind mode should use orange emoji 🟠 for regression"
+
+    # Should NOT use red/green emoji in colorblind mode
+    assert "🔴" not in all_hover_text, "Colorblind mode should not use red emoji 🔴"
+    assert "🟢" not in all_hover_text, "Colorblind mode should not use green emoji 🟢"
+
+    # Test standard mode
+    fig_standard = create_version_comparison_bar_chart(
+        comparison_df=comparison_df,
+        baseline_version="v1.0",
+        comparison_version="v2.0",
+        colorblind_mode=False
+    )
+
+    # Extract hover text from customdata
+    hover_data_standard = fig_standard.data[0].customdata
+    all_hover_text_standard = " ".join(hover_data_standard)
+
+    # In standard mode, should use red/green emoji
+    assert "🔴" in all_hover_text_standard, "Standard mode should use red emoji 🔴 for regression"
+    assert "🟢" in all_hover_text_standard, "Standard mode should use green emoji 🟢 for improvement"
+
+    # Should NOT use blue/orange emoji in standard mode
+    assert "🔵" not in all_hover_text_standard, "Standard mode should not use blue emoji 🔵"
+    assert "🟠" not in all_hover_text_standard, "Standard mode should not use orange emoji 🟠"
+
+
 @pytest.fixture
 def peer_os_comparison_data():
     """Sample peer OS comparison data with competitive, moderate, and significant differences."""

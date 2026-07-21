@@ -412,8 +412,9 @@ def create_scatter_plot(
         template='plotly_white'
     )
 
-    # Configure legend positioning when color or size encoding is used
-    if color_col or size_col:
+    # Configure legend positioning when color encoding creates a discrete legend
+    # Note: size_col alone doesn't create a discrete legend that needs extra margin
+    if color_col:
         fig.update_layout(
             xaxis_title=x_col.replace('_', ' ').title(),
             yaxis_title=y_col.replace('_', ' ').title(),
@@ -425,7 +426,7 @@ def create_scatter_plot(
                 xanchor='left',
                 x=1.02
             ),
-            margin=dict(r=200)  # Right margin for legend
+            margin=dict(r=200)  # Right margin for discrete color legend
         )
     else:
         fig.update_layout(

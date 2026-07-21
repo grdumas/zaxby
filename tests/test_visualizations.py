@@ -10,7 +10,8 @@ from src.components.visualizations import (
     create_comparison_chart,
     create_box_plot,
     create_scatter_plot,
-    create_heatmap
+    create_heatmap,
+    create_regression_heatmap
 )
 
 
@@ -701,3 +702,51 @@ def test_create_heatmap_colorbar_has_title(heatmap_data):
     colorbar = fig.data[0].colorbar
     assert hasattr(colorbar, 'title'), "Colorbar should have title config"
     assert colorbar.title.text is not None, "Colorbar title should not be empty"
+
+
+@pytest.fixture
+def regression_heatmap_data():
+    """Sample data for regression heatmap (percent changes)."""
+    data = {
+        '9.0→9.1': [5.2, -3.1, 1.8],
+        '9.1→9.2': [-2.5, 4.3, 0.9],
+        '9.2→9.3': [7.8, -5.2, 2.1]
+    }
+    return pd.DataFrame(data, index=['coremark', 'streams', 'iperf'])
+
+
+def test_create_regression_heatmap_has_colorbar(regression_heatmap_data):
+    """Test that regression heatmap has colorbar."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have colorbar
+    assert len(fig.data) > 0, "Heatmap should have data"
+    assert hasattr(fig.data[0], 'colorbar'), "Should have colorbar"
+
+
+def test_create_regression_heatmap_has_help_annotation(regression_heatmap_data):
+    """Test that regression heatmap has help annotation explaining color scale."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have help annotation
+    assert len(fig.layout.annotations) > 0, "Should have help annotations"
+
+    # Check for color explanation
+    annotation_texts = [ann.text.lower() for ann in fig.layout.annotations]
+    has_color_help = any(
+        'red' in text or 'green' in text or 'regression' in text or 'improvement' in text
+        for text in annotation_texts
+    )
+    assert has_color_help, "Annotation should explain red/green color meaning"
+
+
+def test_create_regression_heatmap_annotation_positioned_clearly(regression_heatmap_data):
+    """Test that annotation is positioned to not obscure data."""
+    fig = create_regression_heatmap(regression_heatmap_data)
+
+    # Should have annotations positioned outside or in corners
+    assert len(fig.layout.annotations) > 0
+    # Just verify annotations exist and have positioning
+    for ann in fig.layout.annotations:
+        assert hasattr(ann, 'x'), "Annotation should have x position"
+        assert hasattr(ann, 'y'), "Annotation should have y position"

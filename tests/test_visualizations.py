@@ -5,7 +5,10 @@ Tests for visualization components.
 import pytest
 import pandas as pd
 import plotly.graph_objects as go
-from src.components.visualizations import create_cloud_scaling_chart
+from src.components.visualizations import (
+    create_cloud_scaling_chart,
+    create_comparison_chart
+)
 
 
 @pytest.fixture
@@ -390,3 +393,76 @@ def test_create_cloud_scaling_chart_handles_nan_memory_values():
     # Second and third instances should NOT have memory info
     assert "Memory:" not in trace.customdata[1] or " GB" not in trace.customdata[1]
     assert "Memory:" not in trace.customdata[2] or " GB" not in trace.customdata[2]
+
+
+@pytest.fixture
+def comparison_data():
+    """Sample comparison data for baseline vs comparison charts."""
+    return pd.DataFrame([
+        {
+            "test_name": "coremark",
+            "baseline_mean": 100000.0,
+            "baseline_std": 1000.0,
+            "comparison_mean": 105000.0,
+            "comparison_std": 1500.0
+        },
+        {
+            "test_name": "streams",
+            "baseline_mean": 50000.0,
+            "baseline_std": 500.0,
+            "comparison_mean": 48000.0,
+            "comparison_std": 600.0
+        },
+        {
+            "test_name": "iperf",
+            "baseline_mean": 8500.0,
+            "baseline_std": 100.0,
+            "comparison_mean": 8700.0,
+            "comparison_std": 150.0
+        }
+    ])
+
+
+def test_create_comparison_chart_has_legend(comparison_data):
+    """Test that comparison chart has a visible legend explaining colors."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Chart should have legend enabled
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+
+    # Should have legend configuration
+    assert hasattr(fig.layout, 'legend'), "Chart should have legend config"
+
+
+def test_create_comparison_chart_legend_positioned_consistently(comparison_data):
+    """Test that legend is positioned at bottom (consistent positioning)."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Legend should be positioned at bottom with horizontal orientation
+    assert fig.layout.legend.orientation == 'h', "Legend should be horizontal"
+    assert fig.layout.legend.yanchor == 'top', "Legend should be anchored to top"
+    assert fig.layout.legend.y < 0, "Legend should be below chart (y < 0)"
+
+
+def test_create_comparison_chart_legend_explains_colors(comparison_data):
+    """Test that legend trace names explain what baseline/comparison colors mean."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Should have two traces: Baseline and Comparison
+    assert len(fig.data) == 2, "Should have two traces"
+
+    trace_names = [trace.name for trace in fig.data]
+    assert 'Baseline' in trace_names, "Should have Baseline trace"
+    assert 'Comparison' in trace_names, "Should have Comparison trace"
+
+
+def test_create_comparison_chart_legend_does_not_obscure_data(comparison_data):
+    """Test that legend positioning doesn't obscure chart data."""
+    fig = create_comparison_chart(comparison_data)
+
+    # Legend should be outside plot area (below it)
+    # This is ensured by y < 0 which places it below the plot
+    assert fig.layout.legend.y < 0, "Legend should be positioned below chart to avoid obscuring data"
+
+    # Chart should have bottom margin to accommodate legend
+    assert fig.layout.margin.b >= 80, "Chart should have bottom margin for legend"

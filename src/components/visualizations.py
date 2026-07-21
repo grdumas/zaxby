@@ -58,9 +58,17 @@ def create_comparison_chart(
         barmode='group',
         hovermode='x unified',
         template='plotly_white',
-        height=500
+        height=500,
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=-0.15,
+            xanchor='center',
+            x=0.5
+        ),
+        margin=dict(b=100)  # Bottom margin for legend
     )
-    
+
     return fig
 
 

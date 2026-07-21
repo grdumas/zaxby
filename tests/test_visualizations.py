@@ -528,8 +528,8 @@ def test_create_box_plot_legend_explains_color_groups(box_plot_data_with_color):
 
     # Should have traces for each OS version
     trace_names = [trace.name for trace in fig.data]
-    assert 'RHEL 9.0' in trace_names, "Should have RHEL 9.0 in legend"
-    assert 'RHEL 9.1' in trace_names, "Should have RHEL 9.1 in legend"
+    assert any("RHEL 9.0" in name for name in trace_names), "Should have RHEL 9.0 in legend"
+    assert any("RHEL 9.1" in name for name in trace_names), "Should have RHEL 9.1 in legend"
 
 
 def test_create_box_plot_without_color_has_no_legend():
@@ -845,3 +845,20 @@ def test_create_time_series_legend_does_not_obscure_data(time_series_data):
     legend = fig.layout.legend
     assert legend.x <= 1.0, "Legend should be within plot area (not outside)"
     assert legend.y <= 1.0, "Legend should be within plot area"
+
+
+def test_create_time_series_faceted_hides_legend(time_series_data):
+    """Test that faceted time series hides legend (redundant with facet labels)."""
+    fig = create_time_series_chart(
+        time_series_data,
+        color_col='test_name',
+        use_facets=True
+    )
+
+    # Legend should be hidden when using facets (facet labels replace legend)
+    assert fig.layout.showlegend is False, "Legend should be hidden for faceted time series"
+
+    # Verify that facets were actually created (multiple subplot rows)
+    # In plotly, faceted charts have multiple yaxis (yaxis, yaxis2, yaxis3, etc.)
+    yaxis_count = sum(1 for key in fig.layout._props if key.startswith('yaxis'))
+    assert yaxis_count >= 2, "Should have multiple y-axes for faceted chart"

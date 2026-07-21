@@ -373,25 +373,23 @@ def serve_layout():
                                     className="me-2"
                                     + ("" if show_opensearch_retry else " d-none"),
                                 ),
-                                html.Button(
+                                dbc.Button(
                                     id="dark-mode-toggle",
-                                    className="me-3",
+                                    color="link",
+                                    className="me-3 p-0",
                                     style={
                                         "border": "none",
-                                        "background": "transparent",
-                                        "cursor": "pointer",
-                                        "padding": "0"
+                                        "textDecoration": "none"
                                     },
                                     **{"aria-label": "Toggle dark mode"}
                                 ),
-                                html.Button(
+                                dbc.Button(
                                     id="colorblind-mode-toggle",
-                                    className="me-3",
+                                    color="link",
+                                    className="me-3 p-0",
                                     style={
                                         "border": "none",
-                                        "background": "transparent",
-                                        "cursor": "pointer",
-                                        "padding": "0"
+                                        "textDecoration": "none"
                                     },
                                     **{"aria-label": "Toggle colorblind-friendly mode"}
                                 ),

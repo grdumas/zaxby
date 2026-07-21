@@ -226,7 +226,28 @@ def create_heatmap(
         template='plotly_white',
         height=500
     )
-    
+
+    # Add help annotation explaining color scale
+    fig.add_annotation(
+        text=(
+            "<b>How to read:</b><br>"
+            "🟢 Green = Higher performance<br>"
+            "🟡 Yellow = Medium performance<br>"
+            "🔴 Red = Lower performance"
+        ),
+        xref="paper", yref="paper",
+        x=1.02, y=0.5,
+        showarrow=False,
+        font=dict(size=10, color="gray"),
+        align="left",
+        bgcolor="rgba(255, 255, 255, 0.9)",
+        bordercolor="rgba(200, 200, 200, 0.5)",
+        borderwidth=1,
+        borderpad=4,
+        xanchor="left",
+        yanchor="middle"
+    )
+
     return fig
 
 

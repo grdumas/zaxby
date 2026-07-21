@@ -682,6 +682,7 @@ def test_create_heatmap_annotation_positioned_clearly(heatmap_data):
     fig = create_heatmap(heatmap_data)
 
     # Annotations should be positioned outside main plot area or in corner
+    has_outside_annotation = False
     for ann in fig.layout.annotations:
         # Check that annotation uses paper coordinates (relative positioning)
         # and is positioned in a corner or edge
@@ -693,6 +694,14 @@ def test_create_heatmap_annotation_positioned_clearly(heatmap_data):
             )
             # At least some annotations should be positioned clearly
             # (This is a soft check - we just want to verify positioning is considered)
+            if ann.x > 1.0:
+                has_outside_annotation = True
+
+    # At least one annotation should be positioned outside plot area (x > 1.0)
+    assert has_outside_annotation, "At least one annotation should be positioned outside plot area (x > 1.0)"
+
+    # Chart should have right margin for annotation positioned outside
+    assert fig.layout.margin.r is not None and fig.layout.margin.r >= 180, "Chart should have right margin for annotation"
 
 
 def test_create_heatmap_colorbar_has_title(heatmap_data):
@@ -742,15 +751,23 @@ def test_create_regression_heatmap_has_help_annotation(regression_heatmap_data):
 
 
 def test_create_regression_heatmap_annotation_positioned_clearly(regression_heatmap_data):
-    """Test that annotation is positioned to not obscure data."""
+    """Test that annotation is positioned outside plot area with proper margin."""
     fig = create_regression_heatmap(regression_heatmap_data)
 
-    # Should have annotations positioned outside or in corners
-    assert len(fig.layout.annotations) > 0
-    # Just verify annotations exist and have positioning
-    for ann in fig.layout.annotations:
-        assert hasattr(ann, 'x'), "Annotation should have x position"
-        assert hasattr(ann, 'y'), "Annotation should have y position"
+    # Should have at least one annotation positioned outside the right edge
+    assert len(fig.layout.annotations) > 0, "Should have help annotations"
+
+    # At least one annotation should be positioned to the right (x > 1.0) using paper coordinates
+    annotations_outside_right = [
+        ann for ann in fig.layout.annotations
+        if hasattr(ann, 'xref') and ann.xref == 'paper' and ann.x > 1.0
+    ]
+    assert len(annotations_outside_right) > 0, \
+        "At least one annotation should be positioned outside right edge (xref='paper', x > 1.0)"
+
+    # Chart should have right margin to accommodate the annotation
+    assert fig.layout.margin.r >= 180, \
+        "Chart should have right margin >= 180 to prevent annotation clipping"
 
 
 @pytest.fixture

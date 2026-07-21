@@ -130,16 +130,25 @@ def create_time_series_chart(
             title=title,
             template='plotly_white'
         )
-        
+
+        # Standardize legend positioning for time series (top-right corner)
         fig.update_layout(
             xaxis_title="Date",
             yaxis_title="Performance Metric",
             hovermode='x unified',
-            height=500
+            height=500,
+            legend=dict(
+                orientation='v',
+                yanchor='top',
+                y=0.99,
+                xanchor='right',
+                x=0.99,
+                bgcolor='rgba(255, 255, 255, 0.8)'  # Semi-transparent background
+            )
         )
-    
+
     fig.update_traces(mode='lines+markers')
-    
+
     return fig
 
 

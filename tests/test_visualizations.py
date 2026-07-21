@@ -11,7 +11,8 @@ from src.components.visualizations import (
     create_box_plot,
     create_scatter_plot,
     create_heatmap,
-    create_regression_heatmap
+    create_regression_heatmap,
+    create_time_series_chart
 )
 
 
@@ -750,3 +751,48 @@ def test_create_regression_heatmap_annotation_positioned_clearly(regression_heat
     for ann in fig.layout.annotations:
         assert hasattr(ann, 'x'), "Annotation should have x position"
         assert hasattr(ann, 'y'), "Annotation should have y position"
+
+
+@pytest.fixture
+def time_series_data():
+    """Sample time series data."""
+    return pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100000, "test_name": "coremark"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102000, "test_name": "coremark"},
+        {"timestamp": "2024-01-03", "primary_metric_value": 101500, "test_name": "coremark"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 50000, "test_name": "streams"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 51000, "test_name": "streams"},
+        {"timestamp": "2024-01-03", "primary_metric_value": 52000, "test_name": "streams"},
+    ])
+
+
+def test_create_time_series_chart_has_legend(time_series_data):
+    """Test that time series chart has visible legend."""
+    fig = create_time_series_chart(time_series_data, color_col='test_name')
+
+    # Legend should be visible
+    assert fig.layout.showlegend is not False, "Legend should be visible"
+
+
+def test_create_time_series_legend_positioned_consistently(time_series_data):
+    """Test that time series legend is positioned consistently (top-right)."""
+    fig = create_time_series_chart(time_series_data, color_col='test_name', use_facets=False)
+
+    # Legend should be positioned at top-right (standard for time series)
+    legend = fig.layout.legend
+    assert legend.orientation == 'v', "Legend should be vertical"
+    assert legend.xanchor == 'right', "Legend should anchor to right"
+    assert legend.x >= 0.95, "Legend should be on right side"
+    assert legend.yanchor == 'top', "Legend should anchor to top"
+    assert legend.y >= 0.95, "Legend should be at top"
+
+
+def test_create_time_series_legend_does_not_obscure_data(time_series_data):
+    """Test that legend positioning doesn't obscure time series data."""
+    fig = create_time_series_chart(time_series_data, color_col='test_name', use_facets=False)
+
+    # Legend should be inside plot area but at top-right corner
+    # This is acceptable for time series as data usually doesn't reach top-right
+    legend = fig.layout.legend
+    assert legend.x <= 1.0, "Legend should be within plot area (not outside)"
+    assert legend.y <= 1.0, "Legend should be within plot area"

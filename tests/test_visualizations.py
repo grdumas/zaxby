@@ -2386,3 +2386,283 @@ def test_metrics_table_uses_colorblind_palette():
         "Colorblind mode should use different header color than standard mode"
     assert standard_cells != colorblind_cells, \
         "Colorblind mode should use different cell color than standard mode"
+
+
+# ============================================================================
+# XSS Prevention Tests
+# ============================================================================
+
+
+def test_escape_html_escapes_script_tags():
+    """Test that _escape_html escapes script tags to prevent XSS."""
+    from src.components.visualizations import _escape_html
+
+    result = _escape_html("<script>alert('xss')</script>")
+    # html.escape() also escapes single quotes to &#x27;
+    assert result == "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+
+
+def test_escape_html_escapes_bold_tags():
+    """Test that _escape_html escapes bold tags."""
+    from src.components.visualizations import _escape_html
+
+    result = _escape_html("<b>test</b>")
+    assert result == "&lt;b&gt;test&lt;/b&gt;"
+
+
+def test_escape_html_escapes_ampersands_and_brackets():
+    """Test that _escape_html escapes ampersands and angle brackets."""
+    from src.components.visualizations import _escape_html
+
+    result = _escape_html("test & <test>")
+    assert result == "test &amp; &lt;test&gt;"
+
+
+def test_escape_html_handles_none():
+    """Test that _escape_html handles None input gracefully."""
+    from src.components.visualizations import _escape_html
+
+    result = _escape_html(None)
+    assert result == ""
+
+
+def test_escape_html_handles_normal_text():
+    """Test that _escape_html leaves normal text unchanged."""
+    from src.components.visualizations import _escape_html
+
+    result = _escape_html("normal text")
+    assert result == "normal text"
+
+
+def test_version_comparison_escapes_malicious_test_name():
+    """Test that version comparison chart escapes malicious test names in hover text."""
+    malicious_df = pd.DataFrame([
+        {
+            "test_name": "<script>alert('xss')</script>",
+            "baseline_mean": 100.0,
+            "comparison_mean": 95.0,
+            "percent_change": -5.0,
+            "is_regression": True,
+            "hardware_config": "config1"
+        }
+    ])
+
+    fig = create_version_comparison_bar_chart(
+        malicious_df,
+        baseline_version="v1.0",
+        comparison_version="v2.0"
+    )
+
+    # Extract hover text from customdata
+    hover_data = fig.data[0].customdata
+    all_hover_text = " ".join(hover_data)
+
+    # Should contain escaped version
+    assert "&lt;script&gt;" in all_hover_text
+
+    # Should NOT contain unescaped version (allow legitimate HTML tags like <b>)
+    assert "<script>alert" not in all_hover_text
+
+
+def test_version_comparison_escapes_hardware_config():
+    """Test that version comparison chart escapes malicious hardware config names."""
+    malicious_df = pd.DataFrame([
+        {
+            "test_name": "coremark",
+            "baseline_mean": 100.0,
+            "comparison_mean": 95.0,
+            "percent_change": -5.0,
+            "is_regression": True,
+            "hardware_config": "<img src=x onerror=alert('xss')>"
+        }
+    ])
+
+    fig = create_version_comparison_bar_chart(
+        malicious_df,
+        baseline_version="v1.0",
+        comparison_version="v2.0"
+    )
+
+    # Extract hover text
+    hover_data = fig.data[0].customdata
+    all_hover_text = " ".join(hover_data)
+
+    # Should contain escaped version
+    assert "&lt;img" in all_hover_text
+
+    # Should NOT contain unescaped version
+    assert "<img src=x" not in all_hover_text
+
+
+def test_peer_os_comparison_escapes_category_and_test_names():
+    """Test that peer OS comparison chart escapes category and test names in hover text."""
+    from src.components.visualizations import create_peer_os_comparison_chart
+    
+    malicious_df = pd.DataFrame([
+        {
+            "peer_os": "Ubuntu",
+            "benchmark_category": "<iframe src='evil.com'>",
+            "relative_performance": 95.0,
+            "test_name": "<script>alert('xss')</script>"
+        }
+    ])
+
+    fig = create_peer_os_comparison_chart(
+        malicious_df,
+        baseline_os="RHEL"
+    )
+
+    # Extract hover text from customdata
+    hover_data = fig.data[0].customdata
+    all_hover_text = " ".join(hover_data)
+
+    # Should contain escaped versions
+    assert "&lt;iframe" in all_hover_text or "&lt;script&gt;" in all_hover_text
+
+    # Should NOT contain unescaped versions
+    assert "<iframe src=" not in all_hover_text
+    assert "<script>alert" not in all_hover_text
+
+
+def test_regression_heatmap_escapes_test_names():
+    """Test that regression heatmap escapes test names in hover text."""
+    malicious_data = {
+        '9.0→9.1': [5.2, -3.1],
+        '9.1→9.2': [-2.5, 4.3]
+    }
+    malicious_df = pd.DataFrame(
+        malicious_data,
+        index=["<script>alert('xss')</script>", "streams"]
+    )
+
+    fig = create_regression_heatmap(malicious_df)
+
+    # Extract hover text from hovertext attribute
+    heatmap_trace = fig.data[0]
+    hover_text = heatmap_trace.hovertext
+
+    # Flatten hover text if it's a 2D array
+    if isinstance(hover_text, list):
+        all_hover_text = " ".join([item for sublist in hover_text for item in (sublist if isinstance(sublist, list) else [sublist])])
+    else:
+        all_hover_text = str(hover_text)
+
+    # Should contain escaped version
+    assert "&lt;script&gt;" in all_hover_text
+
+    # Should NOT contain unescaped version
+    assert "<script>alert" not in all_hover_text
+
+
+def test_cloud_scaling_chart_escapes_category_names():
+    """Test that cloud scaling chart escapes benchmark category names in hover text."""
+    malicious_df = pd.DataFrame([
+        {
+            "instance_type": "c2-standard-4",
+            "benchmark_category": "<svg onload=alert('xss')>",
+            "cpu_cores": 4,
+            "memory_gb": 16,
+            "mean_performance": 100000.0
+        },
+        {
+            "instance_type": "c2-standard-8",
+            "benchmark_category": "<svg onload=alert('xss')>",
+            "cpu_cores": 8,
+            "memory_gb": 32,
+            "mean_performance": 195000.0
+        }
+    ])
+
+    fig = create_cloud_scaling_chart(malicious_df)
+
+    # Extract hover text from customdata
+    trace = fig.data[0]
+    if hasattr(trace, 'customdata'):
+        all_hover_text = " ".join([str(h) for h in trace.customdata if h])
+
+        # Should contain escaped version
+        assert "&lt;svg" in all_hover_text
+
+        # Should NOT contain unescaped version
+        assert "<svg onload" not in all_hover_text
+
+
+# ============================================================================
+# Pattern Index Helper Tests (Defensive Coding)
+# ============================================================================
+
+
+def test_pattern_index_helper_handles_none_name():
+    """Test that _get_pattern_index_for_name handles None name without crashing."""
+    from src.components.visualizations import _get_pattern_index_for_name
+
+    # Should not crash when name is None
+    index = _get_pattern_index_for_name(None, 5)
+
+    # Should return a valid index
+    assert isinstance(index, int)
+    assert 0 <= index < 5
+
+
+def test_pattern_index_helper_handles_empty_string_name():
+    """Test that _get_pattern_index_for_name handles empty string name without crashing."""
+    from src.components.visualizations import _get_pattern_index_for_name
+
+    # Should not crash when name is empty string
+    index = _get_pattern_index_for_name("", 5)
+
+    # Should return a valid index
+    assert isinstance(index, int)
+    assert 0 <= index < 5
+
+
+def test_pattern_index_helper_handles_non_string_name():
+    """Test that _get_pattern_index_for_name handles non-string name (int) without crashing."""
+    from src.components.visualizations import _get_pattern_index_for_name
+
+    # Should not crash when name is an integer
+    index = _get_pattern_index_for_name(123, 5)
+
+    # Should return a valid index
+    assert isinstance(index, int)
+    assert 0 <= index < 5
+
+
+def test_pattern_index_helper_handles_zero_pattern_count():
+    """Test that _get_pattern_index_for_name handles pattern_count=0 without crashing."""
+    from src.components.visualizations import _get_pattern_index_for_name
+
+    # Should not crash when pattern_count is 0
+    index = _get_pattern_index_for_name("test", 0)
+
+    # Should return 0 (the only valid index when clamped to min 1 pattern)
+    assert isinstance(index, int)
+    assert index == 0
+
+
+def test_pattern_index_helper_handles_negative_pattern_count():
+    """Test that _get_pattern_index_for_name handles negative pattern_count without crashing."""
+    from src.components.visualizations import _get_pattern_index_for_name
+
+    # Should not crash when pattern_count is negative
+    index = _get_pattern_index_for_name("test", -5)
+
+    # Should return 0 (the only valid index when clamped to min 1 pattern)
+    assert isinstance(index, int)
+    assert index == 0
+
+
+def test_pattern_index_helper_deterministic_with_same_inputs():
+    """Test that _get_pattern_index_for_name returns same index for same inputs (deterministic)."""
+    from src.components.visualizations import _get_pattern_index_for_name
+
+    # Call multiple times with same inputs
+    index1 = _get_pattern_index_for_name("test_name", 10)
+    index2 = _get_pattern_index_for_name("test_name", 10)
+    index3 = _get_pattern_index_for_name("test_name", 10)
+
+    # All should return the same index
+    assert index1 == index2 == index3
+
+    # Should be a valid index
+    assert 0 <= index1 < 10

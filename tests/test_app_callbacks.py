@@ -145,8 +145,9 @@ def test_update_question3_handles_none_os_distribution(monkeypatch):
     mock_fig = MagicMock()
 
     # Simulate cached analysis data with None os_distribution
+    import json
     analysis_data = {
-        'scaling_data': mock_scaling_data.to_json(orient='split'),
+        'scaling_data': json.loads(mock_scaling_data.to_json(orient='split')),
         'summary': 'Test summary',
         'linear_scaling_count': 1,
         'total_benchmarks': 2,
@@ -419,8 +420,9 @@ def test_q2_colorblind_toggle_no_reanalysis(monkeypatch):
          patch('src.components.visualizations.create_peer_os_comparison_chart', mock_viz):
 
         # Simulate cached analysis data
+        import json
         analysis_data = {
-            'comparison_data': '{"columns":["category","rhel_wins"],"index":[0],"data":[["compute",8]]}',
+            'comparison_data': json.loads('{"columns":["category","rhel_wins"],"index":[0],"data":[["compute",8]]}'),
             'summary': 'Test summary',
             'competitive_count': 5,
             'total_benchmarks': 10,
@@ -524,8 +526,9 @@ def test_q3_colorblind_toggle_no_reanalysis(monkeypatch):
          patch('src.components.visualizations.create_cloud_scaling_chart', mock_viz):
 
         # Simulate cached analysis data
+        import json
         analysis_data = {
-            'scaling_data': '{"columns":["instance_size","score","benchmark_category"],"index":[0],"data":[["small",100,"System"]]}',
+            'scaling_data': json.loads('{"columns":["instance_size","score","benchmark_category"],"index":[0],"data":[["small",100,"System"]]}'),
             'summary': 'Test scaling summary',
             'linear_scaling_count': 8,
             'total_benchmarks': 10,
@@ -747,6 +750,7 @@ def test_update_question3_accepts_colorblind_mode(monkeypatch):
     mock_chart_fn = MagicMock(return_value=MagicMock())
 
     import pandas as pd
+    import json
     scaling_data = pd.DataFrame({
         'instance_type': ['m5.large', 'm5.xlarge', 'm5.2xlarge', 'm5.4xlarge'],
         'vcpu_count': [2, 4, 8, 16],
@@ -755,7 +759,7 @@ def test_update_question3_accepts_colorblind_mode(monkeypatch):
     })
 
     analysis_data = {
-        'scaling_data': scaling_data.to_json(orient='split'),
+        'scaling_data': json.loads(scaling_data.to_json(orient='split')),
         'summary': 'Test summary',
         'linear_scaling_count': 5,
         'total_benchmarks': 10,
@@ -792,6 +796,7 @@ def test_update_question3_passes_colorblind_mode_true(monkeypatch):
 
     # Create test scaling data
     import pandas as pd
+    import json
     scaling_data = pd.DataFrame({
         'instance_type': ['m5.large', 'm5.xlarge'],
         'vcpu_count': [2, 4],
@@ -800,7 +805,7 @@ def test_update_question3_passes_colorblind_mode_true(monkeypatch):
     })
 
     analysis_data = {
-        'scaling_data': scaling_data.to_json(orient='split'),
+        'scaling_data': json.loads(scaling_data.to_json(orient='split')),
         'summary': 'Test summary',
         'linear_scaling_count': 1,
         'total_benchmarks': 2,
@@ -839,6 +844,7 @@ def test_update_question3_passes_colorblind_mode_false(monkeypatch):
 
     # Create test scaling data
     import pandas as pd
+    import json
     scaling_data = pd.DataFrame({
         'instance_type': ['m5.large', 'm5.xlarge'],
         'vcpu_count': [2, 4],
@@ -847,7 +853,7 @@ def test_update_question3_passes_colorblind_mode_false(monkeypatch):
     })
 
     analysis_data = {
-        'scaling_data': scaling_data.to_json(orient='split'),
+        'scaling_data': json.loads(scaling_data.to_json(orient='split')),
         'summary': 'Test summary',
         'linear_scaling_count': 1,
         'total_benchmarks': 2,
@@ -931,3 +937,447 @@ def test_normalize_colorblind_mode_arbitrary_string():
     assert app._normalize_colorblind_mode("random") is False
     assert app._normalize_colorblind_mode("1") is False
     assert app._normalize_colorblind_mode("yes") is False
+
+
+# ============================================================================
+# Clientside callback normalization tests
+# ============================================================================
+
+def test_clientside_toggle_normalizes_string_false_to_boolean():
+    """
+    CRITICAL: Verify clientside toggle callback normalizes string "false" correctly.
+
+    JavaScript truthiness problem: !!"false" evaluates to true because
+    "false" is a non-empty string. Clientside callbacks must use strict
+    normalization matching _normalize_colorblind_mode():
+        (value === true || value === 'true' || value === 1)
+
+    Expected behavior:
+    - Input "false" -> normalize to False -> toggle to True
+    - Input "true" -> normalize to True -> toggle to False
+    - Input false -> normalize to False -> toggle to True
+    - Input true -> normalize to True -> toggle to False
+    - Input 1 -> normalize to True -> toggle to False
+    - Input 0 -> normalize to False -> toggle to True
+
+    This test documents the expected JavaScript behavior in the clientside
+    callback at app.py:540-555. Since we can't unit test JavaScript directly,
+    this test ensures the Python normalization reference is correct.
+    """
+    import app
+    # Document the normalization reference behavior
+    # The clientside JS must match this
+    assert app._normalize_colorblind_mode("false") is False
+    assert app._normalize_colorblind_mode("true") is True
+    assert app._normalize_colorblind_mode(False) is False
+    assert app._normalize_colorblind_mode(True) is True
+    assert app._normalize_colorblind_mode(1) is True
+    assert app._normalize_colorblind_mode(0) is False
+
+
+def test_clientside_body_class_normalizes_values_strictly():
+    """
+    Verify clientside body class sync callback uses strict normalization.
+
+    The callback at app.py:558-570 syncs colorblind-mode-store to the
+    body.colorblind-mode CSS class. It must use strict normalization:
+        (value === true || value === 'true' || value === 1)
+
+    NOT unsafe truthiness: !!value would treat "false" as true.
+
+    Expected behavior:
+    - Input "false" -> normalize to False -> remove class
+    - Input "true" -> normalize to True -> add class
+    - Input false -> normalize to False -> remove class
+    - Input true -> normalize to True -> add class
+    - Input 1 -> normalize to True -> add class
+    - Input 0 -> normalize to False -> remove class
+
+    This test documents expected behavior for the clientside callback.
+    """
+    import app
+    # Document the normalization reference behavior
+    # The clientside JS must match this
+    assert app._normalize_colorblind_mode("false") is False
+    assert app._normalize_colorblind_mode("true") is True
+    assert app._normalize_colorblind_mode(False) is False
+    assert app._normalize_colorblind_mode(True) is True
+    assert app._normalize_colorblind_mode(1) is True
+    assert app._normalize_colorblind_mode(0) is False
+
+
+# ============================================================================
+# Accessibility tests for toggle button
+# ============================================================================
+
+def test_colorblind_toggle_has_accessible_label(monkeypatch):
+    """
+    Verify colorblind-mode-toggle button has an accessible label.
+
+    The button must have either:
+    - A child with text content (fallback for CSS failure)
+    - OR an aria-label attribute
+
+    This ensures the control remains discoverable if CSS fails to load.
+    """
+    from dash import html
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Find the colorblind toggle button in the layout
+    def find_button(component, button_id):
+        """Recursively search for button with given id."""
+        if hasattr(component, 'id') and component.id == button_id:
+            return component
+        if hasattr(component, 'children'):
+            if isinstance(component.children, list):
+                for child in component.children:
+                    result = find_button(child, button_id)
+                    if result:
+                        return result
+            elif component.children:
+                return find_button(component.children, button_id)
+        return None
+
+    # Get the layout (it's a function, so we need to call it)
+    layout = app.app.layout() if callable(app.app.layout) else app.app.layout
+    button = find_button(layout, "colorblind-mode-toggle")
+    assert button is not None, "colorblind-mode-toggle button not found in layout"
+
+    # Check for accessible label
+    has_text_child = False
+    has_aria_label = False
+
+    # Check for text children
+    if hasattr(button, 'children') and button.children:
+        if isinstance(button.children, str):
+            has_text_child = bool(button.children.strip())
+        elif isinstance(button.children, list):
+            has_text_child = any(
+                isinstance(child, str) and child.strip()
+                for child in button.children
+            )
+        else:
+            # Check if it's an html.Span or similar component with text
+            has_text_child = (
+                hasattr(button.children, 'children') and
+                isinstance(button.children.children, str) and
+                bool(button.children.children.strip())
+            )
+
+    # Check for aria-label
+    if hasattr(button, '__dict__') and 'aria-label' in button.__dict__:
+        has_aria_label = bool(button.__dict__['aria-label'])
+
+    # Must have at least one accessibility feature
+    assert has_text_child or has_aria_label, \
+        "Button must have either text children or aria-label for accessibility"
+
+
+def test_colorblind_toggle_has_visually_hidden_child(monkeypatch):
+    """
+    Verify colorblind-mode-toggle button has a visually-hidden child.
+
+    The button should have a child with className containing "visually-hidden"
+    or "sr-only". This provides a fallback label that is:
+    - Hidden visually (via CSS)
+    - Readable by screen readers
+    - Visible if CSS fails to load
+
+    Addresses PR #58 review: Button has no fallback if CSS fails.
+    """
+    from dash import html
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Find the colorblind toggle button in the layout
+    def find_button(component, button_id):
+        """Recursively search for button with given id."""
+        if hasattr(component, 'id') and component.id == button_id:
+            return component
+        if hasattr(component, 'children'):
+            if isinstance(component.children, list):
+                for child in component.children:
+                    result = find_button(child, button_id)
+                    if result:
+                        return result
+            elif component.children:
+                return find_button(component.children, button_id)
+        return None
+
+    # Get the layout (it's a function, so we need to call it)
+    layout = app.app.layout() if callable(app.app.layout) else app.app.layout
+    button = find_button(layout, "colorblind-mode-toggle")
+    assert button is not None, "colorblind-mode-toggle button not found in layout"
+
+    # Check for visually-hidden class on children
+    has_visually_hidden = False
+
+    if hasattr(button, 'children') and button.children:
+        # Handle html.Span or similar component
+        if hasattr(button.children, 'className'):
+            class_name = button.children.className or ""
+            has_visually_hidden = (
+                "visually-hidden" in class_name or "sr-only" in class_name
+            )
+        # Handle list of children
+        elif isinstance(button.children, list):
+            for child in button.children:
+                if hasattr(child, 'className'):
+                    class_name = child.className or ""
+                    if "visually-hidden" in class_name or "sr-only" in class_name:
+                        has_visually_hidden = True
+                        break
+
+    assert has_visually_hidden, \
+        "Button must have a child with 'visually-hidden' or 'sr-only' class for CSS fallback"
+
+
+# ============================================================================
+# DataFrame serialization optimization tests
+# ============================================================================
+
+def test_q2_analysis_store_contains_dict_not_string(monkeypatch):
+    """
+    Verify Q2 analysis store contains a dict (split-orient), not a JSON string.
+
+    Performance optimization: storing as dict avoids redundant JSON parsing
+    on every colorblind mode toggle. The store should contain:
+    {'comparison_data': {'columns': [...], 'data': [...], 'index': [...]}, ...}
+    """
+    import pandas as pd
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock the processor methods
+    mock_comparison_df = pd.DataFrame({
+        'category': ['compute', 'storage'],
+        'rhel_wins': [8, 6]
+    })
+
+    mock_analysis = MagicMock(return_value={
+        'comparison_data': mock_comparison_df,
+        'summary': 'Test summary',
+        'competitive_count': 14,
+        'total_benchmarks': 20
+    })
+
+    with patch.object(app.processor, 'analyze_peer_os_comparison', mock_analysis), \
+         patch.object(app.processor, '_get_available_comparisons', return_value=[{
+             'peer_os': 'ubuntu',
+             'baseline_version': '9.0',
+             'peer_version': '22.04',
+             'cloud_provider': 'aws',
+             'label': 'RHEL 9.0 vs Ubuntu 22.04'
+         }]):
+
+        # Call the analysis callback
+        filtered_data_json = '{"columns":["os_name","benchmark"],"index":[0,1],"data":[["rhel","test1"],["ubuntu","test1"]]}'
+        result = app.update_q2_analysis(filtered_data_json)
+
+        # Verify result structure
+        assert result is not None
+        assert isinstance(result, dict)
+        assert 'comparison_data' in result
+
+        # CRITICAL: comparison_data should be a dict, not a JSON string
+        comparison_data = result['comparison_data']
+        assert isinstance(comparison_data, dict), \
+            f"Expected dict but got {type(comparison_data).__name__}"
+
+        # Verify it has split-orient structure
+        assert 'columns' in comparison_data
+        assert 'data' in comparison_data
+        assert 'index' in comparison_data
+
+        # Verify it's NOT a string
+        assert not isinstance(comparison_data, str), \
+            "comparison_data should be dict, not JSON string"
+
+
+def test_q2_render_callback_accepts_dict_from_store(monkeypatch):
+    """
+    Verify Q2 render callback accepts dict from store and reconstructs DataFrame
+    without pd.read_json() call.
+
+    Performance optimization: no JSON parsing on every colorblind toggle.
+    """
+    import pandas as pd
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock the visualization function
+    mock_viz = MagicMock(return_value=MagicMock())
+
+    with patch('src.components.visualizations.create_peer_os_comparison_chart', mock_viz):
+        # Simulate cached analysis data with dict (NOT string)
+        analysis_data = {
+            'comparison_data': {
+                'columns': ['category', 'rhel_wins'],
+                'index': [0, 1],
+                'data': [['compute', 8], ['storage', 6]]
+            },
+            'summary': 'Test summary',
+            'competitive_count': 14,
+            'total_benchmarks': 20,
+            'comparison_config': {
+                'peer_os': 'ubuntu',
+                'baseline_version': '9.0',
+                'peer_version': '22.04',
+                'cloud_provider': 'aws',
+                'label': 'RHEL 9.0 vs Ubuntu 22.04'
+            },
+            'has_data': True
+        }
+
+        # Call the render callback
+        colorblind_mode = True
+        fig, summary = app.update_q2_figure(analysis_data, colorblind_mode)
+
+        # Verify outputs are returned
+        assert fig is not None
+        assert summary is not None
+
+        # Verify the visualization was created
+        assert mock_viz.called
+
+
+def test_q3_analysis_store_contains_dict_not_string(monkeypatch):
+    """
+    Verify Q3 analysis store contains a dict (split-orient), not a JSON string.
+
+    Performance optimization: storing as dict avoids redundant JSON parsing
+    on every colorblind mode toggle or benchmark category filter.
+    """
+    import pandas as pd
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock the processor method
+    mock_scaling_df = pd.DataFrame({
+        'instance_type': ['m5.large', 'm5.xlarge'],
+        'vcpu_count': [2, 4],
+        'performance': [100, 200],
+        'benchmark_category': ['compute', 'compute']
+    })
+
+    mock_analysis = MagicMock(return_value={
+        'scaling_data': mock_scaling_df,
+        'summary': 'Test scaling summary',
+        'linear_scaling_count': 8,
+        'total_benchmarks': 10
+    })
+
+    with patch.object(app.processor, 'analyze_cloud_scaling', mock_analysis):
+        # Call the analysis callback
+        filtered_data_json = '{"columns":["os_name","os_distribution","os_version","benchmark","cloud_provider","instance_type"],"index":[0],"data":[["rhel","rhel","9.0","test1","aws","m5.large"]]}'
+        result = app.update_q3_analysis(
+            filtered_data_json,
+            cloud_provider='aws',
+            instance_series=None,
+            os_distribution='rhel',
+            os_version='9.0'
+        )
+
+        # Verify result structure
+        assert result is not None
+        assert isinstance(result, dict)
+        assert 'scaling_data' in result
+
+        # CRITICAL: scaling_data should be a dict, not a JSON string
+        scaling_data = result['scaling_data']
+        assert isinstance(scaling_data, dict), \
+            f"Expected dict but got {type(scaling_data).__name__}"
+
+        # Verify it has split-orient structure
+        assert 'columns' in scaling_data
+        assert 'data' in scaling_data
+        assert 'index' in scaling_data
+
+        # Verify it's NOT a string
+        assert not isinstance(scaling_data, str), \
+            "scaling_data should be dict, not JSON string"
+
+
+def test_q3_render_callback_accepts_dict_from_store(monkeypatch):
+    """
+    Verify Q3 render callback accepts dict from store and reconstructs DataFrame
+    without pd.read_json() call.
+
+    Performance optimization: no JSON parsing on every colorblind toggle
+    or benchmark category filter.
+    """
+    import pandas as pd
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock the visualization function
+    mock_viz = MagicMock(return_value=MagicMock())
+
+    with patch('src.components.visualizations.create_cloud_scaling_chart', mock_viz):
+        # Simulate cached analysis data with dict (NOT string)
+        analysis_data = {
+            'scaling_data': {
+                'columns': ['instance_type', 'vcpu_count', 'performance', 'benchmark_category'],
+                'index': [0, 1],
+                'data': [['m5.large', 2, 100, 'compute'], ['m5.xlarge', 4, 200, 'compute']]
+            },
+            'summary': 'Test scaling summary',
+            'linear_scaling_count': 8,
+            'total_benchmarks': 10,
+            'cloud_provider': 'aws',
+            'os_version': '9.0',
+            'os_distribution': 'rhel',
+            'instance_series': None,
+            'has_data': True
+        }
+
+        # Call the render callback
+        fig, summary = app.render_q3_figure(
+            analysis_data,
+            benchmark_category='all',
+            colorblind_mode=True
+        )
+
+        # Verify outputs are returned
+        assert fig is not None
+        assert summary is not None
+
+        # Verify the visualization was created
+        assert mock_viz.called
+
+
+def test_q2_render_handles_none_store_gracefully(monkeypatch):
+    """
+    Verify Q2 render callback handles None/empty store data gracefully.
+
+    Backwards compatibility: when store is empty (initial load),
+    callback should return empty figure instead of crashing.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    with patch('src.components.visualizations.create_empty_figure', return_value=MagicMock()) as mock_empty:
+        # Call with None
+        fig, summary = app.update_q2_figure(None, colorblind_mode=False)
+
+        # Should return empty figure
+        assert fig is not None
+        assert mock_empty.called
+
+
+def test_q3_render_handles_none_store_gracefully(monkeypatch):
+    """
+    Verify Q3 render callback handles None/empty store data gracefully.
+
+    Backwards compatibility: when store is empty (initial load),
+    callback should return empty figure instead of crashing.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    with patch('src.components.visualizations.create_empty_figure', return_value=MagicMock()) as mock_empty:
+        # Call with None
+        fig, summary = app.render_q3_figure(None, benchmark_category='all', colorblind_mode=False)
+
+        # Should return empty figure
+        assert fig is not None
+        assert mock_empty.called

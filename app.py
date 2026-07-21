@@ -394,21 +394,27 @@ def serve_layout():
                                     id="dark-mode-toggle",
                                     color="link",
                                     className="me-3 p-0",
+                                    children=html.Span(
+                                        "Toggle dark mode",
+                                        className="visually-hidden"
+                                    ),
                                     style={
                                         "border": "none",
                                         "textDecoration": "none"
-                                    },
-                                    **{"aria-label": "Toggle dark mode"}
+                                    }
                                 ),
                                 dbc.Button(
                                     id="colorblind-mode-toggle",
                                     color="link",
                                     className="me-3 p-0",
+                                    children=html.Span(
+                                        "Toggle colorblind mode",
+                                        className="visually-hidden"
+                                    ),
                                     style={
                                         "border": "none",
                                         "textDecoration": "none"
-                                    },
-                                    **{"aria-label": "Toggle colorblind-friendly mode"}
+                                    }
                                 ),
                                 dbc.Badge(
                                     f"📊 {len(df):,} Records",
@@ -537,16 +543,19 @@ app.clientside_callback(
 
 # Clientside callback for colorblind mode toggle
 # Toggles the colorblind-mode-store value when button is clicked
+# Uses strict normalization to prevent string "false" from being treated as truthy
 app.clientside_callback(
     """
     function(n_clicks, current_data) {
         if (n_clicks) {
-            // Toggle the colorblind mode
-            const current = current_data || false;
-            return !current;
+            // Strict normalization: only true, 'true', or 1 are considered enabled
+            // This prevents "false" string from being truthy (!!"false" === true)
+            const normalized = (current_data === true || current_data === 'true' || current_data === 1);
+            return !normalized;
         }
-        // On initial load, return stored value or false
-        return current_data || false;
+        // On initial load, normalize and return stored value
+        const normalized = (current_data === true || current_data === 'true' || current_data === 1);
+        return normalized;
     }
     """,
     Output('colorblind-mode-store', 'data'),
@@ -557,12 +566,15 @@ app.clientside_callback(
 
 # Clientside callback to sync colorblind mode to body class
 # This allows CSS styling based on colorblind mode
+# Uses strict normalization matching the Python _normalize_colorblind_mode() function
 app.clientside_callback(
     """
-    function(is_colorblind) {
-        // Update body class for CSS styling
-        document.body.classList.toggle('colorblind-mode', !!is_colorblind);
-        return '';
+    function(colorblind_mode) {
+        // Strict normalization: only true, 'true', or 1 are considered enabled
+        // This prevents "false" string from being truthy
+        const normalized = (colorblind_mode === true || colorblind_mode === 'true' || colorblind_mode === 1);
+        document.body.classList.toggle('colorblind-mode', normalized);
+        return window.dash_clientside.no_update;
     }
     """,
     Output('colorblind-mode-toggle', 'data-dummy'),  # Dummy output
@@ -1821,7 +1833,7 @@ def update_q2_analysis(filtered_data_json):
     has_data = not comparison_df.empty
 
     return {
-        'comparison_data': comparison_df.to_json(orient='split') if has_data else None,
+        'comparison_data': json.loads(comparison_df.to_json(orient='split')) if has_data else None,
         'summary': q2_result.get('summary', 'No summary available'),
         'competitive_count': q2_result.get('competitive_count', 0),
         'total_benchmarks': q2_result.get('total_benchmarks', 0),
@@ -1858,8 +1870,13 @@ def update_q2_figure(analysis_data, colorblind_mode):
                       className="text-muted")
         ], color="warning")
 
-    # Deserialize comparison_data from JSON
-    comparison_df = pd.read_json(StringIO(analysis_data['comparison_data']), orient='split')
+    # Deserialize comparison_data from dict
+    comparison_data = analysis_data['comparison_data']
+    comparison_df = pd.DataFrame(
+        comparison_data['data'],
+        columns=comparison_data['columns'],
+        index=comparison_data.get('index')
+    )
     comp_config = analysis_data['comparison_config']
 
     # Create visualization
@@ -2433,7 +2450,7 @@ def update_q3_analysis(filtered_data_json, cloud_provider, instance_series, os_d
     has_data = not scaling_data.empty
 
     return {
-        'scaling_data': scaling_data.to_json(orient='split') if has_data else None,
+        'scaling_data': json.loads(scaling_data.to_json(orient='split')) if has_data else None,
         'summary': q3_result.get('summary', 'No summary available'),
         'linear_scaling_count': q3_result.get('linear_scaling_count', 0),
         'total_benchmarks': q3_result.get('total_benchmarks', 0),
@@ -2471,8 +2488,13 @@ def render_q3_figure(analysis_data, benchmark_category, colorblind_mode):
         empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
         return empty_fig, ""
 
-    # Deserialize scaling_data from JSON
-    scaling_data = pd.read_json(StringIO(analysis_data['scaling_data']), orient='split')
+    # Deserialize scaling_data from dict
+    scaling_dict = analysis_data['scaling_data']
+    scaling_data = pd.DataFrame(
+        scaling_dict['data'],
+        columns=scaling_dict['columns'],
+        index=scaling_dict.get('index')
+    )
 
     # Filter scaling data by benchmark category if specified
     if not scaling_data.empty and benchmark_category and benchmark_category != 'all':

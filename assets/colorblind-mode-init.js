@@ -10,25 +10,23 @@
 
     // Apply colorblind mode immediately if it was previously enabled
     // The value is stored as a string by dcc.Store with storage_type='local'
+    // Use strict normalization: only 'true' is considered enabled
     if (savedColorblindMode === 'true') {
         document.body.classList.add('colorblind-mode');
     }
 
-    // Cross-tab sync: Update body class when localStorage changes in another tab
-    // LIMITATION: This only syncs the CSS class (toggle appearance), NOT the dcc.Store state.
-    // Charts in background tabs will not re-render until the page is refreshed, because
-    // Dash callbacks depend on colorblind-mode-store.data which we don't update here.
-    // To achieve full cross-tab chart re-rendering, we would need to:
-    // 1. Update the dcc.Store value in the storage event handler, OR
-    // 2. Add a dcc.Interval that polls localStorage and writes to the store
-    // Current behavior: Toggle indicator syncs, charts sync on next refresh.
-    window.addEventListener('storage', function(e) {
-        if (e.key === 'colorblind-mode-store') {
-            if (e.newValue === 'true') {
-                document.body.classList.add('colorblind-mode');
-            } else {
-                document.body.classList.remove('colorblind-mode');
-            }
-        }
-    });
+    // Cross-tab sync is intentionally NOT implemented.
+    // Reason: Syncing only the CSS class creates inconsistent state where the toggle
+    // indicator appears updated but charts remain in the old mode until page refresh.
+    // This is because:
+    // 1. The storage event can update document.body.classList (CSS only)
+    // 2. But it cannot directly update the dcc.Store which triggers chart re-renders
+    // 3. Dash callbacks depend on colorblind-mode-store.data for chart updates
+    //
+    // Full cross-tab sync would require either:
+    // - Updating the dcc.Store from the storage event (not recommended - bypasses Dash)
+    // - Adding a dcc.Interval polling component (adds unnecessary overhead)
+    //
+    // Current behavior: Each tab maintains its own independent colorblind mode state.
+    // Users must manually toggle in each tab, which is simple and predictable.
 })();

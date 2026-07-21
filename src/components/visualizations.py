@@ -40,8 +40,27 @@ import plotly.express as px
 import pandas as pd
 from typing import Optional, List
 import hashlib
+import html
 
 from src.benchmark_categories import benchmark_groups
+
+
+def _escape_html(text: str | None) -> str:
+    """
+    Escape HTML special characters for safe interpolation.
+
+    Prevents XSS attacks by escaping data-derived fields before
+    interpolating them into HTML hover templates.
+
+    Args:
+        text: Text to escape (can be None)
+
+    Returns:
+        HTML-escaped string
+    """
+    if text is None:
+        return ""
+    return html.escape(str(text))
 
 
 def _normalize_color_col(color_col: Optional[str]) -> Optional[str]:
@@ -70,12 +89,17 @@ def _get_pattern_index_for_name(name: str, pattern_count: int) -> int:
     the same trace name always gets the same pattern regardless of trace ordering.
 
     Args:
-        name: The trace name (e.g., 'test_name' value or 'benchmark_category')
-        pattern_count: Number of available patterns to cycle through
+        name: The trace name (can be None or non-string, will be coerced to string)
+        pattern_count: Number of available patterns to cycle through (must be > 0)
 
     Returns:
         Pattern index (0 to pattern_count-1)
     """
+    # Defensive coercion: handle None, empty strings, and non-string types
+    name = str(name or "")
+    # Guard against zero or negative pattern_count
+    pattern_count = max(1, pattern_count)
+
     # Use MD5 hash for deterministic mapping (not for security, just stable indexing)
     hash_digest = hashlib.md5(name.encode('utf-8')).hexdigest()
     # Convert first 8 hex chars to int and mod by pattern_count
@@ -918,7 +942,10 @@ def create_regression_heatmap(
                 hover_row.append("No data")
             else:
                 direction = "↑" if val > 0 else "↓" if val < 0 else "→"
-                hover_row.append(f"{row_name}<br>{col_name}<br>{direction} {abs(val):.1f}%")
+                # Escape row_name and col_name to prevent XSS
+                row_name_escaped = _escape_html(row_name)
+                col_name_escaped = _escape_html(col_name)
+                hover_row.append(f"{row_name_escaped}<br>{col_name_escaped}<br>{direction} {abs(val):.1f}%")
         hover_text.append(hover_row)
     
     # Create text annotations for cells
@@ -1173,23 +1200,31 @@ def create_version_comparison_bar_chart(
             hw_lines = []
             for _, hw_row in test_hw_data.iterrows():
                 status_icon = regression_icon if hw_row['is_regression'] else improvement_icon if hw_row['percent_change'] > 5 else "⚪"
+                # Escape hardware_config to prevent XSS
+                hw_config_escaped = _escape_html(hw_row['hardware_config'])
                 hw_lines.append(
-                    f"  {status_icon} {hw_row['hardware_config']}: {hw_row['percent_change']:+.1f}% "
+                    f"  {status_icon} {hw_config_escaped}: {hw_row['percent_change']:+.1f}% "
                     f"({hw_row['baseline_mean']:.2f} → {hw_row['comparison_mean']:.2f})"
                 )
             hw_detail = "<br>".join(hw_lines)
+            # Escape test_name to prevent XSS
+            test_name_escaped = _escape_html(test_name)
             hover_text = (
-                f"<b>{test_name}</b><br>"
+                f"<b>{test_name_escaped}</b><br>"
                 f"Average change: {row['percent_change']:+.1f}%<br>"
                 f"<i>{consistency}</i><br>"
                 f"<br><b>By Hardware:</b><br>{hw_detail}"
             )
         else:
+            # Escape test_name and version names to prevent XSS
+            test_name_escaped = _escape_html(test_name)
+            baseline_version_escaped = _escape_html(baseline_version)
+            comparison_version_escaped = _escape_html(comparison_version)
             hover_text = (
-                f"<b>{test_name}</b><br>"
+                f"<b>{test_name_escaped}</b><br>"
                 f"Change: {row['percent_change']:+.1f}%<br>"
-                f"{baseline_version}: {row['baseline_mean']:.2f}<br>"
-                f"{comparison_version}: {row['comparison_mean']:.2f}"
+                f"{baseline_version_escaped}: {row['baseline_mean']:.2f}<br>"
+                f"{comparison_version_escaped}: {row['comparison_mean']:.2f}"
             )
         hover_texts.append(hover_text)
 
@@ -1330,13 +1365,17 @@ def create_peer_os_comparison_chart(
                 benchmarks_in_category = BENCHMARK_GROUPS.get(category, ['Unknown'])
                 # Also show which benchmarks actually have data in this category
                 actual_tests = cat_data['test_name'].unique().tolist()
+                # Escape category and test names to prevent XSS
+                category_escaped = _escape_html(category)
+                benchmarks_escaped = ', '.join([_escape_html(b) for b in benchmarks_in_category])
+                actual_tests_escaped = ', '.join([_escape_html(t) for t in actual_tests])
                 hover_text = (
-                    f"<b>{category}</b><br>"
+                    f"<b>{category_escaped}</b><br>"
                     f"Relative Performance: {avg_rel_perf:.1f}%<br>"
                     f"<br><b>Benchmarks in category:</b><br>"
-                    f"{', '.join(benchmarks_in_category)}<br>"
+                    f"{benchmarks_escaped}<br>"
                     f"<br><b>Tests with data:</b><br>"
-                    f"{', '.join(actual_tests)}"
+                    f"{actual_tests_escaped}"
                 )
                 hover_texts.append(hover_text)
         
@@ -1572,11 +1611,15 @@ def create_cloud_scaling_chart(
                         inst_name = instance_types[i] if i < len(instance_types) else "Unknown"
                         mem_gb = memory_values[i] if i < len(memory_values) else None
                         mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb is not None and pd.notna(mem_gb) else ""
-                        
+
+                        # Escape category and instance name to prevent XSS
+                        category_escaped = _escape_html(category)
+                        inst_name_escaped = _escape_html(inst_name)
+
                         # Create detailed hover text
                         hover_texts.append(
-                            f"<b>{category}</b><br>"
-                            f"Instance: {inst_name}<br>"
+                            f"<b>{category_escaped}</b><br>"
+                            f"Instance: {inst_name_escaped}<br>"
                             f"CPU Cores: {int(cores)}{mem_str}<br>"
                             f"Scaling Efficiency: {efficiency:.1f}%<br>"
                             f"Raw Performance: {perf:,.0f}<br>"
@@ -1585,22 +1628,24 @@ def create_cloud_scaling_chart(
                     else:
                         efficiency_values.append(None)
                         hover_texts.append("")
-                
+
                 y_values = efficiency_values
                 # Track for dynamic y-axis range
                 all_efficiency_values.extend([v for v in efficiency_values if v is not None])
             else:
                 # Fallback to raw values if baseline is invalid
+                category_escaped = _escape_html(category)
                 y_values = perf_values
-                hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
+                hover_texts = [f"{category_escaped}: {v:,.0f}" for v in perf_values]
         else:
             # For non-CPU-cores case, normalize to first value = 100%
             if len(perf_values) > 0 and perf_values[0] > 0:
                 baseline = perf_values[0]
                 y_values = [(v / baseline) * 100 for v in perf_values]
+                category_escaped = _escape_html(category)
                 hover_texts = [
-                    f"<b>{category}</b><br>"
-                    f"Instance: {inst}<br>"
+                    f"<b>{category_escaped}</b><br>"
+                    f"Instance: {_escape_html(inst)}<br>"
                     f"Relative Performance: {(v/baseline)*100:.1f}%<br>"
                     f"Raw Value: {v:,.0f}"
                     for inst, v in zip(instance_types, perf_values)

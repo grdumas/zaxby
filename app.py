@@ -1551,12 +1551,15 @@ def update_major_release_comparison(analysis_json, colorblind_mode):
 @app.callback(
     [Output('q1-rhel9-graph', 'figure'),
      Output('q1-rhel9-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    [Input('analysis-results-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_rhel9_sequential(analysis_json):
+def update_rhel9_sequential(analysis_json, colorblind_mode):
     """Update RHEL 9 sequential comparison."""
     import pandas as pd
-    
+
+    colorblind_mode = bool(colorblind_mode)
+
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
     
@@ -1603,12 +1606,15 @@ def update_rhel9_sequential(analysis_json):
 @app.callback(
     [Output('q1-rhel10-graph', 'figure'),
      Output('q1-rhel10-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    [Input('analysis-results-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_rhel10_sequential(analysis_json):
+def update_rhel10_sequential(analysis_json, colorblind_mode):
     """Update RHEL 10 sequential comparison."""
     import pandas as pd
-    
+
+    colorblind_mode = bool(colorblind_mode)
+
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
     

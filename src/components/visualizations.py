@@ -162,13 +162,17 @@ def create_time_series_chart(
             template='plotly_white'
         )
 
-        # Standardize legend positioning for time series (top-right corner)
-        fig.update_layout(
-            xaxis_title="Date",
-            yaxis_title="Performance Metric",
-            hovermode='x unified',
-            height=500,
-            legend=dict(
+        # Base layout configuration
+        layout_config = {
+            'xaxis_title': "Date",
+            'yaxis_title': "Performance Metric",
+            'hovermode': 'x unified',
+            'height': 500
+        }
+
+        # Only configure legend for multi-trace charts (when color_col is provided)
+        if color_col is not None:
+            layout_config['legend'] = dict(
                 orientation='v',
                 yanchor='top',
                 y=0.99,
@@ -176,7 +180,8 @@ def create_time_series_chart(
                 x=0.99,
                 bgcolor='rgba(255, 255, 255, 0.8)'  # Semi-transparent background
             )
-        )
+
+        fig.update_layout(**layout_config)
 
     fig.update_traces(mode='lines+markers')
 

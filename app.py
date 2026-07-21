@@ -55,6 +55,23 @@ from src.track_ui import (
 )
 
 
+def _normalize_colorblind_mode(value):
+    """Normalize colorblind_mode value to strict boolean.
+
+    Args:
+        value: Input value from localStorage or callback (can be bool, str, int, or None)
+
+    Returns:
+        bool: True only if value is True, "true", or 1; False otherwise
+
+    This function prevents the unsafe bool(value) pattern which treats
+    non-empty strings like "false" as True.
+    """
+    if value is True or value == "true" or value == 1:
+        return True
+    return False
+
+
 def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
     """Category trail for Competitive Performance drill-down (P1-C)."""
     return dbc.Breadcrumb(
@@ -1157,7 +1174,7 @@ def render_server_snapshot(bundle_data, colorblind_mode):
             className="alert alert-danger",
         )
 
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     return render_pulse_v1_panel(
         snap=snap,
@@ -1359,7 +1376,7 @@ def update_nightly_run_chart(selected_idx, colorblind_mode, runs_data):
     from src.query_service import NightlyRunSnapshot
     from datetime import datetime
 
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     if runs_data is None or selected_idx is None:
         return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
@@ -1565,7 +1582,7 @@ def update_major_release_comparison(analysis_json, colorblind_mode):
     """Update major release comparison (9.X vs 10.X)."""
     import pandas as pd
 
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
@@ -1620,7 +1637,7 @@ def update_rhel9_sequential(analysis_json, colorblind_mode):
     """Update RHEL 9 sequential comparison."""
     import pandas as pd
 
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
@@ -1675,7 +1692,7 @@ def update_rhel10_sequential(analysis_json, colorblind_mode):
     """Update RHEL 10 sequential comparison."""
     import pandas as pd
 
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
@@ -1849,7 +1866,7 @@ def update_q2_figure(analysis_data, colorblind_mode):
         comparison_df,
         baseline_os="RHEL",
         title=f"Performance Comparison: {comp_config['label']}",
-        colorblind_mode=bool(colorblind_mode)
+        colorblind_mode=_normalize_colorblind_mode(colorblind_mode)
     )
 
     # Format summary
@@ -2375,7 +2392,7 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
     """Update Cloud Scaling section visualizations."""
     import pandas as pd
 
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     if not filtered_data_json or not cloud_provider or not os_version:
         empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
@@ -2408,7 +2425,7 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
     # Create visualization
     if not scaling_data.empty:
         # Build descriptive title
-        title_parts = [f"Performance Scaling: {os_distribution.upper()} {os_version}"]
+        title_parts = [f"Performance Scaling: {(os_distribution or 'ALL').upper()} {os_version}"]
         title_parts.append(f"on {cloud_provider.upper()}")
         if instance_series:
             title_parts.append(f"({instance_series})")
@@ -2591,7 +2608,7 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     import pandas as pd
 
     # Normalize colorblind_mode to bool
-    colorblind_mode = bool(colorblind_mode)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     empty_fig = visualizations.create_empty_figure("No investigation data")
 

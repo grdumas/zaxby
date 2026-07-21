@@ -123,6 +123,64 @@ def test_update_nightly_run_chart_large_negative_index_returns_empty_chart(monke
     mock_chart_fn.assert_called_once_with(None, colorblind_mode=False)
 
 
+def test_update_question3_handles_none_os_distribution(monkeypatch):
+    """
+    When os_distribution is None, verify update_question3 does not crash
+    when building the chart title.
+
+    Bug: app.py:2428 calls os_distribution.upper() without checking if it's None,
+    causing AttributeError during initial load or dropdown refresh.
+    """
+    import pandas as pd
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Create minimal filtered data
+    test_data = pd.DataFrame({
+        'cloud_provider': ['AWS'],
+        'os_distribution': ['ubuntu'],
+        'os_version': ['22.04'],
+        'instance_type': ['t3.medium'],
+        'benchmark_category': ['CPU'],
+        'score': [100.0]
+    })
+    filtered_data_json = test_data.to_json(orient='split')
+
+    # Mock the processor to return scaling data so we reach the title-building code
+    mock_scaling_data = pd.DataFrame({
+        'instance_type': ['t3.small', 't3.medium'],
+        'benchmark_category': ['CPU', 'CPU'],
+        'score': [50.0, 100.0]
+    })
+    mock_result = {
+        'scaling_data': mock_scaling_data,
+        'summary': 'Test summary'
+    }
+
+    mock_fig = MagicMock()
+
+    with patch('src.data_processing.BenchmarkDataProcessor.analyze_cloud_scaling', return_value=mock_result):
+        with patch('src.components.visualizations.create_cloud_scaling_chart', return_value=mock_fig):
+            # Call with os_distribution=None
+            # Should not raise AttributeError
+            try:
+                fig, title = app.update_question3(
+                    cloud_provider='AWS',
+                    instance_series=None,
+                    os_distribution=None,  # This is the bug trigger
+                    os_version='22.04',
+                    benchmark_category='all',
+                    filtered_data_json=filtered_data_json,
+                    colorblind_mode=False
+                )
+                # If we get here, the bug is fixed
+                assert fig is not None
+            except AttributeError as e:
+                if "'NoneType' object has no attribute 'upper'" in str(e):
+                    pytest.fail(f"update_question3 crashed on None os_distribution: {e}")
+                raise
+
+
 def test_update_rhel9_sequential_passes_colorblind_mode(monkeypatch):
     """
     Verify update_rhel9_sequential accepts colorblind_mode parameter
@@ -743,3 +801,63 @@ def test_update_question3_passes_colorblind_mode_false(monkeypatch):
         call_kwargs = mock_chart_fn.call_args.kwargs
         assert 'colorblind_mode' in call_kwargs
         assert call_kwargs['colorblind_mode'] is False
+
+
+# ============================================================================
+# Boolean normalization tests for colorblind_mode
+# ============================================================================
+
+def test_normalize_colorblind_mode_true():
+    """Verify _normalize_colorblind_mode returns True for boolean True."""
+    import app
+    assert app._normalize_colorblind_mode(True) is True
+
+
+def test_normalize_colorblind_mode_string_true():
+    """Verify _normalize_colorblind_mode returns True for string 'true'."""
+    import app
+    assert app._normalize_colorblind_mode("true") is True
+
+
+def test_normalize_colorblind_mode_int_one():
+    """Verify _normalize_colorblind_mode returns True for integer 1."""
+    import app
+    assert app._normalize_colorblind_mode(1) is True
+
+
+def test_normalize_colorblind_mode_string_false():
+    """Verify _normalize_colorblind_mode returns False for string 'false'."""
+    import app
+    assert app._normalize_colorblind_mode("false") is False
+
+
+def test_normalize_colorblind_mode_empty_string():
+    """Verify _normalize_colorblind_mode returns False for empty string."""
+    import app
+    assert app._normalize_colorblind_mode("") is False
+
+
+def test_normalize_colorblind_mode_none():
+    """Verify _normalize_colorblind_mode returns False for None."""
+    import app
+    assert app._normalize_colorblind_mode(None) is False
+
+
+def test_normalize_colorblind_mode_int_zero():
+    """Verify _normalize_colorblind_mode returns False for integer 0."""
+    import app
+    assert app._normalize_colorblind_mode(0) is False
+
+
+def test_normalize_colorblind_mode_false():
+    """Verify _normalize_colorblind_mode returns False for boolean False."""
+    import app
+    assert app._normalize_colorblind_mode(False) is False
+
+
+def test_normalize_colorblind_mode_arbitrary_string():
+    """Verify _normalize_colorblind_mode returns False for arbitrary strings."""
+    import app
+    assert app._normalize_colorblind_mode("random") is False
+    assert app._normalize_colorblind_mode("1") is False
+    assert app._normalize_colorblind_mode("yes") is False

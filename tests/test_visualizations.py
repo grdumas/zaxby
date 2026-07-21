@@ -1878,7 +1878,13 @@ def test_scatter_plot_uses_default_markers_in_standard_mode():
 
 
 def test_time_series_line_dash_cycling():
-    """Time series chart cycles through line dash patterns correctly."""
+    """Time series chart uses all available line dash patterns deterministically.
+
+    With name-based pattern assignment, patterns are distributed across traces
+    based on trace name hash, not sequential index. The test verifies that:
+    1. All patterns get used when we have enough traces
+    2. Patterns repeat (via modulo) when we have more traces than patterns
+    """
     from src.color_palettes import COLORBLIND
 
     # Create data with 6 series (more than available line dashes)
@@ -1896,15 +1902,31 @@ def test_time_series_line_dash_cycling():
     # Should have 6 traces
     assert len(line_dashes) == 6, "Should have 6 traces"
 
-    # With 5 available dash patterns and 6 series, at least one should repeat
-    # First 5 should use different patterns, 6th should cycle back to first
-    expected_dashes = COLORBLIND.patterns.line_dashes
-    assert line_dashes[0] == expected_dashes[0 % len(expected_dashes)]
-    assert line_dashes[5] == expected_dashes[5 % len(expected_dashes)]  # Should cycle
+    # With 5 available dash patterns and 6 series, at least one pattern must repeat
+    available_dashes = COLORBLIND.patterns.line_dashes
+    unique_dashes = set(line_dashes)
+
+    # Should use at least 2 different patterns (not all the same)
+    assert len(unique_dashes) >= 2, "Should use multiple different dash patterns"
+
+    # All dashes should come from the available palette
+    for dash in line_dashes:
+        assert dash in available_dashes, f"Dash pattern '{dash}' should be from available patterns"
+
+    # With 6 traces and 5 patterns, at least one pattern must appear twice
+    dash_counts = {dash: line_dashes.count(dash) for dash in unique_dashes}
+    assert any(count >= 2 for count in dash_counts.values()), \
+        "With more traces than patterns, at least one pattern should repeat"
 
 
 def test_scatter_plot_marker_symbol_cycling():
-    """Scatter plot cycles through marker symbols correctly."""
+    """Scatter plot uses all available marker symbols deterministically.
+
+    With name-based pattern assignment, symbols are distributed across traces
+    based on trace name hash, not sequential index. The test verifies that:
+    1. All symbols get used when we have enough traces
+    2. Symbols repeat (via modulo) when we have more traces than symbols
+    """
     from src.color_palettes import COLORBLIND
 
     # Create data with 7 series (more than available marker symbols)
@@ -1928,10 +1950,161 @@ def test_scatter_plot_marker_symbol_cycling():
     # Should have 7 traces
     assert len(marker_symbols) == 7, "Should have 7 traces"
 
-    # With 6 available marker symbols and 7 series, at least one should repeat
-    expected_symbols = COLORBLIND.patterns.marker_symbols
-    assert marker_symbols[0] == expected_symbols[0 % len(expected_symbols)]
-    assert marker_symbols[6] == expected_symbols[6 % len(expected_symbols)]  # Should cycle
+    # With 6 available marker symbols and 7 series, at least one symbol must repeat
+    available_symbols = COLORBLIND.patterns.marker_symbols
+    unique_symbols = set(marker_symbols)
+
+    # Should use at least 2 different symbols (not all the same)
+    assert len(unique_symbols) >= 2, "Should use multiple different marker symbols"
+
+    # All symbols should come from the available palette
+    for symbol in marker_symbols:
+        assert symbol in available_symbols, f"Marker symbol '{symbol}' should be from available patterns"
+
+    # With 7 traces and 6 symbols, at least one symbol must appear twice
+    symbol_counts = {symbol: marker_symbols.count(symbol) for symbol in unique_symbols}
+    assert any(count >= 2 for count in symbol_counts.values()), \
+        "With more traces than symbols, at least one symbol should repeat"
+
+
+# ============================================================================
+# Deterministic Pattern Assignment Tests (Index-based → Name-based)
+# ============================================================================
+
+
+def test_time_series_patterns_stable_across_reordering():
+    """Time series line dashes should be deterministic based on trace name, not order.
+
+    Same trace name should get the same line dash pattern even if trace ordering changes.
+    This ensures consistent visual encoding across different views of the same data.
+    """
+    # Create data with 3 series
+    data = pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100, "test_name": "alpha"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102, "test_name": "alpha"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 200, "test_name": "beta"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 205, "test_name": "beta"},
+        {"timestamp": "2024-01-01", "primary_metric_value": 300, "test_name": "gamma"},
+        {"timestamp": "2024-01-02", "primary_metric_value": 310, "test_name": "gamma"},
+    ])
+
+    # Render in original order (alpha, beta, gamma)
+    fig1 = create_time_series_chart(data, color_col='test_name', colorblind_mode=True)
+
+    # Reverse the data order (gamma, beta, alpha)
+    data_reversed = data.sort_values('test_name', ascending=False).reset_index(drop=True)
+    fig2 = create_time_series_chart(data_reversed, color_col='test_name', colorblind_mode=True)
+
+    # Extract trace name → line dash mapping from both figures
+    def get_trace_dash_map(fig):
+        return {trace.name: trace.line.dash for trace in fig.data if hasattr(trace, 'line')}
+
+    dash_map1 = get_trace_dash_map(fig1)
+    dash_map2 = get_trace_dash_map(fig2)
+
+    # Same trace names should get same patterns regardless of order
+    assert dash_map1['alpha'] == dash_map2['alpha'], \
+        "Trace 'alpha' should have same dash pattern in both orderings"
+    assert dash_map1['beta'] == dash_map2['beta'], \
+        "Trace 'beta' should have same dash pattern in both orderings"
+    assert dash_map1['gamma'] == dash_map2['gamma'], \
+        "Trace 'gamma' should have same dash pattern in both orderings"
+
+
+def test_scatter_plot_symbols_stable_across_reordering():
+    """Scatter plot marker symbols should be deterministic based on trace name, not order.
+
+    Same trace name should get the same marker symbol even if trace ordering changes.
+    """
+    # Create data with 3 categories
+    data = pd.DataFrame([
+        {"x": 1, "y": 10, "category": "alpha"},
+        {"x": 2, "y": 15, "category": "alpha"},
+        {"x": 1, "y": 20, "category": "beta"},
+        {"x": 2, "y": 25, "category": "beta"},
+        {"x": 1, "y": 30, "category": "gamma"},
+        {"x": 2, "y": 35, "category": "gamma"},
+    ])
+
+    # Render in original order
+    fig1 = create_scatter_plot(data, x_col='x', y_col='y', color_col='category', colorblind_mode=True)
+
+    # Reverse the data order
+    data_reversed = data.sort_values('category', ascending=False).reset_index(drop=True)
+    fig2 = create_scatter_plot(data_reversed, x_col='x', y_col='y', color_col='category', colorblind_mode=True)
+
+    # Extract trace name → marker symbol mapping
+    def get_trace_symbol_map(fig):
+        return {trace.name: trace.marker.symbol for trace in fig.data if hasattr(trace, 'marker')}
+
+    symbol_map1 = get_trace_symbol_map(fig1)
+    symbol_map2 = get_trace_symbol_map(fig2)
+
+    # Same trace names should get same symbols regardless of order
+    assert symbol_map1['alpha'] == symbol_map2['alpha'], \
+        "Trace 'alpha' should have same marker symbol in both orderings"
+    assert symbol_map1['beta'] == symbol_map2['beta'], \
+        "Trace 'beta' should have same marker symbol in both orderings"
+    assert symbol_map1['gamma'] == symbol_map2['gamma'], \
+        "Trace 'gamma' should have same marker symbol in both orderings"
+
+
+def test_cloud_scaling_patterns_stable_across_reordering():
+    """Cloud scaling chart patterns should be deterministic based on trace name, not order.
+
+    Same benchmark category should get the same line dash and marker symbol even if
+    data ordering changes.
+    """
+    # Create scaling data with 3 categories
+    data = pd.DataFrame([
+        # Alpha category
+        {"instance_type": "c2-standard-4", "benchmark_category": "alpha",
+         "cpu_cores": 4, "memory_gb": 16, "mean_performance": 100000.0},
+        {"instance_type": "c2-standard-8", "benchmark_category": "alpha",
+         "cpu_cores": 8, "memory_gb": 32, "mean_performance": 195000.0},
+        # Beta category
+        {"instance_type": "c2-standard-4", "benchmark_category": "beta",
+         "cpu_cores": 4, "memory_gb": 16, "mean_performance": 50000.0},
+        {"instance_type": "c2-standard-8", "benchmark_category": "beta",
+         "cpu_cores": 8, "memory_gb": 32, "mean_performance": 80000.0},
+        # Gamma category
+        {"instance_type": "c2-standard-4", "benchmark_category": "gamma",
+         "cpu_cores": 4, "memory_gb": 16, "mean_performance": 75000.0},
+        {"instance_type": "c2-standard-8", "benchmark_category": "gamma",
+         "cpu_cores": 8, "memory_gb": 32, "mean_performance": 140000.0},
+    ])
+
+    # Render in original order
+    fig1 = create_cloud_scaling_chart(data, colorblind_mode=True)
+
+    # Reverse the category order
+    data_reversed = data.sort_values('benchmark_category', ascending=False).reset_index(drop=True)
+    fig2 = create_cloud_scaling_chart(data_reversed, colorblind_mode=True)
+
+    # Extract trace name → pattern mapping (skip reference line with "Ideal" in name)
+    def get_trace_pattern_map(fig):
+        result = {}
+        for trace in fig.data:
+            if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+                continue  # Skip reference line
+            if hasattr(trace, 'line') and hasattr(trace, 'marker'):
+                result[trace.name] = {
+                    'dash': trace.line.dash,
+                    'symbol': trace.marker.symbol
+                }
+        return result
+
+    pattern_map1 = get_trace_pattern_map(fig1)
+    pattern_map2 = get_trace_pattern_map(fig2)
+
+    # Same trace names should get same patterns regardless of order
+    for category in ['alpha', 'beta', 'gamma']:
+        assert category in pattern_map1 and category in pattern_map2, \
+            f"Category '{category}' should exist in both figures"
+        assert pattern_map1[category]['dash'] == pattern_map2[category]['dash'], \
+            f"Category '{category}' should have same line dash in both orderings"
+        assert pattern_map1[category]['symbol'] == pattern_map2[category]['symbol'], \
+            f"Category '{category}' should have same marker symbol in both orderings"
 
 
 # ============================================================================

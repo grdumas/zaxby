@@ -39,6 +39,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from typing import Optional, List
+import hashlib
 
 from src.benchmark_categories import benchmark_groups
 
@@ -59,6 +60,27 @@ def _normalize_color_col(color_col: Optional[str]) -> Optional[str]:
     if not color_col or (isinstance(color_col, str) and not color_col.strip()):
         return None
     return color_col
+
+
+def _get_pattern_index_for_name(name: str, pattern_count: int) -> int:
+    """
+    Get a deterministic pattern index for a given trace name.
+
+    Uses a stable hash of the trace name to assign a pattern index, ensuring
+    the same trace name always gets the same pattern regardless of trace ordering.
+
+    Args:
+        name: The trace name (e.g., 'test_name' value or 'benchmark_category')
+        pattern_count: Number of available patterns to cycle through
+
+    Returns:
+        Pattern index (0 to pattern_count-1)
+    """
+    # Use MD5 hash for deterministic mapping (not for security, just stable indexing)
+    hash_digest = hashlib.md5(name.encode('utf-8')).hexdigest()
+    # Convert first 8 hex chars to int and mod by pattern_count
+    hash_int = int(hash_digest[:8], 16)
+    return hash_int % pattern_count
 
 
 # Legend and margin constants
@@ -243,10 +265,12 @@ def create_time_series_chart(
         palette = get_palette(colorblind_mode)
         line_dashes = palette.patterns.line_dashes
 
-        # Apply different line dash to each trace
-        for i, trace in enumerate(fig.data):
-            if hasattr(trace, 'line'):
-                dash_pattern = line_dashes[i % len(line_dashes)]
+        # Apply different line dash to each trace based on trace name (not index)
+        # This ensures the same trace always gets the same pattern regardless of ordering
+        for trace in fig.data:
+            if hasattr(trace, 'line') and hasattr(trace, 'name'):
+                pattern_idx = _get_pattern_index_for_name(trace.name, len(line_dashes))
+                dash_pattern = line_dashes[pattern_idx]
                 trace.line.dash = dash_pattern
 
     return fig
@@ -583,10 +607,12 @@ def create_scatter_plot(
         palette = get_palette(colorblind_mode)
         marker_symbols = palette.patterns.marker_symbols
 
-        # Apply different marker symbol to each trace
-        for i, trace in enumerate(fig.data):
-            if hasattr(trace, 'marker'):
-                symbol = marker_symbols[i % len(marker_symbols)]
+        # Apply different marker symbol to each trace based on trace name (not index)
+        # This ensures the same trace always gets the same symbol regardless of ordering
+        for trace in fig.data:
+            if hasattr(trace, 'marker') and hasattr(trace, 'name'):
+                pattern_idx = _get_pattern_index_for_name(trace.name, len(marker_symbols))
+                symbol = marker_symbols[pattern_idx]
                 trace.marker.symbol = symbol
 
     return fig
@@ -1629,25 +1655,31 @@ def create_cloud_scaling_chart(
         line_dashes = palette.patterns.line_dashes
         marker_symbols = palette.patterns.marker_symbols
 
-        # Apply different line dash and marker symbol to each data trace
+        # Apply different line dash and marker symbol to each data trace based on trace name (not index)
+        # This ensures the same trace always gets the same pattern regardless of ordering
         # Skip the reference line which should remain as-is
-        data_trace_index = 0
         for trace in fig.data:
             # Skip the reference line (identified by its name or dash pattern)
             if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
                 continue
 
+            # Only apply patterns to traces with valid names
+            if not hasattr(trace, 'name') or trace.name is None:
+                continue
+
+            # Get deterministic pattern index based on trace name
+            dash_idx = _get_pattern_index_for_name(trace.name, len(line_dashes))
+            symbol_idx = _get_pattern_index_for_name(trace.name, len(marker_symbols))
+
             if hasattr(trace, 'line'):
                 # Apply line dash pattern
-                dash_pattern = line_dashes[data_trace_index % len(line_dashes)]
+                dash_pattern = line_dashes[dash_idx]
                 trace.line.dash = dash_pattern
 
             if hasattr(trace, 'marker'):
                 # Apply marker symbol
-                symbol = marker_symbols[data_trace_index % len(marker_symbols)]
+                symbol = marker_symbols[symbol_idx]
                 trace.marker.symbol = symbol
-
-            data_trace_index += 1
 
     # Add annotation explaining the metric
     fig.add_annotation(

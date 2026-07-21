@@ -264,7 +264,8 @@ def create_heatmap(
         xaxis_title=col_dim.replace('_', ' ').title(),
         yaxis_title=row_dim.replace('_', ' ').title(),
         template='plotly_white',
-        height=500
+        height=500,
+        margin=dict(r=200)  # Right margin for help annotation
     )
 
     # Add help annotation explaining color scale
@@ -757,7 +758,8 @@ def create_regression_heatmap(
         template='plotly_white',
         height=max(400, len(pct_change_df.index) * 40),
         xaxis={'side': 'bottom'},
-        yaxis={'autorange': 'reversed'}  # Top to bottom
+        yaxis={'autorange': 'reversed'},  # Top to bottom
+        margin=dict(r=200)  # Right margin for help annotation
     )
 
     # Add help annotation explaining color scale

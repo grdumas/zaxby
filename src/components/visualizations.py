@@ -175,16 +175,19 @@ def create_time_series_chart(
         color_col: Column to use for line colors
         title: Chart title
         use_facets: If True and color_col='test_name', create separate subplots with independent y-axes
+        colorblind_mode: If True, use line dashes for redundant encoding
 
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No time series data available")
 
     # Normalize empty string to None to prevent Plotly crash
     color_col = _normalize_color_col(color_col)
-    
+
     # If color_col is test_name and we have multiple tests with different scales, use facets
     if use_facets and color_col == 'test_name' and len(df[color_col].unique()) > 1:
         fig = px.line(
@@ -198,10 +201,10 @@ def create_time_series_chart(
             facet_row=color_col,
             facet_row_spacing=0.05
         )
-        
+
         # Update each facet to have independent y-axis
         fig.update_yaxes(matches=None, showticklabels=True, title_text="")
-        
+
         fig.update_layout(
             xaxis_title="Date",
             hovermode='x unified',
@@ -234,6 +237,17 @@ def create_time_series_chart(
         fig.update_layout(**layout_config)
 
     fig.update_traces(mode='lines+markers')
+
+    # In colorblind mode, apply line dashes for redundant encoding beyond color
+    if colorblind_mode and color_col is not None:
+        palette = get_palette(colorblind_mode)
+        line_dashes = palette.patterns.line_dashes
+
+        # Apply different line dash to each trace
+        for i, trace in enumerate(fig.data):
+            if hasattr(trace, 'line'):
+                dash_pattern = line_dashes[i % len(line_dashes)]
+                trace.line.dash = dash_pattern
 
     return fig
 
@@ -494,16 +508,19 @@ def create_scatter_plot(
         size_col: Optional column for point sizes
         hover_data: Additional columns to show in hover
         title: Chart title
+        colorblind_mode: If True, use marker symbols for redundant encoding
 
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for scatter plot")
 
     # Normalize empty string to None to prevent Plotly crash
     color_col = _normalize_color_col(color_col)
-    
+
     fig = px.scatter(
         df,
         x=x_col,
@@ -537,6 +554,17 @@ def create_scatter_plot(
             yaxis_title=y_col.replace('_', ' ').title(),
             height=500
         )
+
+    # In colorblind mode, apply marker symbols for redundant encoding beyond color
+    if colorblind_mode and color_col is not None:
+        palette = get_palette(colorblind_mode)
+        marker_symbols = palette.patterns.marker_symbols
+
+        # Apply different marker symbol to each trace
+        for i, trace in enumerate(fig.data):
+            if hasattr(trace, 'marker'):
+                symbol = marker_symbols[i % len(marker_symbols)]
+                trace.marker.symbol = symbol
 
     return fig
 
@@ -1671,36 +1699,41 @@ def create_category_benchmark_detail_chart(
 ) -> go.Figure:
     """
     Create a horizontal bar chart showing individual benchmark performance within a category.
-    
+
     Args:
         comparison_df: DataFrame with comparison data (filtered to single category)
         category: The benchmark category name
         baseline_os: Name of baseline OS
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with horizontal bars for each benchmark
     """
+    from src.color_palettes import get_palette
+
     if comparison_df.empty:
         return create_empty_figure(f"No benchmark data available for {category}")
-    
+
+    palette = get_palette(colorblind_mode)
+
     # Group by test_name and calculate average relative performance across hardware
     benchmark_summary = comparison_df.groupby('test_name').agg({
         'relative_performance': 'mean',
         'instance_type': 'nunique',
         'is_competitive': 'mean'  # Percentage of hardware where competitive
     }).reset_index()
-    
+
     benchmark_summary = benchmark_summary.sort_values('relative_performance', ascending=True)
-    
+
     # Determine colors based on performance
     colors = []
     for perf in benchmark_summary['relative_performance']:
         if perf >= 90 and perf <= 110:
-            colors.append('#1a9850')  # Green - competitive
+            colors.append(palette.semantic.improvement)  # Competitive
         elif perf >= 80 and perf <= 120:
-            colors.append('#d97706')  # Amber - moderate
+            colors.append(palette.semantic.moderate_difference)  # Moderate
         else:
-            colors.append('#d73027')  # Red - significant difference
+            colors.append(palette.semantic.regression)  # Significant difference
     
     # Create hover text
     hover_texts = []
@@ -1734,11 +1767,11 @@ def create_category_benchmark_detail_chart(
         annotation_text=f"{baseline_os} baseline",
         annotation_position="top"
     )
-    
+
     # Add competitive zone (90-110%)
     fig.add_vrect(
         x0=90, x1=110,
-        fillcolor="green",
+        fillcolor=palette.semantic.improvement,
         opacity=0.1,
         line_width=0
     )
@@ -1765,18 +1798,23 @@ def create_category_hardware_heatmap(
 ) -> go.Figure:
     """
     Create a heatmap showing benchmark × hardware performance matrix.
-    
+
     Args:
         comparison_df: DataFrame with comparison data (filtered to single category)
         category: The benchmark category name
         baseline_os: Name of baseline OS
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with heatmap
     """
+    from src.color_palettes import get_palette
+
     if comparison_df.empty:
         return create_empty_figure(f"No hardware data available for {category}")
-    
+
+    palette = get_palette(colorblind_mode)
+
     # Pivot to create benchmark × hardware matrix
     pivot_df = comparison_df.pivot_table(
         index='test_name',
@@ -1784,10 +1822,10 @@ def create_category_hardware_heatmap(
         values='relative_performance',
         aggfunc='mean'
     )
-    
+
     if pivot_df.empty:
         return create_empty_figure(f"Insufficient data for hardware breakdown")
-    
+
     # Create custom hover text
     hover_text = []
     for test in pivot_df.index:
@@ -1800,17 +1838,9 @@ def create_category_hardware_heatmap(
             else:
                 row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>No data")
         hover_text.append(row_text)
-    
-    # Custom colorscale: red (bad) -> yellow (moderate) -> green (good)
-    colorscale = [
-        [0, '#d73027'],      # Red - peer much faster
-        [0.3, '#fc8d59'],    # Orange
-        [0.45, '#fee08b'],   # Yellow - moderate
-        [0.5, '#ffffbf'],    # Light yellow - baseline
-        [0.55, '#d9ef8b'],   # Light green
-        [0.7, '#91cf60'],    # Green
-        [1, '#1a9850']       # Dark green - baseline much faster
-    ]
+
+    # Use colorblind-safe colorscale from palette
+    colorscale = palette.hardware_heatmap_scale.scale
     
     fig = go.Figure(data=go.Heatmap(
         z=pivot_df.values,

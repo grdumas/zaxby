@@ -862,3 +862,81 @@ def test_create_time_series_faceted_hides_legend(time_series_data):
     # In plotly, faceted charts have multiple yaxis (yaxis, yaxis2, yaxis3, etc.)
     yaxis_count = sum(1 for key in fig.layout._props if key.startswith('yaxis'))
     assert yaxis_count >= 2, "Should have multiple y-axes for faceted chart"
+
+
+@pytest.fixture
+def single_trace_time_series_data():
+    """Sample time series data with single trace (no grouping)."""
+    return pd.DataFrame([
+        {"timestamp": "2024-01-01", "primary_metric_value": 100000},
+        {"timestamp": "2024-01-02", "primary_metric_value": 102000},
+        {"timestamp": "2024-01-03", "primary_metric_value": 101500},
+        {"timestamp": "2024-01-04", "primary_metric_value": 103000},
+    ])
+
+
+def test_create_time_series_single_trace_no_legend_config(single_trace_time_series_data):
+    """Test that single-trace time series (color_col=None) does not configure legend.
+
+    When there's only one trace (no color_col), a legend is unnecessary and
+    should not be explicitly configured.
+    """
+    fig = create_time_series_chart(
+        single_trace_time_series_data,
+        color_col=None,
+        use_facets=False
+    )
+
+    # Chart should be created successfully
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 0
+
+    # Legend should either be disabled or not explicitly configured
+    # Plotly may show a default legend even for single trace, but we shouldn't
+    # be explicitly positioning it with our custom legend dict
+    # Check that our custom legend config (top-right positioning) was not applied
+    legend = fig.layout.legend
+
+    # If legend dict exists, it should not have our custom positioning
+    # (orientation='v', x=0.99, y=0.99, etc.)
+    # The best way to check this is that the legend dict should either not exist
+    # or should not have all our custom properties
+    if legend is not None:
+        # Should not have ALL of our custom legend properties
+        has_all_custom_props = (
+            hasattr(legend, 'orientation') and legend.orientation == 'v' and
+            hasattr(legend, 'xanchor') and legend.xanchor == 'right' and
+            hasattr(legend, 'x') and legend.x == 0.99 and
+            hasattr(legend, 'yanchor') and legend.yanchor == 'top' and
+            hasattr(legend, 'y') and legend.y == 0.99
+        )
+        assert not has_all_custom_props, \
+            "Single-trace chart should not have custom legend positioning"
+
+
+def test_create_time_series_multi_trace_has_legend_config(time_series_data):
+    """Test that multi-trace time series (color_col provided) configures legend properly.
+
+    When color_col is provided, we expect multiple traces with different colors,
+    so the legend should be explicitly configured and positioned.
+    """
+    fig = create_time_series_chart(
+        time_series_data,
+        color_col='test_name',
+        use_facets=False
+    )
+
+    # Chart should be created successfully
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) > 1, "Should have multiple traces when color_col is provided"
+
+    # Legend should be explicitly configured with our standard positioning
+    legend = fig.layout.legend
+    assert legend is not None, "Legend should be configured for multi-trace chart"
+    assert legend.orientation == 'v', "Legend should be vertical"
+    assert legend.xanchor == 'right', "Legend should anchor to right"
+    assert legend.x == 0.99, "Legend should be at x=0.99"
+    assert legend.yanchor == 'top', "Legend should anchor to top"
+    assert legend.y == 0.99, "Legend should be at y=0.99"
+    assert legend.bgcolor == 'rgba(255, 255, 255, 0.8)', \
+        "Legend should have semi-transparent background"

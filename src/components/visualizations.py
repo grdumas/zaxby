@@ -117,14 +117,8 @@ def create_comparison_chart(
         hovermode='x unified',
         template='plotly_white',
         height=500,
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=-0.15,
-            xanchor='center',
-            x=0.5
-        ),
-        margin=dict(b=100)  # Bottom margin for legend
+        legend=LEGEND_HORIZONTAL_BOTTOM,
+        margin=dict(b=LEGEND_BOTTOM_MARGIN)
     )
 
     return fig
@@ -199,14 +193,7 @@ def create_time_series_chart(
 
         # Only configure legend for multi-trace charts (when color_col is provided)
         if color_col is not None:
-            layout_config['legend'] = dict(
-                orientation='v',
-                yanchor='top',
-                y=0.99,
-                xanchor='right',
-                x=0.99,
-                bgcolor='rgba(255, 255, 255, 0.8)'  # Semi-transparent background
-            )
+            layout_config['legend'] = LEGEND_VERTICAL_TOPRIGHT
 
         fig.update_layout(**layout_config)
 
@@ -297,7 +284,7 @@ def create_heatmap(
         yaxis_title=row_dim.replace('_', ' ').title(),
         template='plotly_white',
         height=500,
-        margin=dict(r=200)  # Right margin for help annotation
+        margin=dict(r=HEATMAP_HELP_MARGIN)
     )
 
     # Add help annotation explaining color scale
@@ -387,14 +374,8 @@ def create_box_plot(
                 xaxis_title=x_col.replace('_', ' ').title(),
                 yaxis_title="Performance Metric",
                 height=500,
-                legend=dict(
-                    orientation='h',
-                    yanchor='top',
-                    y=-0.15,
-                    xanchor='center',
-                    x=0.5
-                ),
-                margin=dict(b=100)  # Bottom margin for legend
+                legend=LEGEND_HORIZONTAL_BOTTOM,
+                margin=dict(b=LEGEND_BOTTOM_MARGIN)
             )
         else:
             fig.update_layout(
@@ -458,7 +439,7 @@ def create_scatter_plot(
                 xanchor='left',
                 x=1.02
             ),
-            margin=dict(r=200)  # Right margin for discrete color legend
+            margin=dict(r=LEGEND_RIGHT_MARGIN)
         )
     else:
         fig.update_layout(
@@ -792,7 +773,7 @@ def create_regression_heatmap(
         height=max(400, len(pct_change_df.index) * 40),
         xaxis={'side': 'bottom'},
         yaxis={'autorange': 'reversed'},  # Top to bottom
-        margin=dict(r=200)  # Right margin for help annotation
+        margin=dict(r=HEATMAP_HELP_MARGIN)
     )
 
     # Add help annotation explaining color scale

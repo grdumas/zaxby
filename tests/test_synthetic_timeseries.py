@@ -601,3 +601,110 @@ def test_integer_metrics_preserved(generator):
         assert "events_per_sec" in point_metrics
         assert isinstance(point_metrics["events_per_sec"], float)
         # Not checking for variance here as it's probabilistic
+
+
+def test_skips_malformed_pass_docs_with_warning(caplog, sample_results):
+    """Test that malformed PASS docs (missing metrics structure) are skipped with warning."""
+    import logging
+
+    generator = SyntheticDataGenerator(seed=42)
+
+    # Create a malformed PASS doc (missing results.runs.run_0.metrics)
+    malformed_doc = {
+        "metadata": {
+            "document_id": "malformed_test_001",
+            "test_timestamp": "2026-01-15T10:00:00Z",
+            "cloud_provider": "aws",
+            "instance_type": "m5.xlarge",
+            "os_vendor": "rhel"
+        },
+        "test": {"name": "test_type"},
+        "results": {
+            "status": "PASS",
+            "runs": {}  # Missing run_0
+        }
+    }
+
+    # Mix malformed doc with valid docs
+    mixed_docs = [malformed_doc] + sample_results
+
+    # Generate timeseries with warning capture
+    with caplog.at_level(logging.WARNING):
+        timeseries_docs = generator.generate_timeseries_documents(mixed_docs)
+
+    # Should skip malformed doc and only generate for valid docs
+    # sample_results has 3 PASS docs, so should get timeseries for those
+    timeseries_doc_ids = {doc["metadata"]["document_id"] for doc in timeseries_docs}
+    assert "malformed_test_001" not in timeseries_doc_ids, \
+        "Malformed doc should be skipped"
+
+    # Should have logged a warning mentioning the document_id and missing structure
+    assert any("malformed_test_001" in record.message and
+               "missing" in record.message.lower() and
+               "metrics" in record.message.lower()
+               for record in caplog.records), \
+        "Should log warning about missing metrics structure"
+
+
+def test_zero_value_handling(generator):
+    """Verify zero-valued float metrics are preserved explicitly.
+
+    When parent_value == 0.0, applying variance (0.0 * factor = 0.0) and the
+    fallback (0.0 * random.uniform(0.80, 0.90) = 0.0) both produce 0.0.
+    This test validates that zeros are intentionally preserved, which is
+    correct behavior for metrics like error_rate=0.0 or packet_loss=0.0.
+    """
+    # Create a parent result with a zero-valued float metric
+    parent_result = {
+        "metadata": {
+            "document_id": "test_with_zero_001",
+            "document_type": "zathras_test_result",
+            "test_timestamp": "2026-01-25T10:00:00Z",
+            "os_vendor": "redhat",
+            "cloud_provider": "aws",
+            "instance_type": "m5.2xlarge"
+        },
+        "test": {
+            "name": "example_test",
+            "version": "v1.0"
+        },
+        "results": {
+            "status": "PASS",
+            "total_runs": 1,
+            "runs": {
+                "run_0": {
+                    "run_number": 0,
+                    "status": "PASS",
+                    "metrics": {
+                        "throughput": 1000.0,
+                        "error_rate": 0.0  # Zero-valued float metric
+                    }
+                }
+            }
+        }
+    }
+
+    timeseries_docs = generator.generate_timeseries_documents([parent_result])
+
+    # Should have generated timeseries points
+    assert len(timeseries_docs) > 0, "Should generate timeseries for passing result"
+
+    # Check all timeseries points
+    for ts_doc in timeseries_docs:
+        point_metrics = ts_doc["results"]["point_metrics"]
+
+        # error_rate should be present
+        assert "error_rate" in point_metrics, "error_rate should be in point_metrics"
+
+        # Should be a float type
+        assert isinstance(point_metrics["error_rate"], float), \
+            f"error_rate should be float, got {type(point_metrics['error_rate'])}"
+
+        # Zero values should be preserved as-is (no variance applied)
+        # This is the correct behavior - zeros are meaningful values
+        assert point_metrics["error_rate"] == 0.0, \
+            f"error_rate should remain 0.0, got {point_metrics['error_rate']}"
+
+        # Non-zero metrics should still vary
+        assert "throughput" in point_metrics
+        assert isinstance(point_metrics["throughput"], float)

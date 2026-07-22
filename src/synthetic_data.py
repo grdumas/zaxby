@@ -19,9 +19,12 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import os
+import logging
 
 # Aggregate metric suffixes to filter when base metric exists
 AGGREGATE_SUFFIXES = ("_mean", "_min", "_max", "_stddev")
+
+logger = logging.getLogger(__name__)
 
 
 class SyntheticDataGenerator:
@@ -343,8 +346,15 @@ class SyntheticDataGenerator:
             # Generate timeseries_id for this sequence
             timeseries_id = f"{test_type}_{random.randbytes(6).hex()}_timeseries"
 
-            # Extract parent metrics from run_0
-            parent_metrics = result_doc["results"]["runs"]["run_0"]["metrics"]
+            # Validate and extract parent metrics from run_0
+            try:
+                parent_metrics = result_doc["results"]["runs"]["run_0"]["metrics"]
+            except KeyError as e:
+                logger.warning(
+                    f"Skipping PASS document {parent_doc_id}: "
+                    f"missing results.runs.run_0.metrics structure (KeyError: {e})"
+                )
+                continue
 
             # Generate each point in the sequence
             for sequence_num in range(num_points):
@@ -417,6 +427,11 @@ class SyntheticDataGenerator:
                 point_metrics[metric_name] = parent_value
                 continue
 
+            # Preserve zero values explicitly (meaningful for metrics like error_rate=0.0)
+            if parent_value == 0.0:
+                point_metrics[metric_name] = 0.0
+                continue
+
             # Apply gaussian variance (2-8% stddev) for float metrics
             stddev_pct = random.uniform(0.02, 0.08)
             variance_factor = random.gauss(1.0, stddev_pct)
@@ -426,7 +441,7 @@ class SyntheticDataGenerator:
 
             point_value = parent_value * variance_factor
 
-            # Ensure value is positive and non-zero
+            # Ensure variance didn't make a positive value negative (edge case)
             if point_value <= 0:
                 point_value = parent_value * random.uniform(0.80, 0.90)
 

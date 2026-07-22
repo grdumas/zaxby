@@ -351,7 +351,7 @@ class SyntheticDataGenerator:
                 )
 
                 # Generate point_metrics with variance
-                point_metrics = self._generate_point_metrics(parent_metrics, sequence_num)
+                point_metrics = self._generate_point_metrics(parent_metrics)
 
                 # Build timeseries document
                 timeseries_doc = {
@@ -376,8 +376,7 @@ class SyntheticDataGenerator:
 
     def _generate_point_metrics(
         self,
-        parent_metrics: Dict[str, float],
-        sequence_num: int
+        parent_metrics: Dict[str, float]
     ) -> Dict[str, float]:
         """
         Generate point metrics with realistic variance from parent summary.
@@ -386,7 +385,6 @@ class SyntheticDataGenerator:
 
         Args:
             parent_metrics: Metrics from parent result's run_0
-            sequence_num: Sequence number (for reproducible variance)
 
         Returns:
             Dictionary of point metrics with variance applied

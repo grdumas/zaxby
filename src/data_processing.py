@@ -1380,6 +1380,12 @@ def load_synthetic_timeseries(
             # Validate required schema fields
             doc_id = record["metadata"]["document_id"]
             sequence = record["metadata"]["sequence"]
+
+            # Validate sequence is numeric (int or float), but not bool
+            # Note: bool is a subclass of int in Python, so check it explicitly
+            if isinstance(sequence, bool) or not isinstance(sequence, (int, float)):
+                raise TypeError(f"sequence must be numeric, got {type(sequence).__name__}")
+
             index.setdefault(doc_id, []).append(record)
         except (KeyError, TypeError) as e:
             skipped_count += 1

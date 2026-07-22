@@ -334,17 +334,52 @@ def test_point_metrics_are_realistic(generator, sample_results):
                     f"Point metric {metric_name} = {point_val} outside realistic range [{lower_bound}, {upper_bound}] for parent {parent_val}"
 
 
-def test_length_distribution(generator):
+def test_length_distribution():
     """Verify ~80/20 split between short and long sequences."""
-    # Generate larger sample for distribution testing
-    results = generator.generate_dataset(
-        num_scenarios=50,
-        iterations_per_scenario=1,
-        include_temporal_trends=False,
-        include_failures=False
-    )
+    # Create lightweight PASS results for distribution testing
+    # Use 750 results for good statistical sample
+    test_types = ["uperf", "sysbench", "fio", "stream", "linpack"]
+    results = []
 
-    timeseries_docs = generator.generate_timeseries_documents(results)
+    for i in range(750):
+        test_type = test_types[i % len(test_types)]
+        result = {
+            "metadata": {
+                "document_id": f"test_{test_type}_{i:04d}",
+                "document_type": "zathras_test_result",
+                "test_timestamp": f"2026-01-{(i % 28) + 1:02d}T10:00:00Z",
+                "os_vendor": "redhat",
+                "cloud_provider": "aws",
+                "instance_type": "m5.2xlarge"
+            },
+            "test": {
+                "name": test_type,
+                "version": "v1.0"
+            },
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "run_number": 0,
+                        "status": "PASS",
+                        "metrics": {
+                            "throughput": 1000.0 + i,
+                            "latency": 10.0 + (i * 0.1)
+                        }
+                    }
+                }
+            }
+        }
+        results.append(result)
+
+    # Instantiate fresh generator with smaller sequence ranges for faster execution
+    generator = SyntheticDataGenerator(seed=42)
+    timeseries_docs = generator.generate_timeseries_documents(
+        results,
+        short_sequence_range=(2, 4),
+        long_sequence_range=(8, 12)
+    )
 
     # Count sequence lengths
     sequences_by_id = {}
@@ -356,9 +391,9 @@ def test_length_distribution(generator):
 
     lengths = list(sequences_by_id.values())
 
-    # Classify as short (10-20) or long (50-100+)
-    short_count = sum(1 for length in lengths if 10 <= length <= 20)
-    long_count = sum(1 for length in lengths if length >= 50)
+    # Classify as short (2-4) or long (8-12)
+    short_count = sum(1 for length in lengths if 2 <= length <= 4)
+    long_count = sum(1 for length in lengths if 8 <= length <= 12)
 
     total_classified = short_count + long_count
 

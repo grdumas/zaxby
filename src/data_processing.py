@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import logging
 import math
+import json
+import os
 
 from src.metric_registry import fallback_keys_for_test
 from src.benchmark_categories import category_for_test_name
@@ -1322,6 +1324,73 @@ def load_synthetic_data(filepath: str = "data/synthetic/benchmark_results.json")
     
     logger.info(f"Loaded {len(data)} documents from {filepath}")
     return data
+
+
+def load_synthetic_timeseries(
+    filepath: str = "data/synthetic/timeseries_results.json",
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Load synthetic timeseries data and index by document_id.
+
+    Reads the timeseries JSON file and builds a lookup dict for O(1) access
+    by parent result document_id. Points within each document are sorted
+    by metadata.sequence.
+
+    Args:
+        filepath: Path to JSON file containing timeseries point documents.
+
+    Returns:
+        Dict mapping document_id to list of timeseries point dicts.
+        Empty dict if file is missing (logged as warning, not an error).
+    """
+    if not os.path.exists(filepath):
+        logger.warning(
+            "Synthetic timeseries file %r not found; "
+            "timeseries queries will return empty results.",
+            filepath,
+        )
+        return {}
+
+    with open(filepath, "r") as f:
+        records = json.load(f)
+
+    index: Dict[str, List[Dict[str, Any]]] = {}
+    for record in records:
+        doc_id = record["metadata"]["document_id"]
+        index.setdefault(doc_id, []).append(record)
+
+    for points in index.values():
+        points.sort(key=lambda p: p["metadata"]["sequence"])
+
+    logger.info(
+        "Loaded %d timeseries points for %d documents from %s",
+        len(records),
+        len(index),
+        filepath,
+    )
+    return index
+
+
+_synthetic_timeseries_index: Optional[Dict[str, List[Dict[str, Any]]]] = None
+
+
+def get_synthetic_timeseries_index() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Get or lazily build the synthetic timeseries index (singleton).
+
+    First call loads timeseries_results.json and builds the
+    document_id -> points index. Subsequent calls return the cached result.
+    """
+    global _synthetic_timeseries_index
+    if _synthetic_timeseries_index is None:
+        _synthetic_timeseries_index = load_synthetic_timeseries()
+    return _synthetic_timeseries_index
+
+
+def _reset_synthetic_timeseries_index() -> None:
+    """Reset the lazy-loaded timeseries index (test helper only)."""
+    global _synthetic_timeseries_index
+    _synthetic_timeseries_index = None
 
 
 def main():

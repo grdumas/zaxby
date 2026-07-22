@@ -1327,7 +1327,7 @@ def load_synthetic_data(filepath: str = "data/synthetic/benchmark_results.json")
 
 
 def load_synthetic_timeseries(
-    filepath: str = "data/synthetic/timeseries_results.json",
+    filepath: str = "data/synthetic/zathras_timeseries.json.gz",
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Load synthetic timeseries data and index by document_id.
@@ -1340,6 +1340,7 @@ def load_synthetic_timeseries(
 
     Args:
         filepath: Path to JSON file containing timeseries point documents.
+                 Defaults to zathras_timeseries.json.gz (compressed format).
 
     Returns:
         Dict mapping document_id to list of timeseries point dicts.

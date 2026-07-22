@@ -1405,7 +1405,14 @@ def fetch_synthetic_timeseries_for_document(
     Returns:
         List of timeseries point dicts sorted by sequence number.
         Empty list if document_id has no timeseries or data is unavailable.
+
+    Raises:
+        ValueError: If size < 1.
     """
+    if size < 1:
+        raise ValueError("size must be at least 1")
+    size = min(size, 10000)
+
     index = get_synthetic_timeseries_index()
     points = index.get(document_id, [])
     return points[:size]

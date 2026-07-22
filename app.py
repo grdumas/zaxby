@@ -55,6 +55,23 @@ from src.track_ui import (
 )
 
 
+def _normalize_colorblind_mode(value):
+    """Normalize colorblind_mode value to strict boolean.
+
+    Args:
+        value: Input value from localStorage or callback (can be bool, str, int, or None)
+
+    Returns:
+        bool: True only if value is True, "true", or 1; False otherwise
+
+    This function prevents the unsafe bool(value) pattern which treats
+    non-empty strings like "false" as True.
+    """
+    if value is True or value == "true" or value == 1:
+        return True
+    return False
+
+
 def competitive_performance_breadcrumb(category: str) -> dbc.Breadcrumb:
     """Category trail for Competitive Performance drill-down (P1-C)."""
     return dbc.Breadcrumb(
@@ -340,6 +357,10 @@ def serve_layout():
             dcc.Store(id='analysis-results-store'),
             dcc.Store(id='navigation-state', data={'view': 'overview', 'investigation_params': None}),
             dcc.Store(id='nightly-runs-store'),
+            dcc.Store(id='pulse-kpi-bundle-store'),
+            dcc.Store(id='colorblind-mode-store', storage_type='local'),
+            dcc.Store(id='dark-mode-callback-dummy'),  # Dummy output for dark mode clientside callback
+            dcc.Store(id='colorblind-callback-dummy'),  # Dummy output for colorblind clientside callback
 
             # Header
             dbc.Card([
@@ -371,16 +392,31 @@ def serve_layout():
                                     className="me-2"
                                     + ("" if show_opensearch_retry else " d-none"),
                                 ),
-                                html.Button(
+                                dbc.Button(
                                     id="dark-mode-toggle",
-                                    className="me-3",
+                                    color="link",
+                                    className="me-3 p-0",
+                                    children=html.Span(
+                                        "Toggle dark mode",
+                                        className="visually-hidden"
+                                    ),
                                     style={
                                         "border": "none",
-                                        "background": "transparent",
-                                        "cursor": "pointer",
-                                        "padding": "0"
-                                    },
-                                    **{"aria-label": "Toggle dark mode"}
+                                        "textDecoration": "none"
+                                    }
+                                ),
+                                dbc.Button(
+                                    id="colorblind-mode-toggle",
+                                    color="link",
+                                    className="me-3 p-0",
+                                    children=html.Span(
+                                        "Toggle colorblind mode",
+                                        className="visually-hidden"
+                                    ),
+                                    style={
+                                        "border": "none",
+                                        "textDecoration": "none"
+                                    }
                                 ),
                                 dbc.Badge(
                                     f"📊 {len(df):,} Records",
@@ -502,8 +538,53 @@ app.clientside_callback(
         return '';
     }
     """,
-    Output('dark-mode-toggle', 'data-dummy'),  # Dummy output
+    Output('dark-mode-callback-dummy', 'data'),  # Dummy output
     Input('dark-mode-toggle', 'n_clicks')
+)
+
+
+# Clientside callback for colorblind mode toggle
+# Toggles the colorblind-mode-store value when button is clicked
+# Uses strict normalization to prevent string "false" from being treated as truthy
+# CRITICAL: prevent_initial_call=True ensures this callback does NOT fire on page load
+# The init script (colorblind-mode-init.js) is the only source of truth on initial load
+app.clientside_callback(
+    """
+    function(n_clicks, current_data) {
+        // Only toggle on actual clicks, never on initial load
+        // prevent_initial_call=True ensures this callback doesn't fire on page load
+        // but we add an explicit guard as defense-in-depth
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+        // Strict normalization: only true, 'true', or 1 are considered enabled
+        // This prevents "false" string from being truthy (!!"false" === true)
+        const normalized = (current_data === true || current_data === 'true' || current_data === 1);
+        return !normalized;
+    }
+    """,
+    Output('colorblind-mode-store', 'data'),
+    Input('colorblind-mode-toggle', 'n_clicks'),
+    State('colorblind-mode-store', 'data'),
+    prevent_initial_call=True
+)
+
+
+# Clientside callback to sync colorblind mode to body class
+# This allows CSS styling based on colorblind mode
+# Uses strict normalization matching the Python _normalize_colorblind_mode() function
+app.clientside_callback(
+    """
+    function(colorblind_mode) {
+        // Strict normalization: only true, 'true', or 1 are considered enabled
+        // This prevents "false" string from being truthy
+        const normalized = (colorblind_mode === true || colorblind_mode === 'true' || colorblind_mode === 1);
+        document.body.classList.toggle('colorblind-mode', normalized);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('colorblind-callback-dummy', 'data'),  # Dummy output
+    Input('colorblind-mode-store', 'data')
 )
 
 
@@ -661,6 +742,7 @@ def create_overview_layout():
                             html.Strong("Click any category bar to see individual benchmarks.", style={"color": "#0e7490"})
                         ], className="text-muted mb-3"),
                         html.Div(id='q2-comparison-selector', className="mb-4"),
+                        dcc.Store(id='q2-analysis-store'),
                     ]),
                     dbc.Row([
                         dbc.Col([
@@ -841,6 +923,7 @@ def create_overview_layout():
                         ], width=3),
                         dbc.Col([], width=9)  # Empty column for spacing
                     ], className="mb-3"),
+                    dcc.Store(id='q3-analysis-store'),
                     dbc.Alert([
                         html.Strong("How Scaling Efficiency is Measured: "),
                         html.Span(
@@ -988,17 +1071,61 @@ def create_investigation_layout(
 # Callbacks
 
 
+def _validate_pulse_bundle_structure(bundle_data):
+    """Validate Pulse KPI bundle structure before deserialization.
+
+    Args:
+        bundle_data: Data from pulse-kpi-bundle-store (expected to be dict).
+
+    Returns:
+        str: Error message if validation fails, None if valid.
+    """
+    # Check that bundle_data is a dict
+    if not isinstance(bundle_data, dict):
+        return f"Bundle data must be a dict, got {type(bundle_data).__name__}"
+
+    # Check for required top-level keys
+    required_keys = [
+        'overview',
+        'category_mix',
+        'activity_timeline',
+        'scope',
+        'policy_template_id',
+        'definition_version',
+    ]
+    missing_keys = [key for key in required_keys if key not in bundle_data]
+    if missing_keys:
+        return f"Bundle missing required keys: {', '.join(missing_keys)}"
+
+    # Check that snapshot fields are dicts (they will be unpacked with **)
+    snapshot_keys = ['overview', 'category_mix', 'activity_timeline', 'scope']
+    for key in snapshot_keys:
+        if not isinstance(bundle_data[key], dict):
+            return f"Bundle['{key}'] must be a dict, got {type(bundle_data[key]).__name__}"
+
+    # Check that metadata fields are strings
+    if not isinstance(bundle_data['policy_template_id'], str):
+        return f"Bundle['policy_template_id'] must be a str, got {type(bundle_data['policy_template_id']).__name__}"
+    if not isinstance(bundle_data['definition_version'], str):
+        return f"Bundle['definition_version'] must be a str, got {type(bundle_data['definition_version']).__name__}"
+
+    return None
+
+
 @app.callback(
-    Output("server-snapshot-content", "children"),
-    [Input("server-snapshot-init", "n_intervals"), Input("btn-refresh-server-snapshot", "n_clicks")],
+    Output('pulse-kpi-bundle-store', 'data'),
+    [Input("server-snapshot-init", "n_intervals"),
+     Input("btn-refresh-server-snapshot", "n_clicks")],
     prevent_initial_call=True,
 )
-def update_server_snapshot(_n_intervals, _n_clicks):
-    """Load bounded snapshot via OpenSearch aggregation or synthetic groupby (not from dcc.Store).
+def fetch_server_snapshot(_n_intervals, _n_clicks):
+    """Fetch Pulse KPI bundle from OpenSearch or synthetic data.
 
     prevent_initial_call avoids doubling work with server-snapshot-init (initial n_intervals=0 plus first tick).
     First load runs once when the one-shot Interval increments n_intervals; Refresh triggers further loads.
     """
+    from dataclasses import asdict
+
     if DATA_MODE == "opensearch":
         try:
             client = BenchmarkDataSource()
@@ -1009,10 +1136,70 @@ def update_server_snapshot(_n_intervals, _n_clicks):
     else:
         bundle = aggregate_pulse_kpi_bundle_from_dataframe(df)
 
-    snap = bundle.overview
-    cat_snap = bundle.category_mix
-    timeline_snap = bundle.activity_timeline
-    scope_snap = bundle.scope
+    # Serialize bundle to JSON-compatible dict
+    return {
+        'overview': asdict(bundle.overview),
+        'category_mix': asdict(bundle.category_mix),
+        'activity_timeline': asdict(bundle.activity_timeline),
+        'scope': asdict(bundle.scope),
+        'policy_template_id': bundle.policy_template_id,
+        'definition_version': bundle.definition_version,
+    }
+
+
+@app.callback(
+    Output("server-snapshot-content", "children"),
+    [Input('pulse-kpi-bundle-store', 'data'),
+     Input('colorblind-mode-store', 'data')],
+)
+def render_server_snapshot(bundle_data, colorblind_mode):
+    """Render Pulse KPI panel from cached bundle data.
+
+    Colorblind toggle only triggers this render callback, not the expensive fetch.
+    """
+    from src.query_service import (
+        ResultsOverviewSnapshot,
+        CategoryKpiSnapshot,
+        ActivityTimelineSnapshot,
+        PulseScopeFootnote,
+    )
+
+    if not bundle_data:
+        return html.Div("Loading server snapshot...", className="text-muted")
+
+    # Validate bundle structure before deserializing
+    validation_error = _validate_pulse_bundle_structure(bundle_data)
+    if validation_error:
+        return html.Div(
+            [
+                html.P("Error loading Pulse KPI data:", className="text-danger fw-bold"),
+                html.P(validation_error, className="text-muted"),
+            ],
+            className="alert alert-danger",
+        )
+
+    # Deserialize bundle from JSON dict
+    try:
+        snap = ResultsOverviewSnapshot(**bundle_data['overview'])
+        cat_snap = CategoryKpiSnapshot(**bundle_data['category_mix'])
+        timeline_snap = ActivityTimelineSnapshot(**bundle_data['activity_timeline'])
+        scope_snap = PulseScopeFootnote(**bundle_data['scope'])
+    except (TypeError, ValueError) as exc:
+        # Log detailed error server-side for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Pulse bundle deserialization failed: {exc}", exc_info=True)
+
+        # Show generic error to user (don't leak implementation details)
+        return html.Div(
+            [
+                html.P("Unable to load pulse data", className="text-danger fw-bold"),
+                html.P("Please refresh the page or contact support if the issue persists.", className="text-muted"),
+            ],
+            className="alert alert-danger",
+        )
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     return render_pulse_v1_panel(
         snap=snap,
@@ -1021,8 +1208,9 @@ def update_server_snapshot(_n_intervals, _n_clicks):
         timeline_snap=timeline_snap,
         data_mode=DATA_MODE,
         results_index_label=results_index_name(),
-        kpi_definition_version=bundle.definition_version,
-        policy_template_id=bundle.policy_template_id,
+        kpi_definition_version=bundle_data['definition_version'],
+        policy_template_id=bundle_data['policy_template_id'],
+        colorblind_mode=colorblind_mode,
     )
 
 
@@ -1201,10 +1389,11 @@ def update_nightly_runs(start_date, end_date):
 
 @app.callback(
     Output('nightly-run-chart', 'figure'),
-    [Input('nightly-run-selector', 'value')],
+    [Input('nightly-run-selector', 'value'),
+     Input('colorblind-mode-store', 'data')],
     [State('nightly-runs-store', 'data')],
 )
-def update_nightly_run_chart(selected_idx, runs_data):
+def update_nightly_run_chart(selected_idx, colorblind_mode, runs_data):
     """
     Update category breakdown chart when user selects a different nightly run.
     """
@@ -1212,11 +1401,13 @@ def update_nightly_run_chart(selected_idx, runs_data):
     from src.query_service import NightlyRunSnapshot
     from datetime import datetime
 
-    if runs_data is None or selected_idx is None:
-        return create_nightly_run_category_chart(None)
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
-    if selected_idx >= len(runs_data):
-        return create_nightly_run_category_chart(None)
+    if runs_data is None or selected_idx is None:
+        return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
+
+    if selected_idx < 0 or selected_idx >= len(runs_data):
+        return create_nightly_run_category_chart(None, colorblind_mode=colorblind_mode)
 
     # Deserialize selected run
     run_dict = runs_data[selected_idx]
@@ -1230,7 +1421,7 @@ def update_nightly_run_chart(selected_idx, runs_data):
         error=run_dict.get('error'),
     )
 
-    return create_nightly_run_category_chart(run)
+    return create_nightly_run_category_chart(run, colorblind_mode=colorblind_mode)
 
 
 def parse_os_version_filters(os_vers):
@@ -1409,12 +1600,15 @@ def update_q1_overall_summary(analysis_json):
 @app.callback(
     [Output('q1-major-graph', 'figure'),
      Output('q1-major-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    [Input('analysis-results-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_major_release_comparison(analysis_json):
+def update_major_release_comparison(analysis_json, colorblind_mode):
     """Update major release comparison (9.X vs 10.X)."""
     import pandas as pd
-    
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
+
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
     
@@ -1432,7 +1626,8 @@ def update_major_release_comparison(analysis_json):
         fig = visualizations.create_version_comparison_bar_chart(
             comparison_df,
             comp_data['baseline_version'],
-            comp_data['comparison_version']
+            comp_data['comparison_version'],
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No data available")
@@ -1460,12 +1655,15 @@ def update_major_release_comparison(analysis_json):
 @app.callback(
     [Output('q1-rhel9-graph', 'figure'),
      Output('q1-rhel9-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    [Input('analysis-results-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_rhel9_sequential(analysis_json):
+def update_rhel9_sequential(analysis_json, colorblind_mode):
     """Update RHEL 9 sequential comparison."""
     import pandas as pd
-    
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
+
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
     
@@ -1483,7 +1681,8 @@ def update_rhel9_sequential(analysis_json):
         fig = visualizations.create_version_comparison_bar_chart(
             comparison_df,
             comp_data['baseline_version'],
-            comp_data['comparison_version']
+            comp_data['comparison_version'],
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No data available")
@@ -1511,12 +1710,15 @@ def update_rhel9_sequential(analysis_json):
 @app.callback(
     [Output('q1-rhel10-graph', 'figure'),
      Output('q1-rhel10-summary', 'children')],
-    Input('analysis-results-store', 'data')
+    [Input('analysis-results-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
 )
-def update_rhel10_sequential(analysis_json):
+def update_rhel10_sequential(analysis_json, colorblind_mode):
     """Update RHEL 10 sequential comparison."""
     import pandas as pd
-    
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
+
     if not analysis_json:
         return visualizations.create_empty_figure("Loading..."), ""
     
@@ -1534,7 +1736,8 @@ def update_rhel10_sequential(analysis_json):
         fig = visualizations.create_version_comparison_bar_chart(
             comparison_df,
             comp_data['baseline_version'],
-            comp_data['comparison_version']
+            comp_data['comparison_version'],
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No data available")
@@ -1593,35 +1796,39 @@ def update_q2_comparison_selector(filtered_data_json):
 
 
 @app.callback(
-    [Output('q2-comparison', 'figure'),
-     Output('q2-summary', 'children')],
+    Output('q2-analysis-store', 'data'),
     Input('filtered-data-store', 'data')
 )
-def update_question2(filtered_data_json):
-    """Update Competitive Performance section with the latest comparison."""
+def update_q2_analysis(filtered_data_json):
+    """Run Q2 competitive analysis and cache results.
+
+    This callback performs the expensive analyze_peer_os_comparison operation
+    and stores the result. Colorblind mode changes do not trigger this callback,
+    avoiding redundant analysis.
+    """
     import pandas as pd
-    
+
     if not filtered_data_json:
-        empty_fig = visualizations.create_empty_figure("Loading comparison data...")
-        return empty_fig, ""
-    
+        return None
+
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
-    
+
     # Get available comparisons and use the latest one
     available_comparisons = processor._get_available_comparisons(filtered_df, 'rhel')
-    
+
     if not available_comparisons:
-        empty_fig = visualizations.create_empty_figure("No competitive comparisons available")
-        return empty_fig, dbc.Alert([
-            html.Strong("⚠️ No competitive comparisons available"),
-            html.Br(),
-            html.Small("Competitive comparisons require both RHEL and peer OS data on the same hardware.", 
-                      className="text-muted")
-        ], color="warning")
-    
+        return {
+            'comparison_data': None,
+            'summary': 'No summary available',
+            'competitive_count': 0,
+            'total_benchmarks': 0,
+            'comparison_config': None,
+            'has_data': False
+        }
+
     # Use the latest comparison (first in the sorted list)
     comp_config = available_comparisons[0]
-    
+
     # Run targeted competitive analysis
     q2_result = processor.analyze_peer_os_comparison(
         filtered_df,
@@ -1632,23 +1839,69 @@ def update_question2(filtered_data_json):
         cloud_provider=comp_config['cloud_provider'],
         instance_type=None  # Don't filter to single HW, show all common HW
     )
-    
+
+    # Store DataFrame as JSON string (not parsed dict) to avoid double-parsing
+    # Render callback will use pd.read_json() for single-pass reconstruction
+    comparison_df = q2_result['comparison_data']
+    has_data = not comparison_df.empty
+
+    return {
+        'comparison_data': comparison_df.to_json(orient='split') if has_data else None,
+        'summary': q2_result.get('summary', 'No summary available'),
+        'competitive_count': q2_result.get('competitive_count', 0),
+        'total_benchmarks': q2_result.get('total_benchmarks', 0),
+        'comparison_config': comp_config,
+        'has_data': has_data
+    }
+
+
+@app.callback(
+    [Output('q2-comparison', 'figure'),
+     Output('q2-summary', 'children')],
+    [Input('q2-analysis-store', 'data'),
+     Input('colorblind-mode-store', 'data')]
+)
+def update_q2_figure(analysis_data, colorblind_mode):
+    """Render Q2 figure from cached analysis data.
+
+    This callback only creates the visualization from pre-computed results.
+    Colorblind mode toggle only triggers this render callback, not the expensive
+    analysis callback.
+    """
+    import pandas as pd
+
+    if not analysis_data:
+        empty_fig = visualizations.create_empty_figure("Loading comparison data...")
+        return empty_fig, ""
+
+    if not analysis_data['has_data']:
+        empty_fig = visualizations.create_empty_figure("No competitive comparisons available")
+        return empty_fig, dbc.Alert([
+            html.Strong("⚠️ No competitive comparisons available"),
+            html.Br(),
+            html.Small("Competitive comparisons require both RHEL and peer OS data on the same hardware.",
+                      className="text-muted")
+        ], color="warning")
+
+    # Use pd.read_json() for efficient single-pass DataFrame reconstruction
+    # Avoids double-parsing: dict → JSON → DataFrame (old) vs JSON → DataFrame (new)
+    comparison_json = analysis_data['comparison_data']
+    comparison_df = pd.read_json(StringIO(comparison_json), orient='split')
+    comp_config = analysis_data['comparison_config']
+
     # Create visualization
-    if not q2_result['comparison_data'].empty:
-        comparison_df = q2_result['comparison_data']
-        fig = visualizations.create_peer_os_comparison_chart(
-            comparison_df, 
-            baseline_os="RHEL",
-            title=f"Performance Comparison: {comp_config['label']}"
-        )
-    else:
-        fig = visualizations.create_empty_figure("No comparison data available for selected configuration")
-    
+    fig = visualizations.create_peer_os_comparison_chart(
+        comparison_df,
+        baseline_os="RHEL",
+        title=f"Performance Comparison: {comp_config['label']}",
+        colorblind_mode=_normalize_colorblind_mode(colorblind_mode)
+    )
+
     # Format summary
-    summary_text = q2_result.get('summary', 'No summary available')
-    competitive_count = q2_result.get('competitive_count', 0)
-    total_benchmarks = q2_result.get('total_benchmarks', 0)
-    
+    summary_text = analysis_data['summary']
+    competitive_count = analysis_data['competitive_count']
+    total_benchmarks = analysis_data['total_benchmarks']
+
     # Determine status based on data availability and competitiveness
     if total_benchmarks == 0:
         # No data available - show warning status
@@ -1659,12 +1912,12 @@ def update_question2(filtered_data_json):
         is_competitive = competitive_count >= (total_benchmarks * 0.7)
         status_icon = get_status_icon(0 if is_competitive else 3)
         alert_color = "success" if is_competitive else "info"
-    
+
     summary_component = dbc.Alert([
         html.H5([status_icon, " Summary"], className="mb-2"),
         dcc.Markdown(summary_text)
     ], color=alert_color)
-    
+
     return fig, summary_component
 
 
@@ -2153,70 +2406,137 @@ def update_os_distribution_options(cloud_provider, instance_series, filtered_dat
 
 
 @app.callback(
-    [Output('q3-scaling', 'figure'),
-     Output('q3-summary', 'children')],
-    [Input('q3-cloud-provider', 'value'),
+    Output('q3-analysis-store', 'data'),
+    [Input('filtered-data-store', 'data'),
+     Input('q3-cloud-provider', 'value'),
      Input('q3-instance-series', 'value'),
      Input('q3-os-distribution', 'value'),
-     Input('q3-os-version', 'value'),
-     Input('q3-benchmark-category', 'value'),
-     Input('filtered-data-store', 'data')]
+     Input('q3-os-version', 'value')],
+    prevent_initial_call=True
 )
-def update_question3(cloud_provider, instance_series, os_distribution, os_version, benchmark_category, filtered_data_json):
-    """Update Cloud Scaling section visualizations."""
+def update_q3_analysis(filtered_data_json, cloud_provider, instance_series, os_distribution, os_version):
+    """Run Q3 cloud scaling analysis and cache results.
+
+    This callback performs the expensive analyze_cloud_scaling operation
+    and stores the result. Colorblind mode changes and benchmark category
+    filters do not trigger this callback, avoiding redundant analysis.
+    """
     import pandas as pd
-    
+
     if not filtered_data_json or not cloud_provider or not os_version:
-        empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
-        return empty_fig, ""
-    
+        return {
+            'scaling_data': None,
+            'summary': 'No summary available',
+            'linear_scaling_count': 0,
+            'total_benchmarks': 0,
+            'cloud_provider': cloud_provider,
+            'os_version': os_version,
+            'os_distribution': os_distribution,
+            'instance_series': instance_series,
+            'has_data': False
+        }
+
     filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
-    
+
     # Apply additional filters for OS distribution and instance series
     if os_distribution:
         filtered_df = filtered_df[filtered_df['os_distribution'] == os_distribution]
-    
+
     if instance_series:
         # Filter by instance series (match instances that belong to this series)
         filtered_df = filtered_df[filtered_df['instance_type'].apply(
             lambda x: extract_instance_series(x, cloud_provider) == instance_series if pd.notna(x) else False
         )]
-    
+
     # Run scaling analysis
     q3_result = processor.analyze_cloud_scaling(
         filtered_df,
         cloud_provider=cloud_provider,
         os_version=os_version
     )
-    
-    # Filter scaling data by benchmark category if specified
+
+    # Store DataFrame as JSON string (not parsed dict) to avoid double-parsing
+    # Render callback will use pd.read_json() for single-pass reconstruction
     scaling_data = q3_result['scaling_data']
+    has_data = not scaling_data.empty
+
+    return {
+        'scaling_data': scaling_data.to_json(orient='split') if has_data else None,
+        'summary': q3_result.get('summary', 'No summary available'),
+        'linear_scaling_count': q3_result.get('linear_scaling_count', 0),
+        'total_benchmarks': q3_result.get('total_benchmarks', 0),
+        'cloud_provider': cloud_provider,
+        'os_version': os_version,
+        'os_distribution': os_distribution,
+        'instance_series': instance_series,
+        'has_data': has_data
+    }
+
+
+@app.callback(
+    [Output('q3-scaling', 'figure'),
+     Output('q3-summary', 'children')],
+    [Input('q3-analysis-store', 'data'),
+     Input('q3-benchmark-category', 'value'),
+     Input('colorblind-mode-store', 'data')]
+)
+def render_q3_figure(analysis_data, benchmark_category, colorblind_mode):
+    """Render Q3 figure from cached analysis data.
+
+    This callback only creates the visualization from pre-computed results.
+    Colorblind mode toggle and benchmark category filter only trigger this
+    render callback, not the expensive analysis callback.
+    """
+    import pandas as pd
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
+
+    if not analysis_data:
+        empty_fig = visualizations.create_empty_figure("Loading...")
+        return empty_fig, ""
+
+    if not analysis_data['has_data']:
+        empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
+        return empty_fig, ""
+
+    # Use pd.read_json() for efficient single-pass DataFrame reconstruction
+    # Avoids double-parsing: dict → JSON → DataFrame (old) vs JSON → DataFrame (new)
+    scaling_json = analysis_data['scaling_data']
+    scaling_data = pd.read_json(StringIO(scaling_json), orient='split')
+
+    # Filter scaling data by benchmark category if specified
     if not scaling_data.empty and benchmark_category and benchmark_category != 'all':
         scaling_data = scaling_data[scaling_data['benchmark_category'] == benchmark_category]
-    
+
     # Create visualization
     if not scaling_data.empty:
         # Build descriptive title
-        title_parts = [f"Performance Scaling: {os_distribution.upper()} {os_version}"]
+        cloud_provider = analysis_data['cloud_provider']
+        os_version = analysis_data['os_version']
+        os_distribution = analysis_data['os_distribution']
+        instance_series = analysis_data['instance_series']
+
+        title_parts = [f"Performance Scaling: {(os_distribution or 'ALL').upper()} {os_version}"]
         title_parts.append(f"on {cloud_provider.upper()}")
         if instance_series:
             title_parts.append(f"({instance_series})")
         if benchmark_category and benchmark_category != 'all':
             title_parts.append(f"- {benchmark_category}")
         chart_title = " ".join(title_parts)
-        
+
         fig = visualizations.create_cloud_scaling_chart(
             scaling_data,
-            title=chart_title
+            title=chart_title,
+            colorblind_mode=colorblind_mode
         )
     else:
         fig = visualizations.create_empty_figure("No scaling data available for selected configuration")
-    
+
     # Format summary
-    summary_text = format_scaling_summary(q3_result)
-    linear_count = q3_result.get('linear_scaling_count', 0)
-    total = q3_result.get('total_benchmarks', 0)
-    
+    summary_text = analysis_data['summary']
+    linear_count = analysis_data.get('linear_scaling_count', 0)
+    total = analysis_data.get('total_benchmarks', 0)
+
     # Determine status based on data availability and scaling quality
     if total == 0:
         # No data available - show warning status
@@ -2227,12 +2547,12 @@ def update_question3(cloud_provider, instance_series, os_distribution, os_versio
         good_scaling = linear_count >= (total * 0.7)
         status_icon = get_status_icon(0 if good_scaling else 2)
         alert_color = "success" if good_scaling else "info"
-    
+
     summary_component = dbc.Alert([
         html.H5([status_icon, " Summary"], className="mb-2"),
         dcc.Markdown(summary_text)
     ], color=alert_color)
-    
+
     return fig, summary_component
 
 
@@ -2370,12 +2690,16 @@ def handle_back_to_overview(investigation_back, track_back):
      Output('investigation-timeline-chart', 'figure'),
      Output('investigation-table', 'children')],
     [Input('navigation-state', 'data'),
-     Input('filtered-data-store', 'data')],
+     Input('filtered-data-store', 'data'),
+     Input('colorblind-mode-store', 'data')],
     prevent_initial_call=True
 )
-def update_investigation_view(nav_state, filtered_data_json):
+def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     """Update investigation drill-down view."""
     import pandas as pd
+
+    # Normalize colorblind_mode to bool
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
 
     empty_fig = visualizations.create_empty_figure("No investigation data")
 
@@ -2459,9 +2783,10 @@ def update_investigation_view(nav_state, filtered_data_json):
     
     # Create comparison chart
     comparison_fig = visualizations.create_investigation_detail_chart(
-        baseline_df, comparison_df, test_name, baseline_version, comparison_version
+        baseline_df, comparison_df, test_name, baseline_version, comparison_version,
+        colorblind_mode=colorblind_mode
     )
-    
+
     # Create timeline chart
     timeline_fig = visualizations.create_time_series_chart(
         test_df,
@@ -2469,18 +2794,20 @@ def update_investigation_view(nav_state, filtered_data_json):
         y_col='primary_metric_value',
         color_col='os_version',
         title=f"Performance Trend: {test_name}",
-        use_facets=False
+        use_facets=False,
+        colorblind_mode=colorblind_mode
     )
-    
+
     # Create detailed table
     table_df = test_df[[
         'timestamp', 'os_version', 'instance_type', 'cloud_provider',
         'primary_metric_value', 'primary_metric_unit', 'status'
     ]].sort_values('timestamp', ascending=False).head(50)
-    
+
     table_fig = visualizations.create_metrics_table(
         table_df,
-        title=f"Recent Test Runs (showing {len(table_df)} of {len(test_df)} total)"
+        title=f"Recent Test Runs (showing {len(table_df)} of {len(test_df)} total)",
+        colorblind_mode=colorblind_mode
     )
 
     dashboards_base = (os.getenv("OPENSEARCH_DASHBOARDS_BASE_URL") or "").strip()

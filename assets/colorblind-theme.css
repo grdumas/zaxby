@@ -1,0 +1,65 @@
+/* ============================================
+   COLORBLIND MODE THEME
+   Performance Engineering Dashboard
+   ============================================ */
+
+/* Colorblind Mode Styles - Applied when body has 'colorblind-mode' class */
+
+/* Toggle button styling */
+#colorblind-mode-toggle::before {
+  content: '👁️'; /* Eye emoji for colorblind mode toggle */
+  font-size: 1.5rem;
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+#colorblind-mode-toggle:hover::before {
+  transform: scale(1.1);
+}
+
+/* Active state - show filled/emphasized icon when colorblind mode is on */
+body.colorblind-mode #colorblind-mode-toggle::before {
+  content: '🔵'; /* Blue circle when active */
+}
+
+/* Animation only for users who haven't requested reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+  body.colorblind-mode #colorblind-mode-toggle::before {
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+}
+
+/* Active indicator - subtle outline when mode is enabled */
+body.colorblind-mode #colorblind-mode-toggle {
+  outline: 2px solid #0072b2;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Optional: Adjust any UI chrome colors for colorblind mode if needed */
+/* Charts themselves are handled by Python palette module */
+
+/* Ensure tooltips and help text remain readable */
+body.colorblind-mode .card {
+  /* Cards already styled appropriately, no change needed */
+}
+
+/* Print styles - force standard mode for printing */
+@media print {
+  body.colorblind-mode {
+    /* Reset to standard for print */
+  }
+
+  #colorblind-mode-toggle {
+    display: none !important;
+  }
+}

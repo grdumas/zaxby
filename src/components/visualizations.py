@@ -39,8 +39,28 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from typing import Optional, List
+import hashlib
+import html
 
 from src.benchmark_categories import benchmark_groups
+
+
+def _escape_html(text: str | None) -> str:
+    """
+    Escape HTML special characters for safe interpolation.
+
+    Prevents XSS attacks by escaping data-derived fields before
+    interpolating them into HTML hover templates.
+
+    Args:
+        text: Text to escape (can be None)
+
+    Returns:
+        HTML-escaped string
+    """
+    if text is None:
+        return ""
+    return html.escape(str(text))
 
 
 def _normalize_color_col(color_col: Optional[str]) -> Optional[str]:
@@ -59,6 +79,32 @@ def _normalize_color_col(color_col: Optional[str]) -> Optional[str]:
     if not color_col or (isinstance(color_col, str) and not color_col.strip()):
         return None
     return color_col
+
+
+def _get_pattern_index_for_name(name: str, pattern_count: int) -> int:
+    """
+    Get a deterministic pattern index for a given trace name.
+
+    Uses a stable hash of the trace name to assign a pattern index, ensuring
+    the same trace name always gets the same pattern regardless of trace ordering.
+
+    Args:
+        name: The trace name (can be None or non-string, will be coerced to string)
+        pattern_count: Number of available patterns to cycle through (must be > 0)
+
+    Returns:
+        Pattern index (0 to pattern_count-1)
+    """
+    # Defensive coercion: handle None, empty strings, and non-string types
+    name = str(name or "")
+    # Guard against zero or negative pattern_count
+    pattern_count = max(1, pattern_count)
+
+    # Use MD5 hash for deterministic mapping (not for security, just stable indexing)
+    hash_digest = hashlib.md5(name.encode('utf-8')).hexdigest()
+    # Convert first 8 hex chars to int and mod by pattern_count
+    hash_int = int(hash_digest[:8], 16)
+    return hash_int % pattern_count
 
 
 # Legend and margin constants
@@ -91,42 +137,56 @@ LEGEND_VERTICAL_TOPRIGHT = {
 def create_comparison_chart(
     df: pd.DataFrame,
     group_by: str = 'test_name',
-    title: str = "Performance Comparison"
+    title: str = "Performance Comparison",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a side-by-side bar chart for comparing configurations.
-    
+
     Args:
         df: DataFrame with comparison data (must have baseline_mean, comparison_mean)
         group_by: Column used for grouping
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for comparison")
-    
+
+    palette = get_palette(colorblind_mode)
+
     fig = go.Figure()
-    
+
     # Baseline bars
+    baseline_marker = dict(color=palette.comparison.baseline)
+    if colorblind_mode:
+        baseline_marker['pattern'] = dict(shape='/', solidity=0.3, fillmode='overlay')
+
     fig.add_trace(go.Bar(
         x=df[group_by],
         y=df['baseline_mean'],
         name='Baseline',
-        marker_color='lightblue',
+        marker=baseline_marker,
         error_y=dict(type='data', array=df['baseline_std']) if 'baseline_std' in df.columns else None
     ))
-    
+
     # Comparison bars
+    comparison_marker = dict(color=palette.comparison.comparison)
+    if colorblind_mode:
+        comparison_marker['pattern'] = dict(shape='\\', solidity=0.3, fillmode='overlay')
+
     fig.add_trace(go.Bar(
         x=df[group_by],
         y=df['comparison_mean'],
         name='Comparison',
-        marker_color='lightcoral',
+        marker=comparison_marker,
         error_y=dict(type='data', array=df['comparison_std']) if 'comparison_std' in df.columns else None
     ))
-    
+
     fig.update_layout(
         title=title,
         xaxis_title=group_by.replace('_', ' ').title(),
@@ -148,7 +208,8 @@ def create_time_series_chart(
     y_col: str = 'primary_metric_value',
     color_col: Optional[str] = 'test_name',
     title: str = "Performance Trends Over Time",
-    use_facets: bool = False
+    use_facets: bool = False,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a time series line chart.
@@ -160,16 +221,19 @@ def create_time_series_chart(
         color_col: Column to use for line colors
         title: Chart title
         use_facets: If True and color_col='test_name', create separate subplots with independent y-axes
+        colorblind_mode: If True, use line dashes for redundant encoding
 
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No time series data available")
 
     # Normalize empty string to None to prevent Plotly crash
     color_col = _normalize_color_col(color_col)
-    
+
     # If color_col is test_name and we have multiple tests with different scales, use facets
     if use_facets and color_col == 'test_name' and len(df[color_col].unique()) > 1:
         fig = px.line(
@@ -183,10 +247,10 @@ def create_time_series_chart(
             facet_row=color_col,
             facet_row_spacing=0.05
         )
-        
+
         # Update each facet to have independent y-axis
         fig.update_yaxes(matches=None, showticklabels=True, title_text="")
-        
+
         fig.update_layout(
             xaxis_title="Date",
             hovermode='x unified',
@@ -220,6 +284,19 @@ def create_time_series_chart(
 
     fig.update_traces(mode='lines+markers')
 
+    # In colorblind mode, apply line dashes for redundant encoding beyond color
+    if colorblind_mode and color_col is not None:
+        palette = get_palette(colorblind_mode)
+        line_dashes = palette.patterns.line_dashes
+
+        # Apply different line dash to each trace based on trace name (not index)
+        # This ensures the same trace always gets the same pattern regardless of ordering
+        for trace in fig.data:
+            if hasattr(trace, 'line') and hasattr(trace, 'name'):
+                pattern_idx = _get_pattern_index_for_name(trace.name, len(line_dashes))
+                dash_pattern = line_dashes[pattern_idx]
+                trace.line.dash = dash_pattern
+
     return fig
 
 
@@ -229,11 +306,12 @@ def create_heatmap(
     col_dim: str = 'instance_type',
     value_col: str = 'primary_metric_value',
     title: str = "Performance Heatmap",
-    normalize_by_test: bool = True
+    normalize_by_test: bool = True,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a heatmap for regression analysis.
-    
+
     Args:
         df: DataFrame with benchmark data
         row_dim: Dimension for rows
@@ -241,23 +319,25 @@ def create_heatmap(
         value_col: Column containing values for heatmap
         title: Chart title
         normalize_by_test: If True and data contains multiple test types, normalize within each test
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for heatmap")
+
+    palette = get_palette(colorblind_mode)
     
     # If we have multiple test types with different scales, normalize within each test
     if normalize_by_test and 'test_name' in df.columns and len(df['test_name'].unique()) > 1:
-        # Calculate mean baseline for each test
+        # Calculate mean baseline for each test using groupby transform for performance
         df_normalized = df.copy()
-        for test_name in df_normalized['test_name'].unique():
-            test_mask = df_normalized['test_name'] == test_name
-            test_mean = df_normalized.loc[test_mask, value_col].mean()
-            if test_mean > 0:
-                # Convert to percentage of mean (100 = average performance)
-                df_normalized.loc[test_mask, value_col] = (df_normalized.loc[test_mask, value_col] / test_mean) * 100
+        df_normalized[value_col] = df_normalized.groupby('test_name')[value_col].transform(
+            lambda x: (x / x.mean() * 100) if x.mean() > 0 else x
+        )
         
         # Create pivot table from normalized data
         pivot = df_normalized.pivot_table(
@@ -285,12 +365,26 @@ def create_heatmap(
     
     # Create hover text with formatted values
     hover_text = [[f"{val:.1f}{text_suffix}" for val in row] for row in pivot.values]
-    
+
+    # Escape column and row labels for safe display in hovertemplate
+    escaped_columns = [_escape_html(str(col)) for col in pivot.columns]
+    escaped_index = [_escape_html(str(idx)) for idx in pivot.index]
+
+    # Determine colorscale
+    if colorblind_mode:
+        # Use colorblind-safe scale from palette
+        if isinstance(palette.performance_heatmap_scale, str):
+            colorscale = palette.performance_heatmap_scale
+        else:
+            colorscale = palette.performance_heatmap_scale.scale
+    else:
+        colorscale = 'RdYlGn'
+
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values,
-        x=pivot.columns,
-        y=pivot.index,
-        colorscale='RdYlGn',
+        x=escaped_columns,
+        y=escaped_index,
+        colorscale=colorscale,
         text=pivot.values.round(1),
         hovertext=hover_text,
         hovertemplate='%{y} × %{x}<br>%{hovertext}<extra></extra>',
@@ -303,7 +397,7 @@ def create_heatmap(
             thickness=18
         )
     ))
-    
+
     fig.update_layout(
         title=title,
         xaxis_title=col_dim.replace('_', ' ').title(),
@@ -315,13 +409,23 @@ def create_heatmap(
 
     # Add help annotation explaining color scale
     # Position to right of colorbar using xshift to avoid collision
-    fig.add_annotation(
-        text=(
+    if colorblind_mode:
+        help_text = (
+            "<b>How to read:</b><br>"
+            "🔵 Blue = Higher performance<br>"
+            "⚪ Gray = Medium performance<br>"
+            "🟠 Orange = Lower performance"
+        )
+    else:
+        help_text = (
             "<b>How to read:</b><br>"
             "🟢 Green = Higher performance<br>"
             "🟡 Yellow = Medium performance<br>"
             "🔴 Red = Lower performance"
-        ),
+        )
+
+    fig.add_annotation(
+        text=help_text,
         xref="paper", yref="paper",
         x=1.02, y=0.5,
         xshift=100,  # Shift right by 100px to avoid colorbar collision
@@ -345,11 +449,12 @@ def create_box_plot(
     y_col: str = 'primary_metric_value',
     color_col: Optional[str] = None,
     title: str = "Performance Distribution",
-    use_facets: bool = False
+    use_facets: bool = False,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a box plot showing distribution of performance metrics.
-    
+
     Args:
         df: DataFrame with benchmark data
         x_col: Column for x-axis categories
@@ -357,13 +462,34 @@ def create_box_plot(
         color_col: Optional column for color grouping
         title: Chart title
         use_facets: If True and x_col='test_name', create separate subplots with independent y-axes
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
+    # Normalize color_col to handle empty strings
+    color_col = _normalize_color_col(color_col)
+
+    # Get palette for colorblind mode
+    palette = get_palette(colorblind_mode)
+
     if df.empty:
         return create_empty_figure("No data available for distribution plot")
-    
+
+    # Use colorblind-safe discrete colors when in colorblind mode
+    # Wong palette: blue, vermillion, sky blue, amber, purple, red-purple
+    colorblind_discrete = [
+        "#0072b2",  # Blue
+        "#d55e00",  # Vermillion
+        "#56b4e9",  # Sky blue
+        "#e69f00",  # Amber
+        "#cc79a7",  # Red-purple
+        "#009e73",  # Bluish green
+        "#f0e442",  # Yellow
+    ]
+
     # If x_col is test_name and we have multiple tests with different scales, use facets
     if use_facets and x_col == 'test_name' and len(df[x_col].unique()) > 1:
         fig = px.box(
@@ -375,7 +501,8 @@ def create_box_plot(
             template='plotly_white',
             points='all',
             facet_col=x_col,
-            facet_col_wrap=3
+            facet_col_wrap=3,
+            color_discrete_sequence=colorblind_discrete if colorblind_mode else None
         )
 
         # Update each facet to have independent y-axis
@@ -409,7 +536,8 @@ def create_box_plot(
             color=color_col,
             title=title,
             template='plotly_white',
-            points='all'
+            points='all',
+            color_discrete_sequence=colorblind_discrete if colorblind_mode else None
         )
 
         # Configure legend positioning when color grouping is used
@@ -438,7 +566,8 @@ def create_scatter_plot(
     color_col: Optional[str] = None,
     size_col: Optional[str] = None,
     hover_data: Optional[List[str]] = None,
-    title: str = "Performance Scatter Plot"
+    title: str = "Performance Scatter Plot",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a scatter plot for exploring relationships.
@@ -451,16 +580,19 @@ def create_scatter_plot(
         size_col: Optional column for point sizes
         hover_data: Additional columns to show in hover
         title: Chart title
+        colorblind_mode: If True, use marker symbols for redundant encoding
 
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for scatter plot")
 
     # Normalize empty string to None to prevent Plotly crash
     color_col = _normalize_color_col(color_col)
-    
+
     fig = px.scatter(
         df,
         x=x_col,
@@ -495,31 +627,50 @@ def create_scatter_plot(
             height=500
         )
 
+    # In colorblind mode, apply marker symbols for redundant encoding beyond color
+    if colorblind_mode and color_col is not None:
+        palette = get_palette(colorblind_mode)
+        marker_symbols = palette.patterns.marker_symbols
+
+        # Apply different marker symbol to each trace based on trace name (not index)
+        # This ensures the same trace always gets the same symbol regardless of ordering
+        for trace in fig.data:
+            if hasattr(trace, 'marker') and hasattr(trace, 'name'):
+                pattern_idx = _get_pattern_index_for_name(trace.name, len(marker_symbols))
+                symbol = marker_symbols[pattern_idx]
+                trace.marker.symbol = symbol
+
     return fig
 
 
 def create_performance_delta_chart(
     df: pd.DataFrame,
     x_col: str = 'test_name',
-    title: str = "Performance Change (%)"
+    title: str = "Performance Change (%)",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a bar chart showing percentage changes with color coding.
-    
+
     Uses the same 5-color + pattern scheme as version comparison charts
     when is_regression data is available.
-    
+
     Args:
         df: DataFrame with percent_change column (and optionally is_regression)
         x_col: Column for x-axis labels
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if df.empty or 'percent_change' not in df.columns:
         return create_empty_figure("No comparison data available")
-    
+
+    palette = get_palette(colorblind_mode)
+
     # Determine colors and patterns
     # If we have is_regression info, use the 5-color scheme
     if 'is_regression' in df.columns:
@@ -529,7 +680,9 @@ def create_performance_delta_chart(
             pct = row['percent_change']
             is_reg = row['is_regression']
             # For simple delta chart, assume single config (any == all)
-            color, pattern = _get_regression_color_and_pattern(pct, is_reg, is_reg)
+            color, pattern = _get_regression_color_and_pattern(
+                pct, is_reg, is_reg, colorblind_mode=colorblind_mode
+            )
             colors.append(color)
             patterns.append(pattern)
         
@@ -541,9 +694,13 @@ def create_performance_delta_chart(
             pattern_solidity=0.3
         )
     else:
-        # Fallback to simple color coding
-        colors = ['#d73027' if x < -5 else '#1a9850' if x > 5 else '#e0e0e0' 
-                  for x in df['percent_change']]
+        # Fallback to simple color coding using palette
+        colors = [
+            palette.semantic.regression if x < -5
+            else palette.semantic.improvement if x > 5
+            else '#e0e0e0'
+            for x in df['percent_change']
+        ]
         marker_config = dict(color=colors)
     
     fig = go.Figure(data=[
@@ -577,52 +734,58 @@ def create_performance_delta_chart(
 def create_metrics_table(
     df: pd.DataFrame,
     columns: Optional[List[str]] = None,
-    title: str = "Detailed Metrics"
+    title: str = "Detailed Metrics",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a table visualization for detailed metrics.
-    
+
     Args:
         df: DataFrame with metric data
         columns: Specific columns to display (None = all)
         title: Table title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with table
     """
+    from src.color_palettes import get_palette
+
     if df.empty:
         return create_empty_figure("No data available for table")
-    
+
+    palette = get_palette(colorblind_mode)
+
     if columns:
         display_df = df[columns].copy()
     else:
         display_df = df.copy()
-    
+
     # Round numeric columns
     numeric_cols = display_df.select_dtypes(include=['float64', 'int64']).columns
     for col in numeric_cols:
         display_df[col] = display_df[col].round(2)
-    
+
     fig = go.Figure(data=[go.Table(
         header=dict(
-            values=[f"<b>{col}</b>" for col in display_df.columns],
-            fill_color='paleturquoise',
+            values=[f"<b>{_escape_html(str(col))}</b>" for col in display_df.columns],
+            fill_color=palette.table.header,
             align='left',
             font=dict(size=12)
         ),
         cells=dict(
             values=[display_df[col] for col in display_df.columns],
-            fill_color='lavender',
+            fill_color=palette.table.cells,
             align='left',
             font=dict(size=11)
         )
     )])
-    
+
     fig.update_layout(
         title=title,
         height=400
     )
-    
+
     return fig
 
 
@@ -746,29 +909,29 @@ def create_summary_cards_data(df: pd.DataFrame) -> dict:
 
 def create_regression_heatmap(
     pct_change_df: pd.DataFrame,
-    title: str = "OS Version Regressions by Benchmark"
+    title: str = "OS Version Regressions by Benchmark",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a heatmap showing percentage changes between OS versions.
-    
+
     Args:
         pct_change_df: DataFrame with test_name as index, version transitions as columns
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if pct_change_df.empty:
         return create_empty_figure("No regression data available")
-    
-    # Define color scale: red for regressions, green for improvements, gray for stable
-    colorscale = [
-        [0.0, '#d73027'],    # Strong regression (red)
-        [0.4, '#fee090'],    # Mild regression (yellow)
-        [0.5, '#e0e0e0'],    # Stable (gray)
-        [0.6, '#e0f3db'],    # Mild improvement (light green)
-        [1.0, '#1a9850']     # Strong improvement (green)
-    ]
+
+    palette = get_palette(colorblind_mode)
+
+    # Use palette's regression heatmap scale
+    colorscale = palette.regression_heatmap_scale.scale
     
     # Create hover text
     hover_text = []
@@ -780,7 +943,10 @@ def create_regression_heatmap(
                 hover_row.append("No data")
             else:
                 direction = "↑" if val > 0 else "↓" if val < 0 else "→"
-                hover_row.append(f"{row_name}<br>{col_name}<br>{direction} {abs(val):.1f}%")
+                # Escape row_name and col_name to prevent XSS
+                row_name_escaped = _escape_html(row_name)
+                col_name_escaped = _escape_html(col_name)
+                hover_row.append(f"{row_name_escaped}<br>{col_name_escaped}<br>{direction} {abs(val):.1f}%")
         hover_text.append(hover_row)
     
     # Create text annotations for cells
@@ -794,11 +960,15 @@ def create_regression_heatmap(
             else:
                 text_row.append(f"{val:.1f}%")
         text_values.append(text_row)
-    
+
+    # Escape axis labels to prevent XSS
+    escaped_x = [_escape_html(str(col)) for col in pct_change_df.columns]
+    escaped_y = [_escape_html(str(idx)) for idx in pct_change_df.index]
+
     fig = go.Figure(data=go.Heatmap(
         z=pct_change_df.values,
-        x=pct_change_df.columns,
-        y=pct_change_df.index,
+        x=escaped_x,
+        y=escaped_y,
         colorscale=colorscale,
         zmid=0,  # Center the color scale at 0
         text=text_values,
@@ -828,13 +998,23 @@ def create_regression_heatmap(
 
     # Add help annotation explaining color scale
     # Position to right of colorbar using xshift to avoid collision
-    fig.add_annotation(
-        text=(
+    if colorblind_mode:
+        help_text = (
+            "<b>How to read:</b><br>"
+            "🟠 Orange = Regression (slower)<br>"
+            "⚪ Gray = Stable/No change<br>"
+            "🔵 Blue = Improvement (faster)"
+        )
+    else:
+        help_text = (
             "<b>How to read:</b><br>"
             "🔴 Red = Regression (slower)<br>"
             "⚪ Gray = Stable/No change<br>"
             "🟢 Green = Improvement (faster)"
-        ),
+        )
+
+    fig.add_annotation(
+        text=help_text,
         xref="paper", yref="paper",
         x=1.02, y=0.5,
         xshift=100,  # Shift right by 100px to avoid colorbar collision
@@ -856,65 +1036,74 @@ def _get_regression_color_and_pattern(
     percent_change: float,
     is_any_regression: bool,
     is_all_regression: bool,
-    stable_threshold: float = 5.0
+    stable_threshold: float = 5.0,
+    colorblind_mode: bool = False
 ) -> tuple:
     """
     Determine bar color and pattern based on change and consistency across runs.
-    
+
     Returns a 5-color + pattern scheme:
-    - Solid Dark Red: All runs regressed, average is negative
-    - Striped Orange: Mixed results, net regression  
+    - Solid Dark Red/Vermillion: All runs regressed, average is negative
+    - Striped Orange/Amber: Mixed results, net regression
     - Gray: Stable (within threshold)
-    - Striped Amber: Mixed results, net improvement
-    - Solid Green: All runs improved, average is positive
-    
+    - Striped Amber/Blue: Mixed results, net improvement
+    - Solid Green/Blue: All runs improved, average is positive
+
+    In colorblind mode, amplifies pattern usage for redundant encoding.
+
     Args:
         percent_change: Average percent change across runs
         is_any_regression: True if ANY run showed regression
         is_all_regression: True if ALL runs showed regression
         stable_threshold: Threshold for stable zone (default ±5%)
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Tuple of (color hex, pattern shape or empty string)
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
+
     if percent_change is None or (isinstance(percent_change, float) and pd.isna(percent_change)):
-        return '#bdbdbd', ''  # Neutral gray if undefined
+        return palette.semantic.undefined, ''  # Neutral gray if undefined
 
     # Stable zone: within threshold
     if abs(percent_change) <= stable_threshold:
-        return '#9ca3af', ''  # Gray, no pattern (darker for readability)
-    
+        return palette.semantic.stable, palette.patterns.stable
+
     if percent_change < 0:
         # Net regression
         if is_all_regression:
-            return '#d73027', ''  # Dark red, solid - unanimous regression
+            return palette.semantic.regression, palette.patterns.regression
         else:
-            return '#f46d43', '/'  # Orange, striped - mixed, net regression
+            return palette.semantic.mixed_regression, palette.patterns.mixed_regression
     else:
         # Net improvement
         if not is_any_regression:
-            return '#1a9850', ''  # Green, solid - unanimous improvement
+            return palette.semantic.improvement, palette.patterns.improvement
         else:
-            return '#fdae61', '/'  # Amber, striped - mixed, net improvement
+            return palette.semantic.mixed_improvement, palette.patterns.mixed_improvement
 
 
 def create_version_comparison_bar_chart(
     comparison_df: pd.DataFrame,
     baseline_version: str,
     comparison_version: str,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a bar chart comparing performance between two OS versions.
-    
+
     Uses a 5-color + pattern scheme to communicate both the net result AND
     consistency across hardware configurations:
-    - Solid Dark Red: All configs regressed
-    - Striped Orange: Mixed results, net regression
+    - Solid Dark Red/Vermillion: All configs regressed
+    - Striped Orange/Amber: Mixed results, net regression
     - Gray: Stable (within ±5%)
-    - Striped Amber: Mixed results, net improvement
-    - Solid Green: All configs improved
-    
+    - Striped Amber/Blue: Mixed results, net improvement
+    - Solid Green/Blue: All configs improved
+
     Args:
         comparison_df: DataFrame with comparison data (must have columns:
                       test_name, baseline_mean, comparison_mean, percent_change, is_regression,
@@ -922,13 +1111,18 @@ def create_version_comparison_bar_chart(
         baseline_version: Baseline version name
         comparison_version: Comparison version name
         title: Chart title (auto-generated if None)
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
+
     if comparison_df.empty:
         return create_empty_figure("No comparison data available")
-    
+
     if title is None:
         title = f"Performance Comparison: {baseline_version} vs {comparison_version}"
     
@@ -976,16 +1170,25 @@ def create_version_comparison_bar_chart(
         color, pattern = _get_regression_color_and_pattern(
             row['percent_change'],
             row['is_any_regression'],
-            row['is_all_regression']
+            row['is_all_regression'],
+            colorblind_mode=colorblind_mode
         )
         colors.append(color)
         patterns.append(pattern)
     
+    # Determine icons based on colorblind mode
+    if colorblind_mode:
+        regression_icon = "🟠"  # Orange for regression
+        improvement_icon = "🔵"  # Blue for improvement
+    else:
+        regression_icon = "🔴"  # Red for regression
+        improvement_icon = "🟢"  # Green for improvement
+
     # Build hover template with consistency info
     hover_texts = []
     for idx, row in comparison_df_sorted.iterrows():
         test_name = row['test_name']
-        
+
         # Determine consistency status for hover
         if row['is_all_regression']:
             consistency = "All configs regressed"
@@ -995,30 +1198,38 @@ def create_version_comparison_bar_chart(
             consistency = "All configs improved"
         else:
             consistency = "Stable across configs"
-        
+
         if has_hardware:
             # Show all hardware configs for this test
             test_hw_data = comparison_df[comparison_df['test_name'] == test_name]
             hw_lines = []
             for _, hw_row in test_hw_data.iterrows():
-                status_icon = "🔴" if hw_row['is_regression'] else "🟢" if hw_row['percent_change'] > 5 else "⚪"
+                status_icon = regression_icon if hw_row['is_regression'] else improvement_icon if hw_row['percent_change'] > 5 else "⚪"
+                # Escape hardware_config to prevent XSS
+                hw_config_escaped = _escape_html(hw_row['hardware_config'])
                 hw_lines.append(
-                    f"  {status_icon} {hw_row['hardware_config']}: {hw_row['percent_change']:+.1f}% "
+                    f"  {status_icon} {hw_config_escaped}: {hw_row['percent_change']:+.1f}% "
                     f"({hw_row['baseline_mean']:.2f} → {hw_row['comparison_mean']:.2f})"
                 )
             hw_detail = "<br>".join(hw_lines)
+            # Escape test_name to prevent XSS
+            test_name_escaped = _escape_html(test_name)
             hover_text = (
-                f"<b>{test_name}</b><br>"
+                f"<b>{test_name_escaped}</b><br>"
                 f"Average change: {row['percent_change']:+.1f}%<br>"
                 f"<i>{consistency}</i><br>"
                 f"<br><b>By Hardware:</b><br>{hw_detail}"
             )
         else:
+            # Escape test_name and version names to prevent XSS
+            test_name_escaped = _escape_html(test_name)
+            baseline_version_escaped = _escape_html(baseline_version)
+            comparison_version_escaped = _escape_html(comparison_version)
             hover_text = (
-                f"<b>{test_name}</b><br>"
+                f"<b>{test_name_escaped}</b><br>"
                 f"Change: {row['percent_change']:+.1f}%<br>"
-                f"{baseline_version}: {row['baseline_mean']:.2f}<br>"
-                f"{comparison_version}: {row['comparison_mean']:.2f}"
+                f"{baseline_version_escaped}: {row['baseline_mean']:.2f}<br>"
+                f"{comparison_version_escaped}: {row['comparison_mean']:.2f}"
             )
         hover_texts.append(hover_text)
 
@@ -1048,13 +1259,23 @@ def create_version_comparison_bar_chart(
     ])
     
     # Add legend annotation explaining the color/pattern scheme
+    # Build legend dynamically from palette
+    if colorblind_mode:
+        # Colorblind palette uses Vermillion and Blue
+        regression_label = "Vermillion"
+        improvement_label = "Blue"
+    else:
+        # Standard palette uses Red and Green
+        regression_label = "Dark Red"
+        improvement_label = "Green"
+
     legend_text = (
         "<b>Legend:</b><br>"
-        "■ <span style='color:#d73027'>Dark Red</span>: All configs regressed<br>"
-        "▤ <span style='color:#f46d43'>Orange striped</span>: Mixed, net regression<br>"
-        "■ <span style='color:#6b7280'>Gray</span>: Stable (±5%)<br>"
-        "▤ <span style='color:#fdae61'>Amber striped</span>: Mixed, net improvement<br>"
-        "■ <span style='color:#1a9850'>Green</span>: All configs improved"
+        f"■ <span style='color:{palette.semantic.regression}'>{regression_label}</span>: All configs regressed<br>"
+        f"▤ <span style='color:{palette.semantic.mixed_regression}'>Orange striped</span>: Mixed, net regression<br>"
+        f"■ <span style='color:{palette.semantic.stable}'>Gray</span>: Stable (±5%)<br>"
+        f"▤ <span style='color:{palette.semantic.mixed_improvement}'>Amber striped</span>: Mixed, net improvement<br>"
+        f"■ <span style='color:{palette.semantic.improvement}'>{improvement_label}</span>: All configs improved"
     )
     
     fig.add_annotation(
@@ -1089,73 +1310,84 @@ def create_version_comparison_bar_chart(
 def create_peer_os_comparison_chart(
     comparison_df: pd.DataFrame,
     baseline_os: str = "RHEL",
-    title: str = "RHEL vs Peer Operating Systems"
+    title: str = "RHEL vs Peer Operating Systems",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a grouped bar chart comparing RHEL against peer OSes.
-    
+
     Args:
         comparison_df: DataFrame with comparison data
         baseline_os: Name of baseline OS
         title: Chart title
-        
+        colorblind_mode: Use colorblind-safe colors
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if comparison_df.empty:
         return create_empty_figure("No peer comparison data available")
-    
+
     BENCHMARK_GROUPS = benchmark_groups()
+    palette = get_palette(colorblind_mode)
 
     # Group by benchmark category
     fig = go.Figure()
-    
+
     peer_os_list = sorted(comparison_df['peer_os'].unique())
     # Sort categories alphabetically but put "Other" last
     all_categories = sorted(comparison_df['benchmark_category'].unique())
     categories = [c for c in all_categories if c != 'Other'] + [c for c in all_categories if c == 'Other']
-    
+
     # Create grouped bars by benchmark category
     for peer_os in peer_os_list:
         peer_data = comparison_df[comparison_df['peer_os'] == peer_os]
-        
+
         y_values = []
         x_labels = []
         colors = []
         hover_texts = []
-        
+
         for category in categories:
             cat_data = peer_data[peer_data['benchmark_category'] == category]
             if not cat_data.empty:
                 # Average relative performance for this category
                 avg_rel_perf = cat_data['relative_performance'].mean()
                 y_values.append(avg_rel_perf)
-                x_labels.append(category)
-                
-                # Color: green if within 10%, amber if within 20%, red otherwise
+                # Escape category for x-axis label to prevent XSS
+                x_labels.append(_escape_html(category))
+
+                # Color: competitive, moderate, or significant difference
                 if avg_rel_perf >= 90 and avg_rel_perf <= 110:
-                    colors.append('#1a9850')  # Green - competitive
+                    colors.append(palette.semantic.improvement)  # Competitive
                 elif avg_rel_perf >= 80 and avg_rel_perf <= 120:
-                    colors.append('#d97706')  # Amber - moderate difference (darker for readability)
+                    colors.append(palette.semantic.moderate_difference)  # Moderate difference
                 else:
-                    colors.append('#d73027')  # Red - significant difference
-                
+                    colors.append(palette.semantic.regression)  # Significant difference
+
                 # Build hover text with benchmark list
                 benchmarks_in_category = BENCHMARK_GROUPS.get(category, ['Unknown'])
                 # Also show which benchmarks actually have data in this category
                 actual_tests = cat_data['test_name'].unique().tolist()
+                # Escape category and test names to prevent XSS
+                category_escaped = _escape_html(category)
+                benchmarks_escaped = ', '.join([_escape_html(b) for b in benchmarks_in_category])
+                actual_tests_escaped = ', '.join([_escape_html(t) for t in actual_tests])
                 hover_text = (
-                    f"<b>{category}</b><br>"
+                    f"<b>{category_escaped}</b><br>"
                     f"Relative Performance: {avg_rel_perf:.1f}%<br>"
                     f"<br><b>Benchmarks in category:</b><br>"
-                    f"{', '.join(benchmarks_in_category)}<br>"
+                    f"{benchmarks_escaped}<br>"
                     f"<br><b>Tests with data:</b><br>"
-                    f"{', '.join(actual_tests)}"
+                    f"{actual_tests_escaped}"
                 )
                 hover_texts.append(hover_text)
-        
+
+        # Escape peer_os for trace name to prevent XSS
         fig.add_trace(go.Bar(
-            name=peer_os,
+            name=_escape_html(peer_os),
             x=x_labels,
             y=y_values,
             text=[f"{v:.0f}%" for v in y_values],
@@ -1173,11 +1405,11 @@ def create_peer_os_comparison_chart(
         annotation_text=f"{baseline_os} baseline (100%)",
         annotation_position="right"
     )
-    
+
     # Add competitive zone (90-110%)
     fig.add_hrect(
         y0=90, y1=110,
-        fillcolor="green",
+        fillcolor=palette.semantic.improvement,
         opacity=0.1,
         line_width=0,
         annotation_text="Competitive zone",
@@ -1185,11 +1417,14 @@ def create_peer_os_comparison_chart(
     )
     
     # Add legend annotation explaining the color scheme
+    competitive_label = "Blue" if colorblind_mode else "Green"
+    significant_label = "Vermillion" if colorblind_mode else "Red"
+
     legend_text = (
         "<b>Color Legend:</b><br>"
-        "■ <span style='color:#1a9850'>Green</span>: Competitive (90-110%)<br>"
-        "■ <span style='color:#d97706'>Amber</span>: Moderate diff (80-120%)<br>"
-        "■ <span style='color:#d73027'>Red</span>: Significant diff (<80% or >120%)"
+        f"■ <span style='color:{palette.semantic.improvement}'>{competitive_label}</span>: Competitive (90-110%)<br>"
+        f"■ <span style='color:{palette.semantic.moderate_difference}'>Amber</span>: Moderate diff (80-120%)<br>"
+        f"■ <span style='color:{palette.semantic.regression}'>{significant_label}</span>: Significant diff (<80% or >120%)"
     )
     
     fig.add_annotation(
@@ -1231,30 +1466,43 @@ def create_peer_os_comparison_chart(
 
 def create_cloud_scaling_chart(
     scaling_df: pd.DataFrame,
-    title: str = "Performance Scaling Across Instance Sizes"
+    title: str = "Performance Scaling Across Instance Sizes",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a line chart showing how performance scales with instance size.
-    
+
     Shows scaling efficiency as a percentage of ideal linear scaling, making it
     easy to compare different benchmarks regardless of their native units.
-    
+
     - 100% = Perfect linear scaling (performance doubles when cores double)
     - >100% = Super-linear scaling (better than expected)
     - <100% = Sub-linear scaling (diminishing returns)
-    
+
     Uses evenly-spaced categorical X-axis for readability (not linear by CPU cores).
-    
+
     Args:
         scaling_df: DataFrame with scaling analysis data
         title: Chart title
-        
+        colorblind_mode: If True, use colorblind-safe palette and redundant encoding
+
     Returns:
         Plotly Figure
     """
+    from src.color_palettes import get_palette
+
     if scaling_df.empty:
         return create_empty_figure("No scaling data available")
-    
+
+    palette = get_palette(colorblind_mode)
+
+    # Choose color sequence based on colorblind mode
+    # Plotly's Safe palette is specifically designed for colorblind accessibility
+    if colorblind_mode:
+        color_sequence = px.colors.qualitative.Safe
+    else:
+        color_sequence = px.colors.qualitative.Plotly
+
     fig = go.Figure()
     
     # Group by benchmark category or test name
@@ -1286,7 +1534,7 @@ def create_cloud_scaling_chart(
         # Create tick labels with instance name, cores, and RAM
         tick_labels = []
         for _, row in instance_order_df.iterrows():
-            inst_name = row['instance_type']
+            inst_name = _escape_html(row['instance_type'])
             cores = int(row['cpu_cores'])
             memory = row.get('memory_gb', None)
             if memory is not None and pd.notna(memory):
@@ -1305,8 +1553,8 @@ def create_cloud_scaling_chart(
     
     # Track all efficiency values for dynamic y-axis range
     all_efficiency_values = []
-    
-    for category in categories:
+
+    for category_idx, category in enumerate(categories):
         cat_data = scaling_df[scaling_df[group_col] == category].copy()
         
         # Aggregate multiple test results per instance within each category
@@ -1370,11 +1618,15 @@ def create_cloud_scaling_chart(
                         inst_name = instance_types[i] if i < len(instance_types) else "Unknown"
                         mem_gb = memory_values[i] if i < len(memory_values) else None
                         mem_str = f"<br>Memory: {mem_gb:.0f} GB" if mem_gb is not None and pd.notna(mem_gb) else ""
-                        
+
+                        # Escape category and instance name to prevent XSS
+                        category_escaped = _escape_html(category)
+                        inst_name_escaped = _escape_html(inst_name)
+
                         # Create detailed hover text
                         hover_texts.append(
-                            f"<b>{category}</b><br>"
-                            f"Instance: {inst_name}<br>"
+                            f"<b>{category_escaped}</b><br>"
+                            f"Instance: {inst_name_escaped}<br>"
                             f"CPU Cores: {int(cores)}{mem_str}<br>"
                             f"Scaling Efficiency: {efficiency:.1f}%<br>"
                             f"Raw Performance: {perf:,.0f}<br>"
@@ -1383,22 +1635,24 @@ def create_cloud_scaling_chart(
                     else:
                         efficiency_values.append(None)
                         hover_texts.append("")
-                
+
                 y_values = efficiency_values
                 # Track for dynamic y-axis range
                 all_efficiency_values.extend([v for v in efficiency_values if v is not None])
             else:
                 # Fallback to raw values if baseline is invalid
+                category_escaped = _escape_html(category)
                 y_values = perf_values
-                hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
+                hover_texts = [f"{category_escaped}: {v:,.0f}" for v in perf_values]
         else:
             # For non-CPU-cores case, normalize to first value = 100%
             if len(perf_values) > 0 and perf_values[0] > 0:
                 baseline = perf_values[0]
                 y_values = [(v / baseline) * 100 for v in perf_values]
+                category_escaped = _escape_html(category)
                 hover_texts = [
-                    f"<b>{category}</b><br>"
-                    f"Instance: {inst}<br>"
+                    f"<b>{category_escaped}</b><br>"
+                    f"Instance: {_escape_html(inst)}<br>"
                     f"Relative Performance: {(v/baseline)*100:.1f}%<br>"
                     f"Raw Value: {v:,.0f}"
                     for inst, v in zip(instance_types, perf_values)
@@ -1409,13 +1663,16 @@ def create_cloud_scaling_chart(
                 y_values = perf_values
                 hover_texts = [f"{category}: {v:,.0f}" for v in perf_values]
         
+        # Get color for this trace from the color sequence
+        trace_color = color_sequence[category_idx % len(color_sequence)]
+
         fig.add_trace(go.Scatter(
             x=x_values,
             y=y_values,
             mode='lines+markers',
             name=category,
-            line=dict(width=3),
-            marker=dict(size=10),
+            line=dict(width=3, color=trace_color),
+            marker=dict(size=10, color=trace_color),
             hovertemplate='%{customdata}<extra></extra>',
             customdata=hover_texts
         ))
@@ -1434,15 +1691,56 @@ def create_cloud_scaling_chart(
         ))
         
         # Add shaded regions for context
+        # Use colorblind-safe color in colorblind mode (avoid green-only semantic)
+        if colorblind_mode:
+            # Use blue tint instead of green
+            fill_color = "rgba(33, 150, 243, 0.1)"  # Blue with low opacity
+            annotation_color = "rgba(33, 150, 243, 0.8)"  # Blue
+        else:
+            fill_color = "rgba(76, 175, 80, 0.1)"  # Green
+            annotation_color = "rgba(76, 175, 80, 0.8)"  # Green
+
         fig.add_hrect(
             y0=85, y1=115,
-            fillcolor="rgba(76, 175, 80, 0.1)",
+            fillcolor=fill_color,
             line_width=0,
             annotation_text="Good scaling (85-115%)",
             annotation_position="top right",
-            annotation=dict(font_size=10, font_color="rgba(76, 175, 80, 0.8)")
+            annotation=dict(font_size=10, font_color=annotation_color)
         )
-    
+
+    # Apply colorblind mode redundant encoding (line dashes and marker symbols)
+    # This provides additional visual cues beyond color to distinguish series
+    if colorblind_mode:
+        line_dashes = palette.patterns.line_dashes
+        marker_symbols = palette.patterns.marker_symbols
+
+        # Apply different line dash and marker symbol to each data trace based on trace name (not index)
+        # This ensures the same trace always gets the same pattern regardless of ordering
+        # Skip the reference line which should remain as-is
+        for trace in fig.data:
+            # Skip the reference line (identified by its name or dash pattern)
+            if hasattr(trace, 'name') and 'Ideal' in str(trace.name):
+                continue
+
+            # Only apply patterns to traces with valid names
+            if not hasattr(trace, 'name') or trace.name is None:
+                continue
+
+            # Get deterministic pattern index based on trace name
+            dash_idx = _get_pattern_index_for_name(trace.name, len(line_dashes))
+            symbol_idx = _get_pattern_index_for_name(trace.name, len(marker_symbols))
+
+            if hasattr(trace, 'line'):
+                # Apply line dash pattern
+                dash_pattern = line_dashes[dash_idx]
+                trace.line.dash = dash_pattern
+
+            if hasattr(trace, 'marker'):
+                # Apply marker symbol
+                symbol = marker_symbols[symbol_idx]
+                trace.marker.symbol = symbol
+
     # Add annotation explaining the metric
     fig.add_annotation(
         text=(
@@ -1516,41 +1814,46 @@ def create_investigation_detail_chart(
     comparison_df: pd.DataFrame,
     test_name: str,
     baseline_label: str,
-    comparison_label: str
+    comparison_label: str,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a detailed comparison chart for investigation drill-down.
-    
+
     Args:
         baseline_df: DataFrame with baseline data
         comparison_df: DataFrame with comparison data
         test_name: Name of the test being investigated
         baseline_label: Label for baseline data
         comparison_label: Label for comparison data
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with side-by-side box plots
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
     fig = go.Figure()
-    
+
     # Baseline box plot
     if not baseline_df.empty and 'primary_metric_value' in baseline_df.columns:
         fig.add_trace(go.Box(
             y=baseline_df['primary_metric_value'],
             name=baseline_label,
-            marker_color='lightblue',
+            marker_color=palette.comparison.baseline,
             boxmean='sd'
         ))
-    
+
     # Comparison box plot
     if not comparison_df.empty and 'primary_metric_value' in comparison_df.columns:
         fig.add_trace(go.Box(
             y=comparison_df['primary_metric_value'],
             name=comparison_label,
-            marker_color='lightcoral',
+            marker_color=palette.comparison.comparison,
             boxmean='sd'
         ))
-    
+
     fig.update_layout(
         title=f"Performance Distribution: {test_name}",
         yaxis_title="Performance Metric",
@@ -1558,63 +1861,74 @@ def create_investigation_detail_chart(
         height=400,
         showlegend=True
     )
-    
+
     return fig
 
 
 def create_category_benchmark_detail_chart(
     comparison_df: pd.DataFrame,
     category: str,
-    baseline_os: str = "RHEL"
+    baseline_os: str = "RHEL",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a horizontal bar chart showing individual benchmark performance within a category.
-    
+
     Args:
         comparison_df: DataFrame with comparison data (filtered to single category)
         category: The benchmark category name
         baseline_os: Name of baseline OS
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with horizontal bars for each benchmark
     """
+    from src.color_palettes import get_palette
+
+    # Escape category for use in title and messages
+    category_escaped = _escape_html(category)
+
     if comparison_df.empty:
-        return create_empty_figure(f"No benchmark data available for {category}")
-    
+        return create_empty_figure(f"No benchmark data available for {category_escaped}")
+
+    palette = get_palette(colorblind_mode)
+
     # Group by test_name and calculate average relative performance across hardware
     benchmark_summary = comparison_df.groupby('test_name').agg({
         'relative_performance': 'mean',
         'instance_type': 'nunique',
         'is_competitive': 'mean'  # Percentage of hardware where competitive
     }).reset_index()
-    
+
     benchmark_summary = benchmark_summary.sort_values('relative_performance', ascending=True)
-    
+
     # Determine colors based on performance
     colors = []
     for perf in benchmark_summary['relative_performance']:
         if perf >= 90 and perf <= 110:
-            colors.append('#1a9850')  # Green - competitive
+            colors.append(palette.semantic.improvement)  # Competitive
         elif perf >= 80 and perf <= 120:
-            colors.append('#d97706')  # Amber - moderate
+            colors.append(palette.semantic.moderate_difference)  # Moderate
         else:
-            colors.append('#d73027')  # Red - significant difference
+            colors.append(palette.semantic.regression)  # Significant difference
     
-    # Create hover text
+    # Create hover text and escaped y-axis labels
     hover_texts = []
+    escaped_test_names = []
     for _, row in benchmark_summary.iterrows():
         competitive_pct = row['is_competitive'] * 100
         hover_texts.append(
-            f"<b>{row['test_name']}</b><br>"
+            f"<b>{_escape_html(row['test_name'])}</b><br>"
             f"Relative Performance: {row['relative_performance']:.1f}%<br>"
             f"Hardware Configs Tested: {int(row['instance_type'])}<br>"
             f"Competitive on {competitive_pct:.0f}% of hardware"
         )
-    
+        escaped_test_names.append(_escape_html(row['test_name']))
+
     fig = go.Figure()
-    
+
     fig.add_trace(go.Bar(
-        y=benchmark_summary['test_name'],
+        y=escaped_test_names,
         x=benchmark_summary['relative_performance'],
         orientation='h',
         marker_color=colors,
@@ -1632,17 +1946,17 @@ def create_category_benchmark_detail_chart(
         annotation_text=f"{baseline_os} baseline",
         annotation_position="top"
     )
-    
+
     # Add competitive zone (90-110%)
     fig.add_vrect(
         x0=90, x1=110,
-        fillcolor="green",
+        fillcolor=palette.semantic.improvement,
         opacity=0.1,
         line_width=0
     )
     
     fig.update_layout(
-        title=f"{category} Benchmarks - Detailed Performance",
+        title=f"{category_escaped} Benchmarks - Detailed Performance",
         xaxis_title=f"Performance Relative to {baseline_os} (%)",
         yaxis_title="Benchmark",
         template='plotly_white',
@@ -1658,22 +1972,28 @@ def create_category_benchmark_detail_chart(
 def create_category_hardware_heatmap(
     comparison_df: pd.DataFrame,
     category: str,
-    baseline_os: str = "RHEL"
+    baseline_os: str = "RHEL",
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """
     Create a heatmap showing benchmark × hardware performance matrix.
-    
+
     Args:
         comparison_df: DataFrame with comparison data (filtered to single category)
         category: The benchmark category name
         baseline_os: Name of baseline OS
-        
+        colorblind_mode: If True, use colorblind-safe palette
+
     Returns:
         Plotly Figure with heatmap
     """
+    from src.color_palettes import get_palette
+
     if comparison_df.empty:
         return create_empty_figure(f"No hardware data available for {category}")
-    
+
+    palette = get_palette(colorblind_mode)
+
     # Pivot to create benchmark × hardware matrix
     pivot_df = comparison_df.pivot_table(
         index='test_name',
@@ -1681,10 +2001,10 @@ def create_category_hardware_heatmap(
         values='relative_performance',
         aggfunc='mean'
     )
-    
+
     if pivot_df.empty:
         return create_empty_figure(f"Insufficient data for hardware breakdown")
-    
+
     # Create custom hover text
     hover_text = []
     for test in pivot_df.index:
@@ -1693,26 +2013,22 @@ def create_category_hardware_heatmap(
             val = pivot_df.loc[test, hw]
             if pd.notna(val):
                 status = "✓ Competitive" if 90 <= val <= 110 else ("⚠ Moderate" if 80 <= val <= 120 else "✗ Significant diff")
-                row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>Relative Perf: {val:.1f}%<br>{status}")
+                row_text.append(f"<b>{_escape_html(test)}</b><br>Hardware: {_escape_html(hw)}<br>Relative Perf: {val:.1f}%<br>{status}")
             else:
-                row_text.append(f"<b>{test}</b><br>Hardware: {hw}<br>No data")
+                row_text.append(f"<b>{_escape_html(test)}</b><br>Hardware: {_escape_html(hw)}<br>No data")
         hover_text.append(row_text)
-    
-    # Custom colorscale: red (bad) -> yellow (moderate) -> green (good)
-    colorscale = [
-        [0, '#d73027'],      # Red - peer much faster
-        [0.3, '#fc8d59'],    # Orange
-        [0.45, '#fee08b'],   # Yellow - moderate
-        [0.5, '#ffffbf'],    # Light yellow - baseline
-        [0.55, '#d9ef8b'],   # Light green
-        [0.7, '#91cf60'],    # Green
-        [1, '#1a9850']       # Dark green - baseline much faster
-    ]
-    
+
+    # Use colorblind-safe colorscale from palette
+    colorscale = palette.hardware_heatmap_scale.scale
+
+    # Escape axis labels to prevent XSS
+    x_labels_escaped = [_escape_html(col) for col in pivot_df.columns]
+    y_labels_escaped = [_escape_html(idx) for idx in pivot_df.index]
+
     fig = go.Figure(data=go.Heatmap(
         z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index,
+        x=x_labels_escaped,
+        y=y_labels_escaped,
         colorscale=colorscale,
         zmid=100,  # Center on 100%
         zmin=70,
@@ -1727,9 +2043,9 @@ def create_category_hardware_heatmap(
             ticksuffix="%"
         )
     ))
-    
+
     fig.update_layout(
-        title=f"{category} - Performance by Hardware",
+        title=f"{_escape_html(category)} - Performance by Hardware",
         xaxis_title="Instance Type",
         yaxis_title="Benchmark",
         template='plotly_white',

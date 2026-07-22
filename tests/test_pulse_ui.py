@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dash import html
 
 from src.pulse_ui import (
@@ -88,3 +90,100 @@ def test_render_panel_includes_kpi_catalog_footer_when_metadata_passed():
     flat = str(inner)
     assert "PULSE_KPIS.md" in flat
     assert "TPL_CATEGORY_ROLLUP" in flat
+
+
+# Security tests for XSS prevention in hover templates
+
+
+def test_activity_timeline_escapes_malicious_month_labels():
+    """
+    Test that month labels containing HTML/script tags are escaped in hover text.
+
+    Prevents XSS attacks where untrusted OpenSearch data containing malicious
+    month labels could inject scripts via Plotly hover templates.
+    """
+    malicious_month = "Jan<script>alert('xss')</script>"
+    snap = ActivityTimelineSnapshot(
+        by_month=[(malicious_month, 100)],
+        source="opensearch",
+        error=None,
+    )
+    fig = figure_pulse_activity_timeline(snap)
+
+    # Convert figure to JSON to inspect the actual hover template data
+    fig_json = json.loads(fig.to_json())
+
+    # Check that the raw script tag does NOT appear in the figure data
+    fig_str = json.dumps(fig_json)
+    assert "<script>" not in fig_str, "Raw script tag found in figure - XSS vulnerability!"
+    assert "alert('xss')" not in fig_str, "Raw script content found in figure - XSS vulnerability!"
+
+    # Check that escaped HTML entities ARE present (either in hovertext or customdata)
+    # The exact format depends on implementation but should contain escaped versions
+    assert "&lt;script&gt;" in fig_str or "&#x3C;script&#x3E;" in fig_str, \
+        "Month label not properly escaped in hover content"
+
+
+def test_category_mix_escapes_malicious_category_labels():
+    """
+    Test that category labels containing HTML tags are escaped in hover text.
+
+    Prevents XSS attacks where untrusted OpenSearch data containing malicious
+    category labels could inject HTML via Plotly hover templates.
+    """
+    malicious_category = "Category<b>injection</b><img src=x onerror=alert(1)>"
+    snap = CategoryKpiSnapshot(
+        by_category=[(malicious_category, 50), ("Safe Category", 30)],
+        source="opensearch",
+        error=None,
+    )
+    fig = figure_pulse_category_mix(snap)
+
+    # Convert figure to JSON to inspect the actual hover template data
+    fig_json = json.loads(fig.to_json())
+    fig_str = json.dumps(fig_json)
+
+    # Check that raw HTML opening tags do NOT appear (these would be executable)
+    assert "<b>" not in fig_str, "Raw <b> tag found in figure - XSS vulnerability!"
+    assert "<img" not in fig_str, "Raw <img> tag found in figure - XSS vulnerability!"
+
+    # Check that escaped HTML entities ARE present
+    # The malicious content should be escaped, showing &lt; and &gt; instead of < and >
+    assert "&lt;b&gt;" in fig_str or "&#x3C;b&#x3E;" in fig_str, \
+        "Category label not properly escaped in hover content"
+    assert "&lt;img" in fig_str or "&#x3C;img" in fig_str, \
+        "Malicious img tag not properly escaped"
+
+
+def test_numeric_formatting_preserved_after_xss_fix():
+    """
+    Test that numeric values (run counts, document counts) are still properly
+    formatted with commas after the XSS fix is applied.
+
+    Ensures that the security fix does not break the existing numeric formatting.
+    """
+    # Test activity timeline with large numbers
+    snap_timeline = ActivityTimelineSnapshot(
+        by_month=[("2025-01", 1234), ("2025-02", 5678)],
+        source="opensearch",
+        error=None,
+    )
+    fig_timeline = figure_pulse_activity_timeline(snap_timeline)
+    fig_json_timeline = json.loads(fig_timeline.to_json())
+
+    # The hovertemplate should still contain the :, format specifier for numbers
+    # This ensures we're still formatting the numeric count with commas
+    fig_str_timeline = json.dumps(fig_json_timeline)
+    assert ":," in fig_str_timeline, "Numeric formatting with commas lost in activity timeline"
+
+    # Test category mix with large numbers
+    snap_category = CategoryKpiSnapshot(
+        by_category=[("HPC", 9876), ("ML", 5432)],
+        source="opensearch",
+        error=None,
+    )
+    fig_category = figure_pulse_category_mix(snap_category)
+    fig_json_category = json.loads(fig_category.to_json())
+
+    fig_str_category = json.dumps(fig_json_category)
+    assert ":," in fig_str_category, "Numeric formatting with commas lost in category mix"

@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from dash import dcc, html
 
 from src.query_service import NightlyRunSnapshot
+from src.components.visualizations import _escape_html
 
 
 def create_nightly_run_selector_dropdown(runs: List[NightlyRunSnapshot]) -> dcc.Dropdown:
@@ -49,16 +50,23 @@ def create_nightly_run_selector_dropdown(runs: List[NightlyRunSnapshot]) -> dcc.
     )
 
 
-def create_nightly_run_category_chart(run: Optional[NightlyRunSnapshot]) -> go.Figure:
+def create_nightly_run_category_chart(
+    run: Optional[NightlyRunSnapshot],
+    colorblind_mode: bool = False
+) -> go.Figure:
     """
     Create horizontal bar chart showing test counts by benchmark category.
 
     Args:
         run: NightlyRunSnapshot object with category breakdown.
+        colorblind_mode: If True, use colorblind-safe palette
 
     Returns:
         Plotly Figure with horizontal bar chart.
     """
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
     if run is None or not run.category_breakdown:
         fig = go.Figure()
         fig.add_annotation(
@@ -84,12 +92,15 @@ def create_nightly_run_category_chart(run: Optional[NightlyRunSnapshot]) -> go.F
     categories = [cat for cat, _ in run.category_breakdown]
     counts = [count for _, count in run.category_breakdown]
 
+    # Escape category labels to prevent XSS injection in hover tooltips and axis labels
+    escaped_categories = [_escape_html(cat) for cat in categories]
+
     fig = go.Figure(
         go.Bar(
             x=counts,
-            y=categories,
+            y=escaped_categories,  # Use escaped labels for y-axis
             orientation="h",
-            marker=dict(color="#7c3aed"),
+            marker=dict(color=palette.branding.nightly),
             hovertemplate="%{y}<br>Tests: %{x:,}<extra></extra>",
         )
     )

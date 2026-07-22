@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 import plotly.graph_objects as go
 from dash import dcc, html
 
+from src.components.visualizations import _escape_html
 from src.query_service import (
     ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
@@ -49,8 +50,12 @@ def figure_pulse_activity_timeline(
     *,
     title: str = "Activity trend (runs per month)",
     height: int = 240,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """Line chart of monthly run counts; suitable as a compact Pulse sparkline-style view."""
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
     if timeline.error:
         return _empty_figure(title, timeline.error, height=height)
     if not timeline.by_month:
@@ -59,14 +64,20 @@ def figure_pulse_activity_timeline(
     labels = [p[0] for p in timeline.by_month]
     counts = [p[1] for p in timeline.by_month]
 
+    # Security: Escape month labels to prevent XSS.
+    # Month labels may originate from untrusted OpenSearch content.
+    # We escape them for both axis positioning and hover display to ensure
+    # no raw HTML/script tags are present anywhere in the figure data.
+    escaped_labels = [_escape_html(label) for label in labels]
+
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=labels,
+            x=escaped_labels,  # Use escaped labels for axis positioning
             y=counts,
             mode="lines+markers",
-            line=dict(color="#1d4ed8", width=2),
-            marker=dict(size=6, color="#1d4ed8"),
+            line=dict(color=palette.branding.pulse_line, width=2),
+            marker=dict(size=6, color=palette.branding.pulse_line),
             hovertemplate="%{x}<br>Runs: %{y:,}<extra></extra>",
         )
     )
@@ -88,8 +99,12 @@ def figure_pulse_category_mix(
     title: str = "Mix by benchmark category",
     max_categories: int = 12,
     height: int = 280,
+    colorblind_mode: bool = False
 ) -> go.Figure:
     """Horizontal bar chart of document counts rolled up to dashboard categories."""
+    from src.color_palettes import get_palette
+
+    palette = get_palette(colorblind_mode)
     if cat.error:
         return _empty_figure(title, cat.error, height=height)
     if not cat.by_category:
@@ -100,12 +115,18 @@ def figure_pulse_category_mix(
     labels = [p[0] for p in pairs]
     counts = [p[1] for p in pairs]
 
+    # Security: Escape category labels to prevent XSS.
+    # Category labels may originate from untrusted OpenSearch content.
+    # We escape them for both axis positioning and hover display to ensure
+    # no raw HTML/script tags are present anywhere in the figure data.
+    escaped_labels = [_escape_html(label) for label in labels]
+
     fig = go.Figure(
         go.Bar(
             x=counts,
-            y=labels,
+            y=escaped_labels,  # Use escaped labels for axis positioning
             orientation="h",
-            marker=dict(color="#0e7490"),
+            marker=dict(color=palette.branding.pulse_bar),
             hovertemplate="%{y}<br>Documents: %{x:,}<extra></extra>",
         )
     )
@@ -142,6 +163,7 @@ def render_pulse_v1_panel(
     results_index_label: str,
     kpi_definition_version: Optional[str] = None,
     policy_template_id: Optional[str] = None,
+    colorblind_mode: bool = False
 ) -> html.Div:
     """
     Build the Pulse v1 panel: KPI cards, two charts, footnote and disclaimer.
@@ -191,8 +213,8 @@ def render_pulse_v1_panel(
         window_primary = "No run timestamps in scope"
         window_sub = ""
 
-    fig_timeline = figure_pulse_activity_timeline(timeline_snap)
-    fig_category = figure_pulse_category_mix(cat_snap)
+    fig_timeline = figure_pulse_activity_timeline(timeline_snap, colorblind_mode=colorblind_mode)
+    fig_category = figure_pulse_category_mix(cat_snap, colorblind_mode=colorblind_mode)
 
     mode_label = (data_mode or "").strip().lower() or "unknown"
     idx_part = results_index_label.strip() if results_index_label.strip() else "(index not set)"

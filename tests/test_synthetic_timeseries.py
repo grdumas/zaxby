@@ -11,14 +11,141 @@ def generator():
 
 
 @pytest.fixture
-def sample_results(generator):
-    """Generate a small sample of result documents."""
-    return generator.generate_dataset(
-        num_scenarios=5,
-        iterations_per_scenario=1,
-        include_temporal_trends=False,
-        include_failures=True
-    )
+def sample_results():
+    """Lightweight handcrafted sample of result documents.
+
+    Includes:
+    - 2 PASS results (one passmark aggregate-only, one uperf with regular metrics)
+    - 1 FAIL result (for test_skips_failed_results)
+    """
+    return [
+        # PASS result #1 - passmark (aggregate-only test type)
+        {
+            "metadata": {
+                "document_id": "passmark_test_001",
+                "document_type": "zathras_test_result",
+                "test_timestamp": "2026-01-25T10:00:00Z",
+                "os_vendor": "redhat",
+                "cloud_provider": "aws",
+                "instance_type": "m5.2xlarge"
+            },
+            "test": {
+                "name": "passmark",
+                "version": "v10.0"
+            },
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "run_number": 0,
+                        "status": "PASS",
+                        "metrics": {
+                            "CPU_INTEGER_MATH_mean": 386194.17,
+                            "CPU_FLOATINGPOINT_MATH_mean": 208830.92,
+                            "CPU_PRIME_mean": 264614.52,
+                            "ME_WRITE_mean": 14303.49,
+                            "ME_READ_mean": 15733.84,
+                            "ME_LATENCY_mean": 121.58
+                        }
+                    }
+                }
+            }
+        },
+        # PASS result #2 - uperf (regular test type)
+        {
+            "metadata": {
+                "document_id": "uperf_test_002",
+                "document_type": "zathras_test_result",
+                "test_timestamp": "2026-01-25T11:00:00Z",
+                "os_vendor": "ubuntu",
+                "cloud_provider": "gcp",
+                "instance_type": "c2-standard-4"
+            },
+            "test": {
+                "name": "uperf",
+                "version": "v1.22"
+            },
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "run_number": 0,
+                        "status": "PASS",
+                        "metrics": {
+                            "tcp_stream_bw_gbs": 7.70,
+                            "tcp_stream_bw_gbs_mean": 7.70,
+                            "tcp_stream_bw_gbs_min": 7.43,
+                            "tcp_stream_bw_gbs_max": 7.97,
+                            "tcp_stream_bw_gbs_stddev": 0.11,
+                            "tcp_rr_trans_per_sec": 40540.97,
+                            "tcp_rr_trans_per_sec_mean": 40540.97,
+                            "tcp_rr_trans_per_sec_min": 39022.93,
+                            "tcp_rr_trans_per_sec_max": 41248.24,
+                            "tcp_rr_trans_per_sec_stddev": 482.70
+                        }
+                    }
+                }
+            }
+        },
+        # PASS result #3 - coremark_pro (another aggregate-only test type)
+        {
+            "metadata": {
+                "document_id": "coremark_pro_test_003",
+                "document_type": "zathras_test_result",
+                "test_timestamp": "2026-01-25T12:00:00Z",
+                "os_vendor": "amazon",
+                "cloud_provider": "aws",
+                "instance_type": "c6i.xlarge"
+            },
+            "test": {
+                "name": "coremark_pro",
+                "version": "v1.1.2743"
+            },
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "run_number": 0,
+                        "status": "PASS",
+                        "metrics": {
+                            "cjpeg_rose7_ijg_mean": 50.25,
+                            "core_mean": 0.52,
+                            "linear_alg_mid_100x100_sp_mean": 14.89,
+                            "loops_all_mid_10k_sp_mean": 0.63,
+                            "nnet_test_mean": 1.26,
+                            "parser_125k_mean": 9.12,
+                            "radix2_big_64k_mean": 26.59,
+                            "sha_test_mean": 52.43,
+                            "zip_test_mean": 20.18
+                        }
+                    }
+                }
+            }
+        },
+        # FAIL result - for test_skips_failed_results
+        {
+            "metadata": {
+                "document_id": "fio_test_004_failed",
+                "document_type": "zathras_test_result",
+                "test_timestamp": "2026-01-25T13:00:00Z",
+                "os_vendor": "redhat",
+                "cloud_provider": "aws",
+                "instance_type": "m5.large"
+            },
+            "test": {
+                "name": "fio",
+                "version": "v3.30"
+            },
+            "results": {
+                "status": "FAIL",
+                "total_runs": 0,
+                "runs": {}
+            }
+        }
+    ]
 
 
 def test_generates_timeseries_for_each_passing_result(generator, sample_results):

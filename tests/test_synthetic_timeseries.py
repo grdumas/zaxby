@@ -754,3 +754,155 @@ def test_instance_rng_for_deterministic_generation(sample_results):
         for key in metrics1:
             assert metrics1[key] == metrics2[key], \
                 f"Metric {key} should be identical (instance RNG prevents interference)"
+
+
+def test_skips_docs_with_missing_metadata(caplog):
+    """Test that docs with missing required metadata fields are skipped with warning."""
+    import logging
+
+    generator = SyntheticDataGenerator(seed=42)
+
+    # Create docs missing various required metadata fields
+    doc_missing_cloud_provider = {
+        "metadata": {
+            "document_id": "missing_cloud_001",
+            "test_timestamp": "2026-01-25T10:00:00Z",
+            # "cloud_provider": "aws",  # MISSING
+            "instance_type": "m5.xlarge",
+            "os_vendor": "redhat"
+        },
+        "test": {"name": "uperf", "version": "v1.0"},
+        "results": {
+            "status": "PASS",
+            "runs": {
+                "run_0": {
+                    "status": "PASS",
+                    "metrics": {"throughput": 1000.0}
+                }
+            }
+        }
+    }
+
+    doc_missing_instance_type = {
+        "metadata": {
+            "document_id": "missing_instance_002",
+            "test_timestamp": "2026-01-25T11:00:00Z",
+            "cloud_provider": "gcp",
+            # "instance_type": "c2-standard-4",  # MISSING
+            "os_vendor": "ubuntu"
+        },
+        "test": {"name": "fio", "version": "v3.0"},
+        "results": {
+            "status": "PASS",
+            "runs": {
+                "run_0": {
+                    "status": "PASS",
+                    "metrics": {"iops": 5000.0}
+                }
+            }
+        }
+    }
+
+    doc_missing_os_vendor = {
+        "metadata": {
+            "document_id": "missing_os_003",
+            "test_timestamp": "2026-01-25T12:00:00Z",
+            "cloud_provider": "azure",
+            "instance_type": "Standard_D4s_v3"
+            # "os_vendor": "ubuntu"  # MISSING
+        },
+        "test": {"name": "sysbench", "version": "v1.0"},
+        "results": {
+            "status": "PASS",
+            "runs": {
+                "run_0": {
+                    "status": "PASS",
+                    "metrics": {"events_per_sec": 10000.0}
+                }
+            }
+        }
+    }
+
+    doc_missing_test_timestamp = {
+        "metadata": {
+            "document_id": "missing_timestamp_004",
+            # "test_timestamp": "2026-01-25T13:00:00Z",  # MISSING
+            "cloud_provider": "aws",
+            "instance_type": "m5.large",
+            "os_vendor": "amazon"
+        },
+        "test": {"name": "stream", "version": "v5.10"},
+        "results": {
+            "status": "PASS",
+            "runs": {
+                "run_0": {
+                    "status": "PASS",
+                    "metrics": {"triad_bw": 50000.0}
+                }
+            }
+        }
+    }
+
+    # Valid doc for comparison
+    valid_doc = {
+        "metadata": {
+            "document_id": "valid_005",
+            "test_timestamp": "2026-01-25T14:00:00Z",
+            "cloud_provider": "aws",
+            "instance_type": "m5.2xlarge",
+            "os_vendor": "redhat"
+        },
+        "test": {"name": "linpack", "version": "v2.0"},
+        "results": {
+            "status": "PASS",
+            "runs": {
+                "run_0": {
+                    "status": "PASS",
+                    "metrics": {"gflops": 250.0}
+                }
+            }
+        }
+    }
+
+    all_docs = [
+        doc_missing_cloud_provider,
+        doc_missing_instance_type,
+        doc_missing_os_vendor,
+        doc_missing_test_timestamp,
+        valid_doc
+    ]
+
+    # Generate timeseries with warning capture
+    with caplog.at_level(logging.WARNING):
+        timeseries_docs = generator.generate_timeseries_documents(all_docs)
+
+    # Should skip all malformed docs and only generate for valid doc
+    timeseries_doc_ids = {doc["metadata"]["document_id"] for doc in timeseries_docs}
+
+    assert "missing_cloud_001" not in timeseries_doc_ids, \
+        "Doc missing cloud_provider should be skipped"
+    assert "missing_instance_002" not in timeseries_doc_ids, \
+        "Doc missing instance_type should be skipped"
+    assert "missing_os_003" not in timeseries_doc_ids, \
+        "Doc missing os_vendor should be skipped"
+    assert "missing_timestamp_004" not in timeseries_doc_ids, \
+        "Doc missing test_timestamp should be skipped"
+    assert "valid_005" in timeseries_doc_ids, \
+        "Valid doc should have timeseries generated"
+
+    # Verify warnings were logged for each malformed doc
+    warning_messages = [record.message for record in caplog.records
+                       if record.levelname == "WARNING"]
+
+    assert any("missing_cloud_001" in msg and "cloud_provider" in msg.lower()
+               for msg in warning_messages), \
+        "Should log warning about missing cloud_provider"
+    assert any("missing_instance_002" in msg and "instance_type" in msg.lower()
+               for msg in warning_messages), \
+        "Should log warning about missing instance_type"
+    assert any("missing_os_003" in msg and "os_vendor" in msg.lower()
+               for msg in warning_messages), \
+        "Should log warning about missing os_vendor"
+    assert any("missing_timestamp_004" in msg and "test_timestamp" in msg.lower()
+               for msg in warning_messages), \
+        "Should log warning about missing test_timestamp"

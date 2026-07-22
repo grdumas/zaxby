@@ -261,17 +261,17 @@ class SyntheticDataGenerator:
             # Generate iterations for this scenario
             for iteration in range(iterations_per_scenario):
                 # Calculate test date with some temporal clustering
-                days_offset = scenario_idx * 2 + random.randint(-1, 5)
+                days_offset = scenario_idx * 2 + self._rng.randint(-1, 5)
                 test_date = base_date + timedelta(
                     days=min(days_offset, 180),
-                    hours=random.randint(0, 23),
-                    minutes=random.randint(0, 59),
-                    seconds=random.randint(0, 59)
+                    hours=self._rng.randint(0, 23),
+                    minutes=self._rng.randint(0, 59),
+                    seconds=self._rng.randint(0, 59)
                 )
-                
+
                 # Determine if this test should fail
-                should_fail = (include_failures and 
-                              random.random() < sum(self.failure_types.values()))
+                should_fail = (include_failures and
+                              self._rng.random() < sum(self.failure_types.values()))
                 failure_type = self._select_failure_type() if should_fail else None
                 
                 doc = self._generate_document(
@@ -340,6 +340,19 @@ class SyntheticDataGenerator:
             parent_metadata = result_doc["metadata"]
             parent_doc_id = parent_metadata["document_id"]
             test_type = result_doc["test"]["name"]
+
+            # Validate required metadata fields
+            required_fields = ["test_timestamp", "cloud_provider", "instance_type", "os_vendor"]
+            try:
+                for field in required_fields:
+                    _ = parent_metadata[field]  # Will raise KeyError if missing
+            except KeyError as e:
+                logger.warning(
+                    f"Skipping PASS document {parent_doc_id}: "
+                    f"missing required metadata field {e}"
+                )
+                continue
+
             base_timestamp = datetime.fromisoformat(
                 parent_metadata["test_timestamp"].replace("Z", "+00:00")
             )
@@ -571,62 +584,62 @@ class SyntheticDataGenerator:
         # break the hardware consistency guarantees.
         
         print(f"  Final: Using all {len(scenarios)} scenarios to ensure complete coverage")
-        
+
         # Shuffle to avoid temporal clustering by OS type
-        random.shuffle(scenarios)
-        
+        self._rng.shuffle(scenarios)
+
         return scenarios
     
     def _generate_temporal_trend(self) -> Dict[str, float]:
         """Generate a temporal trend pattern (gradual improvement/degradation)."""
         trend_types = ["improving", "degrading", "stable", "seasonal"]
-        trend_type = random.choice(trend_types)
-        
+        trend_type = self._rng.choice(trend_types)
+
         if trend_type == "improving":
-            return {"type": "linear", "slope": random.uniform(0.001, 0.003)}
+            return {"type": "linear", "slope": self._rng.uniform(0.001, 0.003)}
         elif trend_type == "degrading":
-            return {"type": "linear", "slope": random.uniform(-0.003, -0.001)}
+            return {"type": "linear", "slope": self._rng.uniform(-0.003, -0.001)}
         elif trend_type == "seasonal":
-            return {"type": "seasonal", "amplitude": random.uniform(0.03, 0.08)}
+            return {"type": "seasonal", "amplitude": self._rng.uniform(0.03, 0.08)}
         else:
             return {"type": "stable", "slope": 0.0}
     
     def _select_failure_type(self) -> str:
         """Select a failure type based on configured probabilities."""
         total_prob = sum(self.failure_types.values())
-        rand_val = random.random() * total_prob
-        
+        rand_val = self._rng.random() * total_prob
+
         cumulative = 0.0
         for failure_type, prob in self.failure_types.items():
             cumulative += prob
             if rand_val <= cumulative:
                 return failure_type
-        
+
         return "timeout"  # default
     
     def _select_performance_pattern(self) -> Dict[str, Any]:
         """
         Select a performance pattern (regression, improvement, or stable).
-        
+
         Returns:
             Dictionary with pattern type and magnitude
         """
-        pattern_type = random.choices(
+        pattern_type = self._rng.choices(
             ["stable", "minor_improvement", "improvement", "minor_regression", "regression"],
             weights=[0.60, 0.15, 0.05, 0.15, 0.05]  # Most tests are stable
         )[0]
-        
+
         if pattern_type == "stable":
-            magnitude = random.uniform(0.97, 1.03)  # ±3%
+            magnitude = self._rng.uniform(0.97, 1.03)  # ±3%
         elif pattern_type == "minor_improvement":
-            magnitude = random.uniform(1.05, 1.12)  # 5-12% improvement
+            magnitude = self._rng.uniform(1.05, 1.12)  # 5-12% improvement
         elif pattern_type == "improvement":
-            magnitude = random.uniform(1.15, 1.35)  # 15-35% improvement
+            magnitude = self._rng.uniform(1.15, 1.35)  # 15-35% improvement
         elif pattern_type == "minor_regression":
-            magnitude = random.uniform(0.88, 0.95)  # 5-12% regression
+            magnitude = self._rng.uniform(0.88, 0.95)  # 5-12% regression
         else:  # regression
-            magnitude = random.uniform(0.55, 0.80)  # 20-45% regression
-        
+            magnitude = self._rng.uniform(0.55, 0.80)  # 20-45% regression
+
         return {"type": pattern_type, "magnitude": magnitude}
     
     def _generate_document(
@@ -644,8 +657,8 @@ class SyntheticDataGenerator:
         scenario_id: str = "scenario_000"
     ) -> Dict[str, Any]:
         """Generate a single synthetic benchmark document."""
-        
-        doc_id = f"{test_type}_{random.randbytes(8).hex()}"
+
+        doc_id = f"{test_type}_{self._rng.randbytes(8).hex()}"
         scenario_name = f"{os_distribution}_{os_version.replace('.', '')}"
         
         doc = {
@@ -717,7 +730,7 @@ class SyntheticDataGenerator:
         
         # More accurate CPU core mapping based on instance type
         cores = self._get_cpu_cores(instance_type)
-        cpu_model = random.choice(cpu_models[cloud_provider])
+        cpu_model = self._rng.choice(cpu_models[cloud_provider])
         
         vendor = "AuthenticAMD" if "AMD" in cpu_model else "GenuineIntel"
         numa_nodes = 4 if cores >= 96 else 2 if cores >= 48 else 1
@@ -750,7 +763,7 @@ class SyntheticDataGenerator:
                 "distribution": os_distribution,
                 "version": os_version,
                 "kernel_version": kernel_version,
-                "hostname": f"test-{cloud_provider}-{random.randint(100, 999)}.internal"
+                "hostname": f"test-{cloud_provider}-{self._rng.randint(100, 999)}.internal"
             },
             "configuration": {
                 "tuned_profile": "virtual-guest",
@@ -885,7 +898,7 @@ class SyntheticDataGenerator:
         
         # Apply performance pattern and iteration variation
         magnitude = pattern["magnitude"]
-        iteration_variance = random.uniform(0.98, 1.02)  # Small run-to-run variation
+        iteration_variance = self._rng.uniform(0.98, 1.02)  # Small run-to-run variation
         
         # Apply temporal trend if present
         trend_factor = 1.0
@@ -910,15 +923,15 @@ class SyntheticDataGenerator:
             # Use a minimum threshold of 20% of baseline to ensure meaningful comparisons
             min_value = max(baseline_value * 0.20, 0.01)  # At least 20% or 0.01
             if value <= 0 or value < min_value:
-                value = min_value * random.uniform(1.0, 1.5)  # Add some variance
-            
+                value = min_value * self._rng.uniform(1.0, 1.5)  # Add some variance
+
             # For metrics with statistical aggregations (mean, min, max, stddev)
             if not metric_name.endswith(("_mean", "_min", "_max", "_stddev", "_pct")):
                 metrics[metric_name] = value
                 metrics[f"{metric_name}_mean"] = value
-                metrics[f"{metric_name}_min"] = value * random.uniform(0.96, 0.99)
-                metrics[f"{metric_name}_max"] = value * random.uniform(1.01, 1.04)
-                metrics[f"{metric_name}_stddev"] = value * random.uniform(0.008, 0.015)
+                metrics[f"{metric_name}_min"] = value * self._rng.uniform(0.96, 0.99)
+                metrics[f"{metric_name}_max"] = value * self._rng.uniform(1.01, 1.04)
+                metrics[f"{metric_name}_stddev"] = value * self._rng.uniform(0.008, 0.015)
             else:
                 metrics[metric_name] = value
                 correlated_metrics[metric_name] = value
@@ -940,7 +953,7 @@ class SyntheticDataGenerator:
         if primary_metric_value <= 0 or primary_metric_value < 0.001:
             # Use a reasonable positive value based on the baseline
             baseline_for_metric = baseline.get(primary_metric_name, 100.0)
-            primary_metric_value = baseline_for_metric * random.uniform(0.30, 0.50)
+            primary_metric_value = baseline_for_metric * self._rng.uniform(0.30, 0.50)
         
         return {
             "status": status,
@@ -1014,8 +1027,8 @@ class SyntheticDataGenerator:
             # Normalized so c4-standard-96 returns ~1.0 (baseline)
             base_multiplier = (vcpus / 96) ** 0.85  # Sub-linear scaling
             # Add small variance for realism
-            return base_multiplier * random.uniform(0.97, 1.03)
-        
+            return base_multiplier * self._rng.uniform(0.97, 1.03)
+
         # Special handling for C6i series - scale based on vCPU count (AWS)
         if instance_type in self.c6i_series_specs:
             vcpus = self.c6i_series_specs[instance_type][0]
@@ -1023,16 +1036,16 @@ class SyntheticDataGenerator:
             # Normalized so c6i.24xlarge (96 vCPUs) returns ~1.0 (baseline)
             base_multiplier = (vcpus / 96) ** 0.85  # Sub-linear scaling
             # Add small variance for realism
-            return base_multiplier * random.uniform(0.97, 1.03)
-        
+            return base_multiplier * self._rng.uniform(0.97, 1.03)
+
         for tier, patterns in self.hardware_tiers.items():
             if any(pattern in instance_type for pattern in patterns):
                 if tier == "high":
-                    return random.uniform(1.15, 1.25)
+                    return self._rng.uniform(1.15, 1.25)
                 elif tier == "medium":
-                    return random.uniform(0.95, 1.05)
+                    return self._rng.uniform(0.95, 1.05)
                 elif tier == "low":
-                    return random.uniform(0.75, 0.85)
+                    return self._rng.uniform(0.75, 0.85)
         
         return 1.0  # default
     
@@ -1057,16 +1070,16 @@ class SyntheticDataGenerator:
                 
                 # Apply correlated deviation to metric2
                 correlated_deviation = deviation1 * correlation_coef
-                noise = random.uniform(-0.02, 0.02) * (1 - correlation_coef)
-                
+                noise = self._rng.uniform(-0.02, 0.02) * (1 - correlation_coef)
+
                 metrics[metric2] = base2 * (1 + correlated_deviation + noise)
-                
+
                 # Update aggregated versions if they exist
                 if f"{metric2}_mean" in metrics:
                     metrics[f"{metric2}_mean"] = metrics[metric2]
-                    metrics[f"{metric2}_min"] = metrics[metric2] * random.uniform(0.96, 0.99)
-                    metrics[f"{metric2}_max"] = metrics[metric2] * random.uniform(1.01, 1.04)
-                    metrics[f"{metric2}_stddev"] = metrics[metric2] * random.uniform(0.008, 0.015)
+                    metrics[f"{metric2}_min"] = metrics[metric2] * self._rng.uniform(0.96, 0.99)
+                    metrics[f"{metric2}_max"] = metrics[metric2] * self._rng.uniform(1.01, 1.04)
+                    metrics[f"{metric2}_stddev"] = metrics[metric2] * self._rng.uniform(0.008, 0.015)
         
         return metrics
     

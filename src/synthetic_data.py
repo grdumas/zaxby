@@ -20,6 +20,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import os
 
+# Aggregate metric suffixes to filter when base metric exists
+AGGREGATE_SUFFIXES = ("_mean", "_min", "_max", "_stddev")
+
 
 class SyntheticDataGenerator:
     """Generate synthetic benchmark results matching real OpenSearch schema."""
@@ -396,22 +399,17 @@ class SyntheticDataGenerator:
             # Skip aggregate statistics only if base metric exists
             # (e.g., skip "latency_mean" if "latency" exists, but keep "SUMM_CPU_mean"
             # if no "SUMM_CPU" base metric)
-            if metric_name.endswith(("_mean", "_min", "_max", "_stddev")):
+            if metric_name.endswith(AGGREGATE_SUFFIXES):
                 # Check if base metric exists
-                for suffix in ["_mean", "_min", "_max", "_stddev"]:
+                # Find which suffix matches and check if base metric exists
+                base_metric = None
+                for suffix in AGGREGATE_SUFFIXES:
                     if metric_name.endswith(suffix):
                         base_metric = metric_name.rsplit(suffix, 1)[0]
-                        if base_metric in parent_metrics:
-                            # Skip this aggregate since base exists
-                            break
-                else:
-                    # No base metric found, keep this aggregate-only metric
-                    pass
+                        break
 
-                # If we broke (base exists), skip this metric
-                if any(metric_name.endswith(suffix) and
-                       metric_name.rsplit(suffix, 1)[0] in parent_metrics
-                       for suffix in ["_mean", "_min", "_max", "_stddev"]):
+                # Skip this aggregate if we found the base metric
+                if base_metric and base_metric in parent_metrics:
                     continue
 
             # Integer metrics should remain constant and preserve type

@@ -1350,9 +1350,36 @@ def main():
     print(f"  • {short_sequences} short sequences (10-20 points)")
     print(f"  • {long_sequences} long sequences (50-100+ points)")
 
-    # Save timeseries to file
-    timeseries_output_file = "data/synthetic/timeseries_results.json"
-    generator.save_to_file(timeseries_docs, timeseries_output_file)
+    # Build generation metadata
+    generation_metadata = generator.build_generation_metadata(documents, timeseries_docs)
+
+    print("\n" + "=" * 80)
+    print("GENERATION METADATA")
+    print("=" * 80)
+    print(f"\n📋 Dataset Summary:")
+    print(f"  • Result documents: {generation_metadata['result_document_count']}")
+    print(f"  • Timeseries documents: {generation_metadata['timeseries_document_count']}")
+    print(f"  • Unique sequences: {generation_metadata['unique_timeseries_sequences']}")
+    print(f"  • Avg points per result: {generation_metadata['avg_points_per_result']}")
+    print(f"\n📊 Sequence Distribution:")
+    chars = generation_metadata['dataset_characteristics']
+    print(f"  • Short sequences: {chars['short_sequences_count']} ({chars['short_sequence_range']})")
+    print(f"  • Long sequences: {chars['long_sequences_count']} ({chars['long_sequence_range']})")
+
+    # Save timeseries to JSON file with compression
+    timeseries_output_file = "data/synthetic/zathras_timeseries.json"
+    generator.save_to_file(timeseries_docs, timeseries_output_file, compress_threshold_mb=10)
+
+    # Save timeseries to JSONL file with compression (production-like format)
+    timeseries_jsonl_file = "data/synthetic/zathras_timeseries.jsonl"
+    generator.save_to_jsonl(timeseries_docs, timeseries_jsonl_file, compress_threshold_mb=10)
+
+    # Save generation metadata
+    metadata_file = "data/synthetic/zathras_timeseries_metadata.json"
+    os.makedirs(os.path.dirname(metadata_file), exist_ok=True)
+    with open(metadata_file, 'w') as f:
+        json.dump(generation_metadata, f, indent=2)
+    print(f"\n📋 Generation metadata saved to {metadata_file}")
 
     # Generate comprehensive summary statistics
     test_types = {}
@@ -1437,8 +1464,22 @@ def main():
     print("=" * 80)
     print(f"\n📁 Results data: {output_file}")
     print(f"   File size: {os.path.getsize(output_file) / (1024*1024):.2f} MB")
-    print(f"\n📁 Timeseries data: {timeseries_output_file}")
-    print(f"   File size: {os.path.getsize(timeseries_output_file) / (1024*1024):.2f} MB")
+
+    # Report timeseries file (check for compressed version)
+    ts_json_file = timeseries_output_file + ".gz" if os.path.exists(timeseries_output_file + ".gz") else timeseries_output_file
+    ts_jsonl_file = timeseries_jsonl_file + ".gz" if os.path.exists(timeseries_jsonl_file + ".gz") else timeseries_jsonl_file
+
+    print(f"\n📁 Timeseries data (JSON): {ts_json_file}")
+    if os.path.exists(ts_json_file):
+        print(f"   File size: {os.path.getsize(ts_json_file) / (1024*1024):.2f} MB")
+
+    print(f"\n📁 Timeseries data (JSONL): {ts_jsonl_file}")
+    if os.path.exists(ts_jsonl_file):
+        print(f"   File size: {os.path.getsize(ts_jsonl_file) / (1024*1024):.2f} MB")
+
+    print(f"\n📁 Generation metadata: {metadata_file}")
+    print(f"   Contains: timestamp, counts, sequence distribution")
+
     print("\n💡 This dataset includes:")
     print("  • Temporal trends and patterns")
     print("  • Correlated metrics within test types")
@@ -1446,6 +1487,7 @@ def main():
     print("  • Realistic failure scenarios")
     print("  • Wide variety of configurations")
     print("  • Timeseries point-level data linked to results")
+    print("  • Compressed files for git-friendly storage (< 50MB)")
     print("\n🎯 Ready for dashboard development and testing!")
 
 

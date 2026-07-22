@@ -268,7 +268,7 @@ def test_timeseries_index_separate_from_benchmark_data(temp_timeseries_file):
 # Integration test with real file (optional - skip if file missing)
 
 @pytest.mark.skipif(
-    not os.path.exists("data/synthetic/timeseries_results.json"),
+    not os.path.exists("data/synthetic/zathras_timeseries.json.gz"),
     reason="Real timeseries file not available"
 )
 def test_integration_load_real_timeseries_file():

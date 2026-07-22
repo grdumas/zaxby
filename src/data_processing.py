@@ -1387,6 +1387,30 @@ def get_synthetic_timeseries_index() -> Dict[str, List[Dict[str, Any]]]:
     return _synthetic_timeseries_index
 
 
+def fetch_synthetic_timeseries_for_document(
+    document_id: str,
+    *,
+    size: int = 100,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch timeseries points for a document_id from synthetic data.
+
+    Synthetic-mode equivalent of
+    BenchmarkDataSource.fetch_timeseries_for_document.
+
+    Args:
+        document_id: Parent result document_id to look up.
+        size: Maximum number of points to return (API parity with OpenSearch).
+
+    Returns:
+        List of timeseries point dicts sorted by sequence number.
+        Empty list if document_id has no timeseries or data is unavailable.
+    """
+    index = get_synthetic_timeseries_index()
+    points = index.get(document_id, [])
+    return points[:size]
+
+
 def _reset_synthetic_timeseries_index() -> None:
     """Reset the lazy-loaded timeseries index (test helper only)."""
     global _synthetic_timeseries_index

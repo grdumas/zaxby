@@ -708,3 +708,49 @@ def test_zero_value_handling(generator):
         # Non-zero metrics should still vary
         assert "throughput" in point_metrics
         assert isinstance(point_metrics["throughput"], float)
+
+
+def test_instance_rng_for_deterministic_generation(sample_results):
+    """Test that generator uses instance RNG to avoid global random interference.
+
+    This verifies generators don't interfere with each other via global random state.
+    With instance RNG:
+    - gen1 and gen2 (same seed) produce identical output even if gen3 runs between them
+    - Generators are isolated from external random calls
+    """
+    import random as global_random
+
+    # Generate timeseries with first generator (seed=42)
+    gen1 = SyntheticDataGenerator(seed=42)
+    ts1 = gen1.generate_timeseries_documents(sample_results)
+    ts1_ids = [doc["metadata"]["timeseries_id"] for doc in ts1]
+
+    # Interfere with global random state (simulates another test/code using random)
+    gen_interference = SyntheticDataGenerator(seed=99)
+    _ = gen_interference.generate_timeseries_documents(sample_results)
+
+    # Also call global random functions
+    for _ in range(100):
+        global_random.random()
+        global_random.gauss(1.0, 0.1)
+
+    # Generate timeseries with second generator (same seed=42)
+    # If using instance RNG, this should produce identical output to gen1
+    # If using global random, interference will cause different output
+    gen2 = SyntheticDataGenerator(seed=42)
+    ts2 = gen2.generate_timeseries_documents(sample_results)
+    ts2_ids = [doc["metadata"]["timeseries_id"] for doc in ts2]
+
+    # Same seed should produce identical results despite interference
+    assert len(ts1) == len(ts2), "Same seed should produce same number of timeseries points"
+    assert ts1_ids == ts2_ids, \
+        "Same seed should produce identical timeseries_ids (instance RNG prevents interference)"
+
+    # Check that point metrics are identical despite interference
+    for doc1, doc2 in zip(ts1, ts2):
+        metrics1 = doc1["results"]["point_metrics"]
+        metrics2 = doc2["results"]["point_metrics"]
+        assert metrics1.keys() == metrics2.keys(), "Metrics keys should match"
+        for key in metrics1:
+            assert metrics1[key] == metrics2[key], \
+                f"Metric {key} should be identical (instance RNG prevents interference)"

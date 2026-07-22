@@ -32,7 +32,8 @@ class SyntheticDataGenerator:
     
     def __init__(self, seed: int = 42):
         """Initialize generator with optional random seed."""
-        random.seed(seed)
+        # Use instance RNG for better test isolation and reproducibility
+        self._rng = random.Random(seed)
         
         # Expanded configuration based on discovered schema
         # OS configurations: distribution -> list of versions
@@ -328,12 +329,12 @@ class SyntheticDataGenerator:
                 continue
 
             # Determine sequence length based on distribution
-            if random.random() < long_sequence_probability:
+            if self._rng.random() < long_sequence_probability:
                 # 20% get long sequences (sweep/stress tests)
-                num_points = random.randint(*long_sequence_range)
+                num_points = self._rng.randint(*long_sequence_range)
             else:
                 # 80% get short sequences (standard benchmarks)
-                num_points = random.randint(*short_sequence_range)
+                num_points = self._rng.randint(*short_sequence_range)
 
             # Extract parent metadata
             parent_metadata = result_doc["metadata"]
@@ -344,7 +345,7 @@ class SyntheticDataGenerator:
             )
 
             # Generate timeseries_id for this sequence
-            timeseries_id = f"{test_type}_{random.randbytes(6).hex()}_timeseries"
+            timeseries_id = f"{test_type}_{self._rng.randbytes(6).hex()}_timeseries"
 
             # Validate and extract parent metrics from run_0
             try:
@@ -433,8 +434,8 @@ class SyntheticDataGenerator:
                 continue
 
             # Apply gaussian variance (2-8% stddev) for float metrics
-            stddev_pct = random.uniform(0.02, 0.08)
-            variance_factor = random.gauss(1.0, stddev_pct)
+            stddev_pct = self._rng.uniform(0.02, 0.08)
+            variance_factor = self._rng.gauss(1.0, stddev_pct)
 
             # Clamp variance to ±20% to keep values realistic
             variance_factor = max(0.80, min(1.20, variance_factor))
@@ -443,7 +444,7 @@ class SyntheticDataGenerator:
 
             # Ensure variance didn't make a positive value negative (edge case)
             if point_value <= 0:
-                point_value = parent_value * random.uniform(0.80, 0.90)
+                point_value = parent_value * self._rng.uniform(0.80, 0.90)
 
             point_metrics[metric_name] = point_value
 

@@ -1416,7 +1416,7 @@ def get_synthetic_timeseries_index() -> Dict[str, List[Dict[str, Any]]]:
     """
     Get or lazily build the synthetic timeseries index (singleton).
 
-    First call loads timeseries_results.json and builds the
+    First call loads zathras_timeseries.json.gz and builds the
     document_id -> points index. Subsequent calls return the cached result.
     """
     global _synthetic_timeseries_index

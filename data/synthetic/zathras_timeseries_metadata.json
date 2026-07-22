@@ -1,9 +1,9 @@
 {
-  "generation_timestamp": "2026-07-22T20:32:29.662416Z",
+  "generation_timestamp": "2026-07-22T21:02:31.757095Z",
   "result_document_count": 1824,
   "timeseries_document_count": 44977,
   "unique_timeseries_sequences": 1684,
-  "avg_points_per_result": 26.7,
+  "avg_points_per_passing_result": 26.7,
   "dataset_characteristics": {
     "short_sequences_count": 1352,
     "long_sequences_count": 332,

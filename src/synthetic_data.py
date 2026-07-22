@@ -284,9 +284,137 @@ class SyntheticDataGenerator:
         
         # Sort by timestamp for realistic temporal ordering
         documents.sort(key=lambda x: x["metadata"]["test_timestamp"])
-        
+
         return documents
-    
+
+    def generate_timeseries_documents(
+        self,
+        result_documents: List[Dict[str, Any]],
+        short_sequence_range: Tuple[int, int] = (10, 20),
+        long_sequence_range: Tuple[int, int] = (50, 100),
+        long_sequence_probability: float = 0.20,
+        point_interval_seconds: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate timeseries documents linked to result documents.
+
+        For each passing result document, generates N timeseries points with:
+        - Unique timeseries_id per sequence
+        - Sequential sequence numbers (0, 1, 2, ...)
+        - Point metrics with realistic variance from parent summary
+        - Common metadata copied from parent (cloud_provider, instance_type, os_vendor)
+
+        Args:
+            result_documents: List of result documents from generate_dataset()
+            short_sequence_range: (min, max) points for short sequences (80% of results)
+            long_sequence_range: (min, max) points for long sequences (20% of results)
+            long_sequence_probability: Probability of generating a long sequence
+            point_interval_seconds: Seconds between timeseries points
+
+        Returns:
+            List of timeseries documents
+        """
+        timeseries_docs = []
+
+        for result_doc in result_documents:
+            # Skip failed results (no metrics to vary)
+            if result_doc["results"]["status"] != "PASS":
+                continue
+
+            # Determine sequence length based on distribution
+            if random.random() < long_sequence_probability:
+                # 20% get long sequences (sweep/stress tests)
+                num_points = random.randint(*long_sequence_range)
+            else:
+                # 80% get short sequences (standard benchmarks)
+                num_points = random.randint(*short_sequence_range)
+
+            # Extract parent metadata
+            parent_metadata = result_doc["metadata"]
+            parent_doc_id = parent_metadata["document_id"]
+            test_type = result_doc["test"]["name"]
+            base_timestamp = datetime.fromisoformat(
+                parent_metadata["test_timestamp"].replace("Z", "+00:00")
+            )
+
+            # Generate timeseries_id for this sequence
+            timeseries_id = f"{test_type}_{random.randbytes(6).hex()}_timeseries"
+
+            # Extract parent metrics from run_0
+            parent_metrics = result_doc["results"]["runs"]["run_0"]["metrics"]
+
+            # Generate each point in the sequence
+            for sequence_num in range(num_points):
+                # Calculate timestamp for this point
+                point_timestamp = base_timestamp + timedelta(
+                    seconds=sequence_num * point_interval_seconds
+                )
+
+                # Generate point_metrics with variance
+                point_metrics = self._generate_point_metrics(parent_metrics, sequence_num)
+
+                # Build timeseries document
+                timeseries_doc = {
+                    "metadata": {
+                        "timeseries_id": timeseries_id,
+                        "document_id": parent_doc_id,
+                        "sequence": sequence_num,
+                        "test_timestamp": point_timestamp.isoformat().replace("+00:00", "Z"),
+                        # Include common metadata for query convenience
+                        "cloud_provider": parent_metadata["cloud_provider"],
+                        "instance_type": parent_metadata["instance_type"],
+                        "os_vendor": parent_metadata["os_vendor"]
+                    },
+                    "results": {
+                        "point_metrics": point_metrics
+                    }
+                }
+
+                timeseries_docs.append(timeseries_doc)
+
+        return timeseries_docs
+
+    def _generate_point_metrics(
+        self,
+        parent_metrics: Dict[str, float],
+        sequence_num: int
+    ) -> Dict[str, float]:
+        """
+        Generate point metrics with realistic variance from parent summary.
+
+        Simulates run-to-run variation using gaussian noise (2-8% stddev).
+
+        Args:
+            parent_metrics: Metrics from parent result's run_0
+            sequence_num: Sequence number (for reproducible variance)
+
+        Returns:
+            Dictionary of point metrics with variance applied
+        """
+        point_metrics = {}
+
+        for metric_name, parent_value in parent_metrics.items():
+            # Skip aggregate statistics (these are derived, not raw metrics)
+            if metric_name.endswith(("_mean", "_min", "_max", "_stddev")):
+                continue
+
+            # Apply gaussian variance (2-8% stddev)
+            stddev_pct = random.uniform(0.02, 0.08)
+            variance_factor = random.gauss(1.0, stddev_pct)
+
+            # Clamp variance to ±20% to keep values realistic
+            variance_factor = max(0.80, min(1.20, variance_factor))
+
+            point_value = parent_value * variance_factor
+
+            # Ensure value is positive and non-zero
+            if point_value <= 0:
+                point_value = parent_value * random.uniform(0.80, 0.90)
+
+            point_metrics[metric_name] = point_value
+
+        return point_metrics
+
     def _generate_scenarios(self, num_scenarios: int) -> List[Dict[str, Any]]:
         """
         Generate a diverse set of test scenarios with controlled distribution.

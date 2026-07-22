@@ -10,32 +10,108 @@ from datetime import datetime
 from src.synthetic_data import SyntheticDataGenerator
 
 
-def test_save_with_compression_for_large_files():
-    """Test that files > 10MB are automatically compressed with gzip."""
+def test_compression_forced_with_zero_threshold():
+    """Test that compression is applied deterministically when threshold is 0.
+
+    This tests compression logic independent of dataset size by forcing
+    compression regardless of file size. More reliable than assuming a
+    specific dataset will exceed a size threshold.
+    """
     generator = SyntheticDataGenerator(seed=42)
 
-    # Create a large enough dataset (will be > 10MB)
-    documents = generator.generate_dataset(
-        num_scenarios=100,
-        iterations_per_scenario=10,
-        include_temporal_trends=False,
-        include_failures=False
-    )
+    # Create minimal test data - we're testing compression logic, not data generation
+    # Just need enough to verify compression/decompression works correctly
+    documents = [
+        {"metadata": {"id": i, "test": "compression"}, "data": f"test_{i}"}
+        for i in range(3)
+    ]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = os.path.join(tmpdir, "large_file.json")
+        output_file = os.path.join(tmpdir, "compressed_file.json")
 
-        # Save with compression
-        generator.save_to_file(documents, output_file, compress_threshold_mb=10)
+        # Force compression with threshold=0 (any file size triggers compression)
+        generator.save_to_file(documents, output_file, compress_threshold_mb=0)
 
-        # Should create .gz file for large data
+        # Should create .gz file even for tiny data
         assert os.path.exists(output_file + ".gz"), "Compressed file should exist"
+        assert not os.path.exists(output_file), "Uncompressed file should not exist"
 
         # Verify can read back the compressed data
         with gzip.open(output_file + ".gz", 'rt') as f:
             loaded_data = json.load(f)
 
         assert len(loaded_data) == len(documents), "Should preserve all documents"
+        # Verify document structure is preserved
+        assert loaded_data[0]["metadata"]["id"] == documents[0]["metadata"]["id"]
+        assert loaded_data[2]["data"] == documents[2]["data"]
+
+
+def test_save_with_compression_for_large_files():
+    """Test that compression is applied when file size exceeds threshold.
+
+    Uses compress_threshold_mb=0 to deterministically trigger compression,
+    avoiding brittleness from assumptions about generated dataset size.
+    """
+    generator = SyntheticDataGenerator(seed=42)
+
+    # Create moderate test data - testing compression threshold logic
+    # Using a small dataset since we force compression with threshold=0
+    documents = [
+        {
+            "metadata": {"id": i, "test": "compression"},
+            "data": f"test_data_{i}" * 100  # Some content to compress
+        }
+        for i in range(10)
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = os.path.join(tmpdir, "large_file.json")
+
+        # Force compression with threshold=0 (deterministic behavior)
+        generator.save_to_file(documents, output_file, compress_threshold_mb=0)
+
+        # Should create .gz file when threshold=0
+        assert os.path.exists(output_file + ".gz"), "Compressed file should exist"
+        assert not os.path.exists(output_file), "Uncompressed file should not exist"
+
+        # Verify can read back the compressed data
+        with gzip.open(output_file + ".gz", 'rt') as f:
+            loaded_data = json.load(f)
+
+        assert len(loaded_data) == len(documents), "Should preserve all documents"
+        assert loaded_data[5]["data"] == documents[5]["data"], "Should preserve document content"
+
+
+def test_no_compression_when_below_threshold():
+    """Test that files below threshold are not compressed.
+
+    Uses a high threshold to deterministically prevent compression,
+    avoiding brittleness from assumptions about generated dataset size.
+    """
+    generator = SyntheticDataGenerator(seed=42)
+
+    # Create small test data
+    documents = [
+        {"metadata": {"id": i}, "data": f"test_{i}"}
+        for i in range(5)
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = os.path.join(tmpdir, "small_file.json")
+
+        # Use very high threshold to ensure no compression (deterministic behavior)
+        generator.save_to_file(documents, output_file, compress_threshold_mb=999)
+
+        # Should create regular JSON file when below threshold
+        assert os.path.exists(output_file), "Uncompressed file should exist"
+        assert not os.path.exists(output_file + ".gz"), "Should not create .gz for small files"
+
+        # Verify can read back the uncompressed data
+        with open(output_file, 'r') as f:
+            loaded_data = json.load(f)
+
+        assert len(loaded_data) == len(documents), "Should preserve all documents"
+        assert loaded_data[3]["data"] == documents[3]["data"], "Should preserve document content"
 
 
 def test_no_compression_for_small_files():
@@ -118,14 +194,14 @@ def test_generation_metadata_structure():
     assert "generation_timestamp" in metadata
     assert "result_document_count" in metadata
     assert "timeseries_document_count" in metadata
-    assert "avg_points_per_result" in metadata
+    assert "avg_points_per_passing_result" in metadata
     assert "unique_timeseries_sequences" in metadata
     assert "dataset_characteristics" in metadata
 
     # Verify values
     assert metadata["result_document_count"] == len(result_docs)
     assert metadata["timeseries_document_count"] == len(timeseries_docs)
-    assert metadata["avg_points_per_result"] > 0
+    assert metadata["avg_points_per_passing_result"] > 0
 
     # Timestamp should be valid ISO format
     datetime.fromisoformat(metadata["generation_timestamp"].replace("Z", "+00:00"))

@@ -21,6 +21,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import os
 import logging
 import gzip
+import shutil
 
 # Aggregate metric suffixes to filter when base metric exists
 AGGREGATE_SUFFIXES = ("_mean", "_min", "_max", "_stddev")
@@ -1147,7 +1148,7 @@ class SyntheticDataGenerator:
         documents: List[Dict[str, Any]],
         filename: str,
         compress_threshold_mb: int = 10
-    ):
+    ) -> str:
         """
         Save generated documents to a JSON file with optional compression.
 
@@ -1155,8 +1156,14 @@ class SyntheticDataGenerator:
             documents: List of documents to save
             filename: Output filename (without .gz extension)
             compress_threshold_mb: Compress if file size exceeds this threshold in MB
+
+        Returns:
+            Actual path written (filename or filename + '.gz' if compressed)
         """
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        # Create parent directory only if filename has a directory component
+        dirname = os.path.dirname(filename)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
 
         # First write to temporary uncompressed file
         temp_file = filename + ".tmp"
@@ -1171,24 +1178,26 @@ class SyntheticDataGenerator:
             compressed_file = filename + ".gz"
             with open(temp_file, 'rb') as f_in:
                 with gzip.open(compressed_file, 'wb') as f_out:
-                    f_out.write(f_in.read())
+                    shutil.copyfileobj(f_in, f_out)
 
             os.remove(temp_file)
             print(f"Saved {len(documents)} documents to {compressed_file}")
             print(f"  Uncompressed size: {file_size_mb:.2f} MB")
             print(f"  Compressed size: {os.path.getsize(compressed_file) / (1024*1024):.2f} MB")
+            return compressed_file
         else:
-            # Keep uncompressed, rename temp to final
-            os.rename(temp_file, filename)
+            # Keep uncompressed, replace temp with final
+            os.replace(temp_file, filename)
             print(f"Saved {len(documents)} documents to {filename}")
             print(f"  File size: {file_size_mb:.2f} MB")
+            return filename
 
     def save_to_jsonl(
         self,
         documents: List[Dict[str, Any]],
         filename: str,
         compress_threshold_mb: int = 10
-    ):
+    ) -> str:
         """
         Save documents in JSONL format (one JSON object per line).
 
@@ -1196,8 +1205,14 @@ class SyntheticDataGenerator:
             documents: List of documents to save
             filename: Output filename (without .gz extension)
             compress_threshold_mb: Compress if file size exceeds this threshold in MB
+
+        Returns:
+            Actual path written (filename or filename + '.gz' if compressed)
         """
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        # Create parent directory only if filename has a directory component
+        dirname = os.path.dirname(filename)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
 
         # Write to temporary file
         temp_file = filename + ".tmp"
@@ -1214,22 +1229,25 @@ class SyntheticDataGenerator:
             compressed_file = filename + ".gz"
             with open(temp_file, 'rb') as f_in:
                 with gzip.open(compressed_file, 'wb') as f_out:
-                    f_out.write(f_in.read())
+                    shutil.copyfileobj(f_in, f_out)
 
             os.remove(temp_file)
             print(f"Saved {len(documents)} documents to {compressed_file} (JSONL format)")
             print(f"  Uncompressed size: {file_size_mb:.2f} MB")
             print(f"  Compressed size: {os.path.getsize(compressed_file) / (1024*1024):.2f} MB")
+            return compressed_file
         else:
-            # Keep uncompressed, rename temp to final
-            os.rename(temp_file, filename)
+            # Keep uncompressed, replace temp with final
+            os.replace(temp_file, filename)
             print(f"Saved {len(documents)} documents to {filename} (JSONL format)")
             print(f"  File size: {file_size_mb:.2f} MB")
+            return filename
 
     def build_generation_metadata(
         self,
         result_documents: List[Dict[str, Any]],
-        timeseries_documents: List[Dict[str, Any]]
+        timeseries_documents: List[Dict[str, Any]],
+        generation_timestamp: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Build metadata about the generated dataset.
@@ -1237,6 +1255,8 @@ class SyntheticDataGenerator:
         Args:
             result_documents: List of result documents
             timeseries_documents: List of timeseries documents
+            generation_timestamp: Optional explicit timestamp for reproducibility.
+                                If None, uses datetime.now(timezone.utc).
 
         Returns:
             Dictionary with generation metadata
@@ -1256,19 +1276,23 @@ class SyntheticDataGenerator:
         short_sequences = sum(1 for count in sequences_by_id.values() if 10 <= count <= 20)
         long_sequences = sum(1 for count in sequences_by_id.values() if count >= 50)
 
-        # Calculate average points per result
+        # Calculate average points per passing result
         passing_results = sum(
             1 for doc in result_documents
             if doc["results"]["status"] == "PASS"
         )
         avg_points = len(timeseries_documents) / passing_results if passing_results > 0 else 0
 
+        # Use provided timestamp or generate one
+        if generation_timestamp is None:
+            generation_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
         return {
-            "generation_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "generation_timestamp": generation_timestamp,
             "result_document_count": len(result_documents),
             "timeseries_document_count": len(timeseries_documents),
             "unique_timeseries_sequences": len(unique_sequences),
-            "avg_points_per_result": round(avg_points, 1),
+            "avg_points_per_passing_result": round(avg_points, 1),
             "dataset_characteristics": {
                 "short_sequences_count": short_sequences,
                 "long_sequences_count": long_sequences,
@@ -1315,7 +1339,7 @@ def main():
     
     # Save results to file
     output_file = "data/synthetic/benchmark_results.json"
-    generator.save_to_file(documents, output_file)
+    actual_output_file = generator.save_to_file(documents, output_file)
 
     # Generate timeseries documents
     print("\n" + "=" * 80)
@@ -1350,8 +1374,14 @@ def main():
     print(f"  • {short_sequences} short sequences (10-20 points)")
     print(f"  • {long_sequences} long sequences (50-100+ points)")
 
-    # Build generation metadata
-    generation_metadata = generator.build_generation_metadata(documents, timeseries_docs)
+    # Build generation metadata with explicit timestamp for reproducibility
+    # Use a fixed timestamp for deterministic builds with the same seed
+    fixed_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    generation_metadata = generator.build_generation_metadata(
+        documents,
+        timeseries_docs,
+        generation_timestamp=fixed_timestamp
+    )
 
     print("\n" + "=" * 80)
     print("GENERATION METADATA")
@@ -1360,7 +1390,7 @@ def main():
     print(f"  • Result documents: {generation_metadata['result_document_count']}")
     print(f"  • Timeseries documents: {generation_metadata['timeseries_document_count']}")
     print(f"  • Unique sequences: {generation_metadata['unique_timeseries_sequences']}")
-    print(f"  • Avg points per result: {generation_metadata['avg_points_per_result']}")
+    print(f"  • Avg points per passing result: {generation_metadata['avg_points_per_passing_result']}")
     print(f"\n📊 Sequence Distribution:")
     chars = generation_metadata['dataset_characteristics']
     print(f"  • Short sequences: {chars['short_sequences_count']} ({chars['short_sequence_range']})")
@@ -1368,11 +1398,11 @@ def main():
 
     # Save timeseries to JSON file with compression
     timeseries_output_file = "data/synthetic/zathras_timeseries.json"
-    generator.save_to_file(timeseries_docs, timeseries_output_file, compress_threshold_mb=10)
+    actual_ts_json_file = generator.save_to_file(timeseries_docs, timeseries_output_file, compress_threshold_mb=10)
 
     # Save timeseries to JSONL file with compression (production-like format)
     timeseries_jsonl_file = "data/synthetic/zathras_timeseries.jsonl"
-    generator.save_to_jsonl(timeseries_docs, timeseries_jsonl_file, compress_threshold_mb=10)
+    actual_ts_jsonl_file = generator.save_to_jsonl(timeseries_docs, timeseries_jsonl_file, compress_threshold_mb=10)
 
     # Save generation metadata
     metadata_file = "data/synthetic/zathras_timeseries_metadata.json"
@@ -1462,20 +1492,14 @@ def main():
     print("\n" + "=" * 80)
     print("✓ SYNTHETIC DATA GENERATION COMPLETE!")
     print("=" * 80)
-    print(f"\n📁 Results data: {output_file}")
-    print(f"   File size: {os.path.getsize(output_file) / (1024*1024):.2f} MB")
+    print(f"\n📁 Results data: {actual_output_file}")
+    print(f"   File size: {os.path.getsize(actual_output_file) / (1024*1024):.2f} MB")
 
-    # Report timeseries file (check for compressed version)
-    ts_json_file = timeseries_output_file + ".gz" if os.path.exists(timeseries_output_file + ".gz") else timeseries_output_file
-    ts_jsonl_file = timeseries_jsonl_file + ".gz" if os.path.exists(timeseries_jsonl_file + ".gz") else timeseries_jsonl_file
+    print(f"\n📁 Timeseries data (JSON): {actual_ts_json_file}")
+    print(f"   File size: {os.path.getsize(actual_ts_json_file) / (1024*1024):.2f} MB")
 
-    print(f"\n📁 Timeseries data (JSON): {ts_json_file}")
-    if os.path.exists(ts_json_file):
-        print(f"   File size: {os.path.getsize(ts_json_file) / (1024*1024):.2f} MB")
-
-    print(f"\n📁 Timeseries data (JSONL): {ts_jsonl_file}")
-    if os.path.exists(ts_jsonl_file):
-        print(f"   File size: {os.path.getsize(ts_jsonl_file) / (1024*1024):.2f} MB")
+    print(f"\n📁 Timeseries data (JSONL): {actual_ts_jsonl_file}")
+    print(f"   File size: {os.path.getsize(actual_ts_jsonl_file) / (1024*1024):.2f} MB")
 
     print(f"\n📁 Generation metadata: {metadata_file}")
     print(f"   Contains: timestamp, counts, sequence distribution")

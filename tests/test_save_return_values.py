@@ -36,22 +36,22 @@ def test_save_to_file_returns_path_when_no_compression():
 
 
 def test_save_to_file_returns_compressed_path_when_compression():
-    """Test that save_to_file() returns .gz path when compression is applied."""
+    """Test that save_to_file() returns .gz path when compression is forced via threshold=0."""
     generator = SyntheticDataGenerator(seed=42)
 
-    # Create a large dataset (> 10MB, will compress)
+    # Create a small dataset, force compression via threshold=0
     documents = generator.generate_dataset(
-        num_scenarios=100,
-        iterations_per_scenario=10,
+        num_scenarios=5,
+        iterations_per_scenario=1,
         include_temporal_trends=False,
         include_failures=False
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = os.path.join(tmpdir, "large_file.json")
+        output_file = os.path.join(tmpdir, "compressed_file.json")
 
-        # Save with compression
-        actual_path = generator.save_to_file(documents, output_file, compress_threshold_mb=10)
+        # Save with compression forced by threshold=0
+        actual_path = generator.save_to_file(documents, output_file, compress_threshold_mb=0)
 
         # Should return the compressed path
         expected_path = output_file + ".gz"
@@ -83,22 +83,22 @@ def test_save_to_jsonl_returns_path_when_no_compression():
 
 
 def test_save_to_jsonl_returns_compressed_path_when_compression():
-    """Test that save_to_jsonl() returns .gz path when compression is applied."""
+    """Test that save_to_jsonl() returns .gz path when compression is forced via threshold=0."""
     generator = SyntheticDataGenerator(seed=42)
 
-    # Create a large dataset (> 10MB, will compress)
+    # Create a small dataset, force compression via threshold=0
     documents = generator.generate_dataset(
-        num_scenarios=100,
-        iterations_per_scenario=10,
+        num_scenarios=5,
+        iterations_per_scenario=1,
         include_temporal_trends=False,
         include_failures=False
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = os.path.join(tmpdir, "large_file.jsonl")
+        output_file = os.path.join(tmpdir, "compressed_file.jsonl")
 
-        # Save with compression
-        actual_path = generator.save_to_jsonl(documents, output_file, compress_threshold_mb=10)
+        # Save with compression forced by threshold=0
+        actual_path = generator.save_to_jsonl(documents, output_file, compress_threshold_mb=0)
 
         # Should return the compressed path
         expected_path = output_file + ".gz"

@@ -447,3 +447,63 @@ def test_aggregate_only_metrics_included(generator, sample_results):
     # Verify we actually tested some aggregate-only test types
     if not found_aggregate_only:
         pytest.skip("No coremark_pro or passmark results in sample")
+
+
+def test_aggregate_metrics_excluded_when_base_exists(generator, sample_results):
+    """Aggregate metrics are excluded when their base metric exists."""
+    timeseries_docs = generator.generate_timeseries_documents(sample_results)
+
+    # Build lookup of parent metrics
+    parent_metrics = {}
+    for result_doc in sample_results:
+        doc_id = result_doc["metadata"]["document_id"]
+        if result_doc["results"]["status"] == "PASS":
+            parent_metrics[doc_id] = result_doc["results"]["runs"]["run_0"]["metrics"]
+
+    # Check timeseries for test types with base metrics (e.g., uperf)
+    found_base_metrics = False
+    found_aggregate_only = False
+
+    for ts_doc in timeseries_docs:
+        parent_id = ts_doc["metadata"]["document_id"]
+        if parent_id not in parent_metrics:
+            continue
+
+        parent = parent_metrics[parent_id]
+        point = ts_doc["results"]["point_metrics"]
+
+        # Check for test types with base metrics
+        base_metrics = [k for k in parent.keys() if not k.endswith(("_mean", "_min", "_max", "_stddev"))]
+        if base_metrics:
+            found_base_metrics = True
+            for base_metric in base_metrics:
+                # Base metric should be in point_metrics
+                assert base_metric in point, \
+                    f"Base metric {base_metric} should be in point_metrics, got: {list(point.keys())}"
+
+                # Aggregate variants should NOT be in point_metrics
+                for suffix in ["_mean", "_min", "_max", "_stddev"]:
+                    aggregate_key = f"{base_metric}{suffix}"
+                    assert aggregate_key not in point, \
+                        f"Aggregate {aggregate_key} should be excluded when base {base_metric} exists"
+
+        # Check for aggregate-only test types (coremark_pro, passmark)
+        aggregate_only_metrics = [k for k in parent.keys() if k.endswith(("_mean", "_min", "_max", "_stddev"))]
+        if aggregate_only_metrics and not base_metrics:
+            found_aggregate_only = True
+            for agg_metric in aggregate_only_metrics:
+                # Extract base name
+                for suffix in ["_mean", "_min", "_max", "_stddev"]:
+                    if agg_metric.endswith(suffix):
+                        base_name = agg_metric.rsplit(suffix, 1)[0]
+                        # Verify base metric doesn't exist
+                        assert base_name not in parent, \
+                            f"Expected {base_name} to not exist for aggregate-only test type"
+                        # Aggregate should be preserved in point_metrics
+                        assert agg_metric in point, \
+                            f"Aggregate-only metric {agg_metric} should be in point_metrics, got: {list(point.keys())}"
+                        break
+
+    # Verify we tested both cases
+    assert found_base_metrics, "Should have found at least one test type with base metrics (e.g., uperf)"
+    assert found_aggregate_only, "Should have found at least one aggregate-only test type (e.g., coremark_pro, passmark)"

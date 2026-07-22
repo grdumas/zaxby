@@ -3,7 +3,7 @@ Tests for save_to_file() and save_to_jsonl() performance and reliability fixes.
 
 Tests verify:
 1. Memory-efficient file copying using shutil.copyfileobj instead of read()
-2. Atomic file replacement using os.replace instead of os.replace
+2. Atomic file replacement using os.replace instead of os.rename
    (os.replace works cross-platform, os.rename fails on Windows when target exists)
 """
 

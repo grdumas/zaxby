@@ -960,11 +960,15 @@ def create_regression_heatmap(
             else:
                 text_row.append(f"{val:.1f}%")
         text_values.append(text_row)
-    
+
+    # Escape axis labels to prevent XSS
+    escaped_x = [_escape_html(str(col)) for col in pct_change_df.columns]
+    escaped_y = [_escape_html(str(idx)) for idx in pct_change_df.index]
+
     fig = go.Figure(data=go.Heatmap(
         z=pct_change_df.values,
-        x=pct_change_df.columns,
-        y=pct_change_df.index,
+        x=escaped_x,
+        y=escaped_y,
         colorscale=colorscale,
         zmid=0,  # Center the color scale at 0
         text=text_values,
@@ -1352,7 +1356,8 @@ def create_peer_os_comparison_chart(
                 # Average relative performance for this category
                 avg_rel_perf = cat_data['relative_performance'].mean()
                 y_values.append(avg_rel_perf)
-                x_labels.append(category)
+                # Escape category for x-axis label to prevent XSS
+                x_labels.append(_escape_html(category))
 
                 # Color: competitive, moderate, or significant difference
                 if avg_rel_perf >= 90 and avg_rel_perf <= 110:
@@ -1361,7 +1366,7 @@ def create_peer_os_comparison_chart(
                     colors.append(palette.semantic.moderate_difference)  # Moderate difference
                 else:
                     colors.append(palette.semantic.regression)  # Significant difference
-                
+
                 # Build hover text with benchmark list
                 benchmarks_in_category = BENCHMARK_GROUPS.get(category, ['Unknown'])
                 # Also show which benchmarks actually have data in this category
@@ -1379,9 +1384,10 @@ def create_peer_os_comparison_chart(
                     f"{actual_tests_escaped}"
                 )
                 hover_texts.append(hover_text)
-        
+
+        # Escape peer_os for trace name to prevent XSS
         fig.add_trace(go.Bar(
-            name=peer_os,
+            name=_escape_html(peer_os),
             x=x_labels,
             y=y_values,
             text=[f"{v:.0f}%" for v in y_values],
@@ -1879,8 +1885,11 @@ def create_category_benchmark_detail_chart(
     """
     from src.color_palettes import get_palette
 
+    # Escape category for use in title and messages
+    category_escaped = _escape_html(category)
+
     if comparison_df.empty:
-        return create_empty_figure(f"No benchmark data available for {category}")
+        return create_empty_figure(f"No benchmark data available for {category_escaped}")
 
     palette = get_palette(colorblind_mode)
 
@@ -1903,8 +1912,9 @@ def create_category_benchmark_detail_chart(
         else:
             colors.append(palette.semantic.regression)  # Significant difference
     
-    # Create hover text
+    # Create hover text and escaped y-axis labels
     hover_texts = []
+    escaped_test_names = []
     for _, row in benchmark_summary.iterrows():
         competitive_pct = row['is_competitive'] * 100
         hover_texts.append(
@@ -1913,11 +1923,12 @@ def create_category_benchmark_detail_chart(
             f"Hardware Configs Tested: {int(row['instance_type'])}<br>"
             f"Competitive on {competitive_pct:.0f}% of hardware"
         )
-    
+        escaped_test_names.append(_escape_html(row['test_name']))
+
     fig = go.Figure()
-    
+
     fig.add_trace(go.Bar(
-        y=benchmark_summary['test_name'],
+        y=escaped_test_names,
         x=benchmark_summary['relative_performance'],
         orientation='h',
         marker_color=colors,
@@ -1945,7 +1956,7 @@ def create_category_benchmark_detail_chart(
     )
     
     fig.update_layout(
-        title=f"{category} Benchmarks - Detailed Performance",
+        title=f"{category_escaped} Benchmarks - Detailed Performance",
         xaxis_title=f"Performance Relative to {baseline_os} (%)",
         yaxis_title="Benchmark",
         template='plotly_white',
@@ -2009,11 +2020,15 @@ def create_category_hardware_heatmap(
 
     # Use colorblind-safe colorscale from palette
     colorscale = palette.hardware_heatmap_scale.scale
-    
+
+    # Escape axis labels to prevent XSS
+    x_labels_escaped = [_escape_html(col) for col in pivot_df.columns]
+    y_labels_escaped = [_escape_html(idx) for idx in pivot_df.index]
+
     fig = go.Figure(data=go.Heatmap(
         z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index,
+        x=x_labels_escaped,
+        y=y_labels_escaped,
         colorscale=colorscale,
         zmid=100,  # Center on 100%
         zmin=70,
@@ -2028,9 +2043,9 @@ def create_category_hardware_heatmap(
             ticksuffix="%"
         )
     ))
-    
+
     fig.update_layout(
-        title=f"{category} - Performance by Hardware",
+        title=f"{_escape_html(category)} - Performance by Hardware",
         xaxis_title="Instance Type",
         yaxis_title="Benchmark",
         template='plotly_white',

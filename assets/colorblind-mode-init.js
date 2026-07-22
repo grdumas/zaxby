@@ -15,22 +15,28 @@
         document.body.classList.add('colorblind-mode');
     }
 
-    // Cross-tab synchronization is NOT implemented.
+    // Cross-tab synchronization behavior:
     //
-    // Each browser tab maintains independent colorblind mode state.
-    // The dcc.Store component is tab-local (not shared across tabs).
+    // - localStorage IS shared across all tabs (browser-level feature)
+    // - dcc.Store state is NOT automatically synced across tabs (Dash limitation)
     //
-    // This is an intentional design choice (as of commit 8916e95) to:
-    // 1. Avoid complex store synchronization logic
-    // 2. Prevent race conditions between tabs
-    // 3. Maintain simple, predictable behavior
+    // What happens when toggling in one tab:
+    // 1. localStorage updates immediately (visible to all tabs)
+    // 2. CSS class applies immediately via callback (current tab only)
+    // 3. Other tabs see the localStorage change but don't react to it
+    // 4. Refreshing another tab picks up the new preference from localStorage
     //
-    // Users can toggle colorblind mode independently in each tab.
+    // This means: toggle appearance updates in current tab only, but the
+    // preference persists for new tabs/refreshes. Charts don't re-render in
+    // other open tabs until manual refresh.
     //
-    // Historical context: Previous implementations attempted cross-tab sync via
-    // localStorage events, but this created inconsistent state where the toggle
-    // indicator appeared updated but charts remained in the old mode until refresh.
-    // The storage event could update CSS classes but not the dcc.Store that drives
-    // chart re-renders. Full sync would require Dash anti-patterns (bypassing
-    // callbacks) or polling overhead (dcc.Interval).
+    // This is intentional (as of commit 8916e95) to avoid:
+    // 1. Complex storage event listeners and cross-tab state management
+    // 2. Race conditions when multiple tabs update simultaneously
+    // 3. Partial updates (CSS syncs but charts don't re-render without
+    //    triggering Dash callbacks, which would require anti-patterns)
+    //
+    // Full cross-tab sync would require storage events + forcing Dash to
+    // re-run callbacks, breaking Dash's unidirectional data flow or adding
+    // polling overhead (dcc.Interval). Current design is simpler and predictable.
 })();

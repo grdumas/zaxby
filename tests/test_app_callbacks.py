@@ -1530,12 +1530,16 @@ def test_colorblind_init_script_is_source_of_truth_on_load():
     Integration note: The init script runs synchronously in <head>, the callback
     should never overwrite its work.
     """
-    import os
+    from pathlib import Path
 
-    # Verify init script exists
-    init_script_path = '/home/gdumas/repos/zaxby/assets/colorblind-mode-init.js'
-    assert os.path.exists(init_script_path), \
-        "colorblind-mode-init.js must exist to initialize colorblind mode on page load"
+    # Verify init script exists using relative path from test file
+    # This ensures the test works regardless of checkout location
+    test_file = Path(__file__).resolve()
+    repo_root = test_file.parents[1]  # tests/test_app_callbacks.py -> tests/ -> repo_root/
+    init_script_path = repo_root / "assets" / "colorblind-mode-init.js"
+
+    assert init_script_path.exists(), \
+        f"colorblind-mode-init.js must exist at {init_script_path} to initialize colorblind mode on page load"
 
     # Verify the callback won't interfere
     from app import app as dash_app

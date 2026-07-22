@@ -2497,7 +2497,7 @@ def test_version_comparison_escapes_hardware_config():
 def test_peer_os_comparison_escapes_category_and_test_names():
     """Test that peer OS comparison chart escapes category and test names in hover text."""
     from src.components.visualizations import create_peer_os_comparison_chart
-    
+
     malicious_df = pd.DataFrame([
         {
             "peer_os": "Ubuntu",
@@ -2522,6 +2522,53 @@ def test_peer_os_comparison_escapes_category_and_test_names():
     # Should NOT contain unescaped versions
     assert "<iframe src=" not in all_hover_text
     assert "<script>alert" not in all_hover_text
+
+
+def test_peer_os_comparison_escapes_axis_labels_and_trace_names():
+    """Test that peer OS comparison chart escapes x-axis labels (category) and trace names (peer_os).
+
+    This test verifies that HTML special characters in category names (x-axis)
+    and peer_os names (trace names) are properly escaped to prevent XSS.
+    """
+    from src.components.visualizations import create_peer_os_comparison_chart
+
+    malicious_df = pd.DataFrame([
+        {
+            "peer_os": "<script>alert('os')</script>",
+            "benchmark_category": "<img src=x onerror=alert(1)>",
+            "relative_performance": 95.0,
+            "test_name": "coremark"
+        }
+    ])
+
+    fig = create_peer_os_comparison_chart(
+        malicious_df,
+        baseline_os="RHEL"
+    )
+
+    # Test 1: X-axis labels (category) should be escaped
+    trace = fig.data[0]
+    x_labels = trace.x
+
+    # x_labels should contain escaped version of category
+    assert len(x_labels) > 0, "Should have x-axis labels"
+    assert "&lt;img src=x onerror=alert(1)&gt;" in x_labels, \
+        "X-axis label (category) should be HTML-escaped"
+
+    # X-axis should NOT contain unescaped HTML
+    assert "<img src=x onerror=alert(1)>" not in x_labels, \
+        "X-axis label should not contain raw HTML"
+
+    # Test 2: Trace names (peer_os) should be escaped
+    trace_name = trace.name
+
+    # Trace name should be escaped
+    assert "&lt;script&gt;alert(&#x27;os&#x27;)&lt;/script&gt;" == trace_name, \
+        "Trace name (peer_os) should be HTML-escaped"
+
+    # Trace name should NOT contain unescaped HTML
+    assert "<script>" not in trace_name, \
+        "Trace name should not contain raw HTML"
 
 
 def test_regression_heatmap_escapes_test_names():
@@ -2552,6 +2599,39 @@ def test_regression_heatmap_escapes_test_names():
 
     # Should NOT contain unescaped version
     assert "<script>alert" not in all_hover_text
+
+
+def test_regression_heatmap_escapes_axis_labels():
+    """Test that regression heatmap escapes axis labels (column and index names)."""
+    malicious_data = {
+        '9.0→9.1': [5.2, -3.1],
+        '<img src=x onerror=alert("xss")>': [-2.5, 4.3]
+    }
+    malicious_df = pd.DataFrame(
+        malicious_data,
+        index=["<script>alert('xss')</script>", "<iframe src='evil.com'>"]
+    )
+
+    fig = create_regression_heatmap(malicious_df)
+
+    # Extract x and y axis data
+    heatmap_trace = fig.data[0]
+    x_axis_labels = heatmap_trace.x
+    y_axis_labels = heatmap_trace.y
+
+    # Convert to strings for checking
+    x_labels_str = " ".join([str(label) for label in x_axis_labels])
+    y_labels_str = " ".join([str(label) for label in y_axis_labels])
+
+    # X-axis labels should be escaped
+    assert "&lt;img src=x onerror=alert(" in x_labels_str or "img src=x onerror=alert" not in x_labels_str
+    assert "<img src=x onerror=alert" not in x_labels_str
+
+    # Y-axis labels should be escaped
+    assert "&lt;script&gt;" in y_labels_str
+    assert "&lt;iframe" in y_labels_str
+    assert "<script>alert" not in y_labels_str
+    assert "<iframe src=" not in y_labels_str
 
 
 def test_cloud_scaling_chart_escapes_category_names():
@@ -2653,6 +2733,45 @@ def test_category_benchmark_detail_chart_escapes_test_name():
         assert "<script>alert" not in all_hover_text
 
 
+def test_category_benchmark_detail_chart_escapes_axis_labels_and_title():
+    """Test that category benchmark detail chart escapes test_name in y-axis labels and category in title."""
+    malicious_test_name = "<script>alert('xss')</script>"
+    malicious_category = "<img src=x onerror=alert('xss')>"
+
+    malicious_df = pd.DataFrame([
+        {
+            "test_name": malicious_test_name,
+            "relative_performance": 95.0,
+            "instance_type": "c2-standard-4",
+            "is_competitive": 1.0
+        },
+        {
+            "test_name": malicious_test_name,
+            "relative_performance": 98.0,
+            "instance_type": "c2-standard-8",
+            "is_competitive": 1.0
+        }
+    ])
+
+    from src.components.visualizations import create_category_benchmark_detail_chart
+    fig = create_category_benchmark_detail_chart(malicious_df, malicious_category)
+
+    # Test y-axis labels are escaped
+    trace = fig.data[0]
+    y_labels = trace.y
+    assert len(y_labels) > 0
+
+    # Y-axis should contain escaped version
+    y_labels_str = " ".join([str(label) for label in y_labels])
+    assert "&lt;script&gt;" in y_labels_str
+    assert "<script>alert" not in y_labels_str
+
+    # Test title is escaped
+    title = fig.layout.title.text
+    assert "&lt;img" in title
+    assert "<img src=x onerror" not in title
+
+
 def test_category_hardware_heatmap_escapes_test_and_hardware():
     """Test that category hardware heatmap escapes test and hardware names in hover text."""
     malicious_df = pd.DataFrame([
@@ -2693,6 +2812,58 @@ def test_category_hardware_heatmap_escapes_test_and_hardware():
         # Should NOT contain unescaped versions
         assert "<script>alert" not in all_hover_text
         assert "<img src=x" not in all_hover_text
+
+
+def test_category_hardware_heatmap_escapes_axis_labels_and_title():
+    """Test that category hardware heatmap escapes x-axis, y-axis labels, and title."""
+    malicious_df = pd.DataFrame([
+        {
+            "test_name": "<script>alert('test')</script>",
+            "instance_type": "<img src=x onerror=alert('hw')>",
+            "relative_performance": 95.0
+        },
+        {
+            "test_name": "safe_test",
+            "instance_type": "<img src=x onerror=alert('hw')>",
+            "relative_performance": 105.0
+        },
+        {
+            "test_name": "<script>alert('test')</script>",
+            "instance_type": "safe-hardware",
+            "relative_performance": 110.0
+        }
+    ])
+
+    from src.components.visualizations import create_category_hardware_heatmap
+    malicious_category = "<iframe src='evil.com'>"
+    fig = create_category_hardware_heatmap(malicious_df, malicious_category)
+
+    # Test 1: X-axis labels (instance_type) should be escaped
+    heatmap_trace = fig.data[0]
+    x_axis_labels = heatmap_trace.x
+    x_labels_str = " ".join([str(label) for label in x_axis_labels])
+
+    assert "&lt;img src=x onerror=alert(" in x_labels_str, \
+        "X-axis labels (instance_type) should be HTML-escaped"
+    assert "<img src=x onerror=alert" not in x_labels_str, \
+        "X-axis labels should not contain raw HTML"
+
+    # Test 2: Y-axis labels (test_name) should be escaped
+    y_axis_labels = heatmap_trace.y
+    y_labels_str = " ".join([str(label) for label in y_axis_labels])
+
+    assert "&lt;script&gt;" in y_labels_str, \
+        "Y-axis labels (test_name) should be HTML-escaped"
+    assert "<script>alert" not in y_labels_str, \
+        "Y-axis labels should not contain raw HTML"
+
+    # Test 3: Title (category) should be escaped
+    title_text = fig.layout.title.text
+
+    assert "&lt;iframe src=" in title_text, \
+        "Title (category) should be HTML-escaped"
+    assert "<iframe src='evil.com'>" not in title_text, \
+        "Title should not contain raw HTML"
 
 
 def test_heatmap_escapes_row_and_column_dimensions():

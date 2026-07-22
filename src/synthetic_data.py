@@ -1134,10 +1134,47 @@ def main():
     print(f"  Hardware consistency: DETERMINISTIC - Each test runs on exactly 3 HW configs")
     print(f"  Coverage guarantee: All test×version×hardware combinations included")
     
-    # Save to file
+    # Save results to file
     output_file = "data/synthetic/benchmark_results.json"
     generator.save_to_file(documents, output_file)
-    
+
+    # Generate timeseries documents
+    print("\n" + "=" * 80)
+    print("GENERATING TIMESERIES DATA")
+    print("=" * 80)
+    print("\nGenerating timeseries points for result documents...")
+
+    timeseries_docs = generator.generate_timeseries_documents(
+        documents,
+        short_sequence_range=(10, 20),
+        long_sequence_range=(50, 100),
+        long_sequence_probability=0.20,
+        point_interval_seconds=30
+    )
+
+    print(f"✓ Generated {len(timeseries_docs)} timeseries points")
+
+    # Count sequences
+    unique_timeseries_ids = set(doc["metadata"]["timeseries_id"] for doc in timeseries_docs)
+    print(f"  • {len(unique_timeseries_ids)} unique timeseries sequences")
+    print(f"  • Avg {len(timeseries_docs) / max(len(unique_timeseries_ids), 1):.1f} points per sequence")
+
+    # Count by length
+    sequences_by_id = {}
+    for doc in timeseries_docs:
+        ts_id = doc["metadata"]["timeseries_id"]
+        sequences_by_id[ts_id] = sequences_by_id.get(ts_id, 0) + 1
+
+    short_sequences = sum(1 for count in sequences_by_id.values() if 10 <= count <= 20)
+    long_sequences = sum(1 for count in sequences_by_id.values() if count >= 50)
+
+    print(f"  • {short_sequences} short sequences (10-20 points)")
+    print(f"  • {long_sequences} long sequences (50-100+ points)")
+
+    # Save timeseries to file
+    timeseries_output_file = "data/synthetic/timeseries_results.json"
+    generator.save_to_file(timeseries_docs, timeseries_output_file)
+
     # Generate comprehensive summary statistics
     test_types = {}
     os_distributions = {}
@@ -1219,14 +1256,17 @@ def main():
     print("\n" + "=" * 80)
     print("✓ SYNTHETIC DATA GENERATION COMPLETE!")
     print("=" * 80)
-    print(f"\n📁 Data saved to: {output_file}")
-    print(f"📄 Total file size: {os.path.getsize(output_file) / (1024*1024):.2f} MB")
+    print(f"\n📁 Results data: {output_file}")
+    print(f"   File size: {os.path.getsize(output_file) / (1024*1024):.2f} MB")
+    print(f"\n📁 Timeseries data: {timeseries_output_file}")
+    print(f"   File size: {os.path.getsize(timeseries_output_file) / (1024*1024):.2f} MB")
     print("\n💡 This dataset includes:")
     print("  • Temporal trends and patterns")
     print("  • Correlated metrics within test types")
     print("  • Hardware-specific performance characteristics")
     print("  • Realistic failure scenarios")
     print("  • Wide variety of configurations")
+    print("  • Timeseries point-level data linked to results")
     print("\n🎯 Ready for dashboard development and testing!")
 
 

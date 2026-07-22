@@ -1,16 +1,15 @@
 """
-Tests for synthetic timeseries loading and querying.
+Pytest-style tests for synthetic timeseries loading and querying.
 
-These tests cover the loading, indexing, and querying of synthetic
-timeseries data from data/synthetic/timeseries_results.json.
+These tests use self-contained temp fixtures instead of relying on
+the real 23MB timeseries_results.json file, making them CI-safe.
 """
 
-import unittest
-from unittest import mock
-import os
+import pytest
 import json
 import tempfile
-from typing import Dict, List, Any
+import os
+from unittest import mock
 import pandas as pd
 
 from src.data_processing import (
@@ -18,238 +17,278 @@ from src.data_processing import (
     get_synthetic_timeseries_index,
     fetch_synthetic_timeseries_for_document,
     _reset_synthetic_timeseries_index,
+    load_synthetic_data,
+    BenchmarkDataProcessor,
 )
 
 
-class TestLoadSyntheticTimeseries(unittest.TestCase):
-    """Tests for load_synthetic_timeseries() function."""
+@pytest.fixture
+def temp_timeseries_file():
+    """Create a temporary timeseries file with controlled test data."""
+    data = [
+        # doc1: 3 points in sequence
+        {
+            "metadata": {"document_id": "doc1", "sequence": 0},
+            "results": {"value": 100}
+        },
+        {
+            "metadata": {"document_id": "doc1", "sequence": 1},
+            "results": {"value": 110}
+        },
+        {
+            "metadata": {"document_id": "doc1", "sequence": 2},
+            "results": {"value": 120}
+        },
+        # doc2: 1 point
+        {
+            "metadata": {"document_id": "doc2", "sequence": 0},
+            "results": {"value": 200}
+        },
+        # doc3: 7 points (for size limit testing)
+        *[
+            {
+                "metadata": {"document_id": "doc3", "sequence": i},
+                "results": {"value": 300 + i * 10}
+            }
+            for i in range(7)
+        ],
+    ]
 
-    def test_load_returns_indexed_dict(self):
-        """Test that loading timeseries returns a dict indexed by document_id."""
-        # Load the real timeseries file
-        index = load_synthetic_timeseries()
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(data, f)
+        filepath = f.name
 
-        # Should return a dict
-        self.assertIsInstance(index, dict)
+    yield filepath
 
-        # Dict should not be empty
-        self.assertGreater(len(index), 0)
-
-        # Keys should be document_id strings
-        first_key = next(iter(index.keys()))
-        self.assertIsInstance(first_key, str)
-
-        # Values should be lists of dicts
-        first_value = index[first_key]
-        self.assertIsInstance(first_value, list)
-        self.assertGreater(len(first_value), 0)
-        self.assertIsInstance(first_value[0], dict)
-
-        # Each point should have metadata and results
-        self.assertIn('metadata', first_value[0])
-        self.assertIn('results', first_value[0])
-
-        # Metadata should have document_id and sequence
-        self.assertIn('document_id', first_value[0]['metadata'])
-        self.assertIn('sequence', first_value[0]['metadata'])
-
-    def test_points_sorted_by_sequence(self):
-        """Test that points within each document are sorted by sequence number."""
-        index = load_synthetic_timeseries()
-
-        # Pick a document with multiple points
-        for doc_id, points in index.items():
-            if len(points) > 1:
-                sequences = [p['metadata']['sequence'] for p in points]
-                # Sequences should be in ascending order
-                self.assertEqual(sequences, sorted(sequences))
-                # Should start at 0
-                self.assertEqual(sequences[0], 0)
-                # Should be consecutive (no gaps)
-                for i in range(len(sequences) - 1):
-                    self.assertEqual(sequences[i+1], sequences[i] + 1)
-                # Only need to check one document
-                break
-
-    def test_missing_file_returns_empty_dict(self):
-        """Test that missing timeseries file returns empty dict without crashing."""
-        # Use a filepath that doesn't exist
-        nonexistent_path = "/tmp/this_file_does_not_exist_12345.json"
-
-        # Should not raise exception
-        index = load_synthetic_timeseries(filepath=nonexistent_path)
-
-        # Should return empty dict
-        self.assertEqual(index, {})
-
-    def test_missing_file_logs_warning(self):
-        """Test that missing file logs a warning."""
-        nonexistent_path = "/tmp/this_file_does_not_exist_12345.json"
-
-        with self.assertLogs('src.data_processing', level='WARNING') as cm:
-            load_synthetic_timeseries(filepath=nonexistent_path)
-
-        # Should have logged a warning
-        self.assertEqual(len(cm.output), 1)
-        self.assertIn('not found', cm.output[0])
-        self.assertIn(nonexistent_path, cm.output[0])
+    # Cleanup
+    os.unlink(filepath)
+    _reset_synthetic_timeseries_index()
 
 
-class TestLazySingletonTimeseries(unittest.TestCase):
-    """Tests for lazy singleton pattern in get_synthetic_timeseries_index()."""
+@pytest.fixture(autouse=True)
+def reset_singleton():
+    """Reset singleton before and after each test."""
+    _reset_synthetic_timeseries_index()
+    yield
+    _reset_synthetic_timeseries_index()
 
-    def setUp(self):
-        """Reset singleton before each test."""
+
+# Tests for load_synthetic_timeseries()
+
+def test_load_returns_indexed_dict(temp_timeseries_file):
+    """Test that loading timeseries returns a dict indexed by document_id."""
+    index = load_synthetic_timeseries(temp_timeseries_file)
+
+    # Should return a dict
+    assert isinstance(index, dict)
+
+    # Dict should have 3 documents
+    assert len(index) == 3
+
+    # Keys should be document_id strings
+    assert "doc1" in index
+    assert "doc2" in index
+    assert "doc3" in index
+
+    # Values should be lists of dicts
+    assert isinstance(index["doc1"], list)
+    assert len(index["doc1"]) == 3
+    assert isinstance(index["doc1"][0], dict)
+
+    # Each point should have metadata and results
+    assert 'metadata' in index["doc1"][0]
+    assert 'results' in index["doc1"][0]
+
+    # Metadata should have document_id and sequence
+    assert index["doc1"][0]['metadata']['document_id'] == "doc1"
+    assert 'sequence' in index["doc1"][0]['metadata']
+
+
+def test_points_sorted_by_sequence(temp_timeseries_file):
+    """Test that points within each document are sorted by sequence number."""
+    index = load_synthetic_timeseries(temp_timeseries_file)
+
+    # Check doc3 which has 7 points
+    points = index["doc3"]
+    sequences = [p['metadata']['sequence'] for p in points]
+
+    # Sequences should be in ascending order
+    assert sequences == sorted(sequences)
+    # Should start at 0
+    assert sequences[0] == 0
+    # Should be consecutive (no gaps)
+    assert sequences == list(range(7))
+
+
+def test_missing_file_returns_empty_dict():
+    """Test that missing timeseries file returns empty dict without crashing."""
+    nonexistent_path = "/tmp/this_file_does_not_exist_12345.json"
+
+    # Should not raise exception
+    index = load_synthetic_timeseries(filepath=nonexistent_path)
+
+    # Should return empty dict
+    assert index == {}
+
+
+def test_missing_file_logs_warning(caplog):
+    """Test that missing file logs a warning."""
+    nonexistent_path = "/tmp/this_file_does_not_exist_12345.json"
+
+    load_synthetic_timeseries(filepath=nonexistent_path)
+
+    # Should have logged a warning
+    assert any("not found" in record.message for record in caplog.records)
+    assert any(nonexistent_path in record.message for record in caplog.records)
+
+
+# Tests for lazy singleton pattern
+
+def test_lazy_singleton_loads_once():
+    """Test that singleton loads data only once across multiple calls."""
+    with mock.patch('src.data_processing.load_synthetic_timeseries') as mock_load:
+        mock_load.return_value = {'test_doc': [{'seq': 0}]}
+
+        # First call should trigger load
+        result1 = get_synthetic_timeseries_index()
+        assert mock_load.call_count == 1
+
+        # Second call should use cached result
+        result2 = get_synthetic_timeseries_index()
+        assert mock_load.call_count == 1  # Still 1, not 2
+
+        # Both calls should return same object
+        assert result1 is result2
+
+
+def test_reset_clears_singleton():
+    """Test that reset helper clears the singleton."""
+    with mock.patch('src.data_processing.load_synthetic_timeseries') as mock_load:
+        mock_load.return_value = {'test_doc': [{'seq': 0}]}
+
+        # First call
+        get_synthetic_timeseries_index()
+        assert mock_load.call_count == 1
+
+        # Reset
         _reset_synthetic_timeseries_index()
 
-    def tearDown(self):
-        """Reset singleton after each test."""
-        _reset_synthetic_timeseries_index()
-
-    def test_lazy_singleton_loads_once(self):
-        """Test that singleton loads data only once across multiple calls."""
-        with mock.patch('src.data_processing.load_synthetic_timeseries') as mock_load:
-            mock_load.return_value = {'test_doc': [{'seq': 0}]}
-
-            # First call should trigger load
-            result1 = get_synthetic_timeseries_index()
-            self.assertEqual(mock_load.call_count, 1)
-
-            # Second call should use cached result
-            result2 = get_synthetic_timeseries_index()
-            self.assertEqual(mock_load.call_count, 1)  # Still 1, not 2
-
-            # Both calls should return same object
-            self.assertIs(result1, result2)
-
-    def test_reset_clears_singleton(self):
-        """Test that reset helper clears the singleton."""
-        with mock.patch('src.data_processing.load_synthetic_timeseries') as mock_load:
-            mock_load.return_value = {'test_doc': [{'seq': 0}]}
-
-            # First call
-            get_synthetic_timeseries_index()
-            self.assertEqual(mock_load.call_count, 1)
-
-            # Reset
-            _reset_synthetic_timeseries_index()
-
-            # Next call should reload
-            get_synthetic_timeseries_index()
-            self.assertEqual(mock_load.call_count, 2)
+        # Next call should reload
+        get_synthetic_timeseries_index()
+        assert mock_load.call_count == 2
 
 
-class TestFetchSyntheticTimeseriesForDocument(unittest.TestCase):
-    """Tests for fetch_synthetic_timeseries_for_document() function."""
+# Tests for fetch_synthetic_timeseries_for_document()
 
-    def setUp(self):
-        """Reset singleton before each test."""
-        _reset_synthetic_timeseries_index()
+def test_fetch_known_document_returns_points(temp_timeseries_file):
+    """Test that fetching timeseries for a known document_id returns points."""
+    # Load data into singleton
+    import src.data_processing
+    src.data_processing._synthetic_timeseries_index = load_synthetic_timeseries(temp_timeseries_file)
 
-    def tearDown(self):
-        """Reset singleton after each test."""
-        _reset_synthetic_timeseries_index()
+    # Fetch via the public API
+    points = fetch_synthetic_timeseries_for_document("doc1")
 
-    def test_fetch_known_document_returns_points(self):
-        """Test that fetching timeseries for a known document_id returns points."""
-        # Use the real data - load it first to find a real document_id
-        index = load_synthetic_timeseries()
-        # Pick any document_id with points
-        doc_id = next(iter(index.keys()))
+    # Should return list of dicts
+    assert isinstance(points, list)
+    assert len(points) == 3
+    assert isinstance(points[0], dict)
 
-        # Now fetch via the public API
-        points = fetch_synthetic_timeseries_for_document(doc_id)
-
-        # Should return list of dicts
-        self.assertIsInstance(points, list)
-        self.assertGreater(len(points), 0)
-        self.assertIsInstance(points[0], dict)
-
-        # Points should have correct structure
-        self.assertIn('metadata', points[0])
-        self.assertIn('results', points[0])
-        self.assertIn('document_id', points[0]['metadata'])
-        self.assertEqual(points[0]['metadata']['document_id'], doc_id)
-
-    def test_fetch_unknown_document_returns_empty(self):
-        """Test that fetching timeseries for unknown document_id returns empty list."""
-        nonexistent_id = "this_document_id_does_not_exist_12345"
-
-        points = fetch_synthetic_timeseries_for_document(nonexistent_id)
-
-        # Should return empty list, not None or error
-        self.assertEqual(points, [])
-
-    def test_fetch_respects_size_limit(self):
-        """Test that size parameter limits number of points returned."""
-        # Load real data and find a document with many points
-        index = load_synthetic_timeseries()
-
-        # Find a document with > 5 points
-        doc_id_with_many_points = None
-        for doc_id, pts in index.items():
-            if len(pts) > 5:
-                doc_id_with_many_points = doc_id
-                break
-
-        self.assertIsNotNone(doc_id_with_many_points, "Need a document with >5 points for this test")
-
-        # Fetch with size limit
-        points = fetch_synthetic_timeseries_for_document(doc_id_with_many_points, size=5)
-
-        # Should return exactly 5 points
-        self.assertEqual(len(points), 5)
-
-    def test_fetch_points_sorted_by_sequence(self):
-        """Test that fetched points are sorted by sequence number."""
-        # Load real data and find a document with multiple points
-        index = load_synthetic_timeseries()
-
-        # Find a document with multiple points
-        doc_id = None
-        for did, pts in index.items():
-            if len(pts) > 1:
-                doc_id = did
-                break
-
-        self.assertIsNotNone(doc_id, "Need a document with multiple points for this test")
-
-        # Fetch points
-        points = fetch_synthetic_timeseries_for_document(doc_id)
-
-        # Sequences should be in ascending order
-        sequences = [p['metadata']['sequence'] for p in points]
-        self.assertEqual(sequences, sorted(sequences))
-
-        # Should start at 0
-        self.assertEqual(sequences[0], 0)
+    # Points should have correct structure
+    assert 'metadata' in points[0]
+    assert 'results' in points[0]
+    assert points[0]['metadata']['document_id'] == "doc1"
 
 
-class TestTimeseriesSeparationFromResults(unittest.TestCase):
-    """Test that timeseries data is kept separate from results DataFrame."""
+def test_fetch_unknown_document_returns_empty(temp_timeseries_file):
+    """Test that fetching timeseries for unknown document_id returns empty list."""
+    # Load data into singleton
+    import src.data_processing
+    src.data_processing._synthetic_timeseries_index = load_synthetic_timeseries(temp_timeseries_file)
 
-    def test_timeseries_index_separate_from_benchmark_data(self):
-        """Test that timeseries index does not pollute benchmark results DataFrame."""
-        from src.data_processing import load_synthetic_data, BenchmarkDataProcessor
+    nonexistent_id = "this_document_id_does_not_exist_12345"
+    points = fetch_synthetic_timeseries_for_document(nonexistent_id)
 
-        # Load both datasets
-        results = load_synthetic_data()
-        timeseries_index = load_synthetic_timeseries()
-
-        # Convert results to DataFrame
-        processor = BenchmarkDataProcessor()
-        df = processor.documents_to_dataframe(results)
-
-        # DataFrame columns should NOT include timeseries-specific fields
-        timeseries_specific_fields = ['point_metrics', 'timeseries_id']
-        for field in timeseries_specific_fields:
-            self.assertNotIn(field, df.columns,
-                           f"Timeseries field '{field}' leaked into results DataFrame")
-
-        # Timeseries index should be a separate data structure
-        self.assertIsInstance(timeseries_index, dict)
-        self.assertNotIsInstance(timeseries_index, pd.DataFrame)
+    # Should return empty list, not None or error
+    assert points == []
 
 
-if __name__ == '__main__':
-    unittest.main()
+def test_fetch_respects_size_limit(temp_timeseries_file):
+    """Test that size parameter limits number of points returned."""
+    # Load data into singleton
+    import src.data_processing
+    src.data_processing._synthetic_timeseries_index = load_synthetic_timeseries(temp_timeseries_file)
+
+    # doc3 has 7 points
+    points = fetch_synthetic_timeseries_for_document("doc3", size=5)
+
+    # Should return exactly 5 points
+    assert len(points) == 5
+
+
+def test_fetch_points_sorted_by_sequence(temp_timeseries_file):
+    """Test that fetched points are sorted by sequence number."""
+    # Load data into singleton
+    import src.data_processing
+    src.data_processing._synthetic_timeseries_index = load_synthetic_timeseries(temp_timeseries_file)
+
+    # Fetch points for doc3 (has multiple points)
+    points = fetch_synthetic_timeseries_for_document("doc3")
+
+    # Sequences should be in ascending order
+    sequences = [p['metadata']['sequence'] for p in points]
+    assert sequences == sorted(sequences)
+    # Should start at 0
+    assert sequences[0] == 0
+
+
+# Test data separation
+
+def test_timeseries_index_separate_from_benchmark_data(temp_timeseries_file):
+    """Test that timeseries index does not pollute benchmark results DataFrame."""
+    # Load both datasets
+    results = load_synthetic_data()
+    timeseries_index = load_synthetic_timeseries(temp_timeseries_file)
+
+    # Convert results to DataFrame
+    processor = BenchmarkDataProcessor()
+    df = processor.documents_to_dataframe(results)
+
+    # DataFrame columns should NOT include timeseries-specific fields
+    timeseries_specific_fields = ['point_metrics', 'timeseries_id']
+    for field in timeseries_specific_fields:
+        assert field not in df.columns, \
+            f"Timeseries field '{field}' leaked into results DataFrame"
+
+    # Timeseries index should be a separate data structure
+    assert isinstance(timeseries_index, dict)
+    assert not isinstance(timeseries_index, pd.DataFrame)
+
+
+# Integration test with real file (optional - skip if file missing)
+
+@pytest.mark.skipif(
+    not os.path.exists("data/synthetic/timeseries_results.json"),
+    reason="Real timeseries file not available"
+)
+def test_integration_load_real_timeseries_file():
+    """Integration test: load real timeseries file if available."""
+    index = load_synthetic_timeseries()
+
+    # Should return non-empty dict
+    assert isinstance(index, dict)
+    assert len(index) > 0
+
+    # Keys should be document_id strings
+    first_key = next(iter(index.keys()))
+    assert isinstance(first_key, str)
+
+    # Values should be lists of dicts
+    first_value = index[first_key]
+    assert isinstance(first_value, list)
+    assert len(first_value) > 0
+    assert isinstance(first_value[0], dict)
+
+    # Each point should have metadata and results
+    assert 'metadata' in first_value[0]
+    assert 'results' in first_value[0]

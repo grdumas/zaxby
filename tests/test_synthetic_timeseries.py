@@ -507,3 +507,62 @@ def test_aggregate_metrics_excluded_when_base_exists(generator, sample_results):
     # Verify we tested both cases
     assert found_base_metrics, "Should have found at least one test type with base metrics (e.g., uperf)"
     assert found_aggregate_only, "Should have found at least one aggregate-only test type (e.g., coremark_pro, passmark)"
+
+
+def test_integer_metrics_preserved(generator):
+    """Integer-valued metrics remain integers and constant after variance."""
+    # Create a parent result with integer metric (sysbench cpu_threads)
+    parent_result = {
+        "metadata": {
+            "document_id": "sysbench_test_001",
+            "document_type": "zathras_test_result",
+            "test_timestamp": "2026-01-25T10:00:00Z",
+            "os_vendor": "redhat",
+            "cloud_provider": "aws",
+            "instance_type": "m5.2xlarge"
+        },
+        "test": {
+            "name": "sysbench",
+            "version": "v1.0"
+        },
+        "results": {
+            "status": "PASS",
+            "total_runs": 1,
+            "runs": {
+                "run_0": {
+                    "run_number": 0,
+                    "status": "PASS",
+                    "metrics": {
+                        "events_per_sec": 125000.0,
+                        "latency_ms": 0.08,
+                        "cpu_threads": 96  # Integer metric
+                    }
+                }
+            }
+        }
+    }
+
+    timeseries_docs = generator.generate_timeseries_documents([parent_result])
+
+    # Should have generated timeseries points
+    assert len(timeseries_docs) > 0, "Should generate timeseries for passing result"
+
+    # Check all timeseries points
+    for ts_doc in timeseries_docs:
+        point_metrics = ts_doc["results"]["point_metrics"]
+
+        # cpu_threads should be present
+        assert "cpu_threads" in point_metrics, "cpu_threads should be in point_metrics"
+
+        # Should remain an integer type
+        assert isinstance(point_metrics["cpu_threads"], int), \
+            f"cpu_threads should be int, got {type(point_metrics['cpu_threads'])}"
+
+        # Should remain constant (no variance for integer fields)
+        assert point_metrics["cpu_threads"] == 96, \
+            f"cpu_threads should remain 96, got {point_metrics['cpu_threads']}"
+
+        # Float metrics should still vary
+        assert "events_per_sec" in point_metrics
+        assert isinstance(point_metrics["events_per_sec"], float)
+        # Not checking for variance here as it's probabilistic

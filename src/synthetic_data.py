@@ -382,6 +382,7 @@ class SyntheticDataGenerator:
         Generate point metrics with realistic variance from parent summary.
 
         Simulates run-to-run variation using gaussian noise (2-8% stddev).
+        Integer-valued metrics are preserved as integers and remain constant.
 
         Args:
             parent_metrics: Metrics from parent result's run_0
@@ -413,7 +414,12 @@ class SyntheticDataGenerator:
                        for suffix in ["_mean", "_min", "_max", "_stddev"]):
                     continue
 
-            # Apply gaussian variance (2-8% stddev)
+            # Integer metrics should remain constant and preserve type
+            if isinstance(parent_value, int):
+                point_metrics[metric_name] = parent_value
+                continue
+
+            # Apply gaussian variance (2-8% stddev) for float metrics
             stddev_pct = random.uniform(0.02, 0.08)
             variance_factor = random.gauss(1.0, stddev_pct)
 

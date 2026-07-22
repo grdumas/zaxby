@@ -1336,12 +1336,14 @@ def load_synthetic_timeseries(
     by parent result document_id. Points within each document are sorted
     by metadata.sequence.
 
+    Supports both plain JSON and gzip-compressed (.gz) files.
+
     Args:
         filepath: Path to JSON file containing timeseries point documents.
 
     Returns:
         Dict mapping document_id to list of timeseries point dicts.
-        Empty dict if file is missing (logged as warning, not an error).
+        Empty dict if file is missing or corrupted (logged as warning).
     """
     if not os.path.exists(filepath):
         logger.warning(
@@ -1351,20 +1353,55 @@ def load_synthetic_timeseries(
         )
         return {}
 
-    with open(filepath, "r") as f:
-        records = json.load(f)
+    try:
+        # Support both compressed and uncompressed files
+        if filepath.endswith('.gz'):
+            import gzip
+            with gzip.open(filepath, 'rt', encoding='utf-8') as f:
+                records = json.load(f)
+        else:
+            with open(filepath, "r", encoding='utf-8') as f:
+                records = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(
+            "Failed to load synthetic timeseries from %r: %s. "
+            "Timeseries queries will return empty results.",
+            filepath,
+            e,
+        )
+        return {}
 
     index: Dict[str, List[Dict[str, Any]]] = {}
-    for record in records:
-        doc_id = record["metadata"]["document_id"]
-        index.setdefault(doc_id, []).append(record)
+    skipped_count = 0
+
+    for i, record in enumerate(records):
+        try:
+            # Validate required schema fields
+            doc_id = record["metadata"]["document_id"]
+            sequence = record["metadata"]["sequence"]
+            index.setdefault(doc_id, []).append(record)
+        except (KeyError, TypeError) as e:
+            skipped_count += 1
+            # Log first few errors in detail, then just count
+            if skipped_count <= 3:
+                logger.warning(
+                    "Skipping malformed timeseries record at index %d: %s",
+                    i,
+                    e,
+                )
+
+    if skipped_count > 3:
+        logger.warning(
+            "Skipped %d total malformed timeseries records (only first 3 logged)",
+            skipped_count,
+        )
 
     for points in index.values():
         points.sort(key=lambda p: p["metadata"]["sequence"])
 
     logger.info(
         "Loaded %d timeseries points for %d documents from %s",
-        len(records),
+        len(records) - skipped_count,
         len(index),
         filepath,
     )

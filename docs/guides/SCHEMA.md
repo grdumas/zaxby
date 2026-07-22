@@ -288,9 +288,12 @@ To find all timeseries documents for a given result document:
   },
   "sort": [
     {"metadata.sequence": {"order": "asc"}}
-  ]
+  ],
+  "size": 1000
 }
 ```
+
+**Note**: For sequences longer than 1000 points, use pagination with `search_after` to retrieve all documents.
 
 **From timeseries to result:**
 
@@ -309,7 +312,8 @@ To get a specific point in a sequence:
         {"term": {"metadata.sequence": 5}}
       ]
     }
-  }
+  },
+  "size": 1
 }
 ```
 
@@ -338,7 +342,7 @@ To get a specific point in a sequence:
     }
   },
   "sort": [{"metadata.sequence": {"order": "asc"}}],
-  "size": 100
+  "size": 1000
 }
 ```
 
@@ -382,7 +386,8 @@ To get a specific point in a sequence:
       ]
     }
   },
-  "sort": [{"metadata.sequence": {"order": "asc"}}]
+  "sort": [{"metadata.sequence": {"order": "asc"}}],
+  "size": 1000
 }
 ```
 

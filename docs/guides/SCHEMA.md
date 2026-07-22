@@ -208,6 +208,209 @@ Test execution configuration and parameters.
 
 ---
 
+## Timeseries Index Schema
+
+**Index**: `zathras-timeseries`  
+**Total Documents**: ~242,000 (as of 2026-05-29)  
+**Purpose**: Point-level detail for within-run metrics, sweeps, and sub-benchmarks
+
+### Overview
+
+The `zathras-timeseries` index stores exploded point-level data for benchmark runs that produce multiple data points or iterations. While `zathras-results` contains one document per test execution, `zathras-timeseries` contains many documents per parent result — one row per sequence point.
+
+**Two-Index Model:**
+- **`zathras-results`**: Canonical run documents (one per test execution) — suitable for aggregations, KPIs, and trend views
+- **`zathras-timeseries`**: Exploded point/sub-metric documents (many per run) — for drill-down into individual iterations
+
+### Document Structure
+
+Each timeseries document represents a single point in a sequence (e.g., one iteration of a repeated benchmark run).
+
+#### Key Metadata Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `metadata.timeseries_id` | string | Unique identifier for this timeseries sequence |
+| `metadata.document_id` | string | Link to parent result document in `zathras-results` |
+| `metadata.sequence` | integer | Point number in timeseries (0, 1, 2, ...) |
+| `metadata.test_timestamp` | string | ISO 8601 timestamp of this specific point |
+
+**Example metadata:**
+```json
+{
+  "metadata": {
+    "timeseries_id": "pyperf_abc123_timeseries",
+    "document_id": "pyperf_abc123",
+    "sequence": 0,
+    "test_timestamp": "2025-11-18T12:10:15Z"
+  }
+}
+```
+
+#### Results Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `results.point_metrics` | object | Metrics for this individual run/iteration |
+
+The `point_metrics` structure varies by test type, similar to how `results.runs.run_X.metrics` varies in the results index.
+
+### Data Grain and Volume
+
+**Grain**: 1 timeseries document per iteration/run point
+
+**Relationship**: Multiple timeseries documents per result document
+- A result document with 10 iterations produces ~10 timeseries documents
+- A result document with 100 sweep points produces ~100 timeseries documents
+
+**Typical timeseries lengths:**
+- Short benchmarks: 5-20 points per result
+- Standard benchmarks: 20-50 points per result
+- Sweep/stress tests: 50-100+ points per result
+
+**Volume characteristics:**
+- Total timeseries documents: ~242,000 (vs ~5,700 result documents)
+- Ratio: ~42 timeseries documents per result document (average)
+- Growth rate: Timeseries grows faster than results due to iteration multiplier
+
+### Linking Strategy
+
+**From result to timeseries:**
+
+To find all timeseries documents for a given result document:
+
+```json
+{
+  "query": {
+    "term": {
+      "metadata.document_id": "coremark_bf2d1fa468096fc7"
+    }
+  },
+  "sort": [
+    {"metadata.sequence": {"order": "asc"}}
+  ]
+}
+```
+
+**From timeseries to result:**
+
+Each timeseries document contains `metadata.document_id` which matches the `metadata.document_id` in the parent result document.
+
+**By timeseries sequence:**
+
+To get a specific point in a sequence:
+
+```json
+{
+  "query": {
+    "bool": {
+      "must": [
+        {"term": {"metadata.timeseries_id": "pyperf_abc123_timeseries"}},
+        {"term": {"metadata.sequence": 5}}
+      ]
+    }
+  }
+}
+```
+
+### Use Cases
+
+**Engineer drill-down:**
+- On-demand, narrow queries to investigate specific run iterations
+- Analyze variance across points in a timeseries
+- Identify outlier points in sweep tests
+- Debug anomalies at the iteration level
+
+**NOT suitable for:**
+- Bulk client-side loading (too many documents)
+- Executive KPI views (use `zathras-results` aggregations instead)
+- Trend analysis across runs (use `zathras-results` for run-level trends)
+
+### Query Examples
+
+#### Get all points for a specific result document
+
+```json
+{
+  "query": {
+    "term": {
+      "metadata.document_id": "coremark_abc123"
+    }
+  },
+  "sort": [{"metadata.sequence": {"order": "asc"}}],
+  "size": 100
+}
+```
+
+#### Get timeseries summary statistics
+
+```json
+{
+  "query": {
+    "term": {
+      "metadata.document_id": "streams_xyz789"
+    }
+  },
+  "aggs": {
+    "point_count": {
+      "value_count": {"field": "metadata.sequence"}
+    },
+    "metric_stats": {
+      "stats": {"field": "results.point_metrics.copy__mb_per_sec"}
+    }
+  },
+  "size": 0
+}
+```
+
+#### Filter timeseries by time range
+
+```json
+{
+  "query": {
+    "bool": {
+      "must": [
+        {"term": {"metadata.document_id": "pyperf_def456"}},
+        {
+          "range": {
+            "metadata.test_timestamp": {
+              "gte": "2025-11-18T12:00:00Z",
+              "lte": "2025-11-18T13:00:00Z"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "sort": [{"metadata.sequence": {"order": "asc"}}]
+}
+```
+
+### Deep Linking
+
+Two link patterns are supported:
+
+1. **Run-level links**: Target `zathras-results` index using `metadata.document_id`
+2. **Point-level links**: Target `zathras-timeseries` index using `metadata.timeseries_id` and optional `metadata.sequence`
+
+Example deep link to OpenSearch Discover:
+```
+/app/discover#/?_a=(index:zathras-timeseries,query:(term:(metadata.document_id:coremark_abc123)))
+```
+
+### Configuration
+
+The timeseries index is configured via environment variable:
+
+```bash
+# In .env file
+OPENSEARCH_INDEX_TIMESERIES=zathras-timeseries
+```
+
+See `src/opensearch_client.py` for implementation details of the two-index model.
+
+---
+
 ## Dashboard Filter Dimensions
 
 Based on the schema analysis, the following dimensions are suitable for multi-axis filtering:

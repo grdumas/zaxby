@@ -220,6 +220,63 @@ Array of JSON documents matching the OpenSearch schema:
 ]
 ```
 
+### zathras_timeseries.json.gz / zathras_timeseries.jsonl.gz
+
+Timeseries data representing performance measurements over time for each test result. Generated automatically when running `src/synthetic_data.py`.
+
+**Format**: Array of timeseries point documents (JSON) or one document per line (JSONL). Files are automatically gzip-compressed when > 10MB.
+
+**Typical size**: ~2.5-2.6 MB compressed (~23 MB uncompressed)
+
+**Document count**: ~45,000 timeseries points across ~1,700 unique sequences
+
+**Structure**:
+```json
+{
+  "metadata": {
+    "document_id": "timeseries_point_uuid",
+    "document_type": "zathras_timeseries_point",
+    "timeseries_id": "result_doc_id",
+    "sequence_number": 5,
+    "point_timestamp": "2025-11-18T12:09:29Z"
+  },
+  "metrics": {
+    "cpu_utilization": 87.3,
+    "memory_usage_mb": 2048.5,
+    "operations_per_second": 525000.0
+  }
+}
+```
+
+**Sequence characteristics**:
+- Short sequences (80%): 10-20 points per result
+- Long sequences (20%): 50-100 points per result
+- Only PASS results have timeseries data (FAIL results are excluded)
+- Points are spaced 30 seconds apart
+
+### zathras_timeseries_metadata.json
+
+Generation metadata describing the timeseries dataset. Generated alongside the timeseries files.
+
+**Structure**:
+```json
+{
+  "generation_timestamp": "2026-07-22T20:32:29.662416Z",
+  "result_document_count": 1824,
+  "timeseries_document_count": 44977,
+  "unique_timeseries_sequences": 1684,
+  "avg_points_per_passing_result": 26.7,
+  "dataset_characteristics": {
+    "short_sequences_count": 1352,
+    "long_sequences_count": 332,
+    "short_sequence_range": "10-20 points",
+    "long_sequence_range": "50-100 points",
+    "passing_result_count": 1684,
+    "failed_result_count": 140
+  }
+}
+```
+
 ## Regenerating Data
 
 To regenerate the synthetic data with default robust parameters:

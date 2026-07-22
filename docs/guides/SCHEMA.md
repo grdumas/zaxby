@@ -569,7 +569,7 @@ The dashboard should support comparisons across:
 }
 ```
 
-**Note**: The index fields work without `.keyword` suffix for aggregations and term queries.
+**Note**: In this cluster's observed mapping, the index fields work without `.keyword` suffix for aggregations and term queries. Consult your specific OpenSearch field mappings if queries behave unexpectedly.
 
 ---
 

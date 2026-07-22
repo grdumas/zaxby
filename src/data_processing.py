@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import logging
 import math
+import json
+import os
 
 from src.metric_registry import fallback_keys_for_test
 from src.benchmark_categories import category_for_test_name
@@ -1322,6 +1324,148 @@ def load_synthetic_data(filepath: str = "data/synthetic/benchmark_results.json")
     
     logger.info(f"Loaded {len(data)} documents from {filepath}")
     return data
+
+
+def load_synthetic_timeseries(
+    filepath: str = "data/synthetic/zathras_timeseries.json.gz",
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Load synthetic timeseries data and index by document_id.
+
+    Reads the timeseries JSON file and builds a lookup dict for O(1) access
+    by parent result document_id. Points within each document are sorted
+    by metadata.sequence.
+
+    Supports both plain JSON and gzip-compressed (.gz) files.
+
+    Args:
+        filepath: Path to JSON file containing timeseries point documents.
+                 Defaults to zathras_timeseries.json.gz (compressed format).
+
+    Returns:
+        Dict mapping document_id to list of timeseries point dicts.
+        Empty dict if file is missing or corrupted (logged as warning).
+    """
+    if not os.path.exists(filepath):
+        logger.warning(
+            "Synthetic timeseries file %r not found; "
+            "timeseries queries will return empty results.",
+            filepath,
+        )
+        return {}
+
+    try:
+        # Support both compressed and uncompressed files
+        if filepath.endswith('.gz'):
+            import gzip
+            with gzip.open(filepath, 'rt', encoding='utf-8') as f:
+                records = json.load(f)
+        else:
+            with open(filepath, "r", encoding='utf-8') as f:
+                records = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(
+            "Failed to load synthetic timeseries from %r: %s. "
+            "Timeseries queries will return empty results.",
+            filepath,
+            e,
+        )
+        return {}
+
+    index: Dict[str, List[Dict[str, Any]]] = {}
+    skipped_count = 0
+
+    for i, record in enumerate(records):
+        try:
+            # Validate required schema fields
+            doc_id = record["metadata"]["document_id"]
+            sequence = record["metadata"]["sequence"]
+
+            # Validate sequence is numeric (int or float), but not bool
+            # Note: bool is a subclass of int in Python, so check it explicitly
+            if isinstance(sequence, bool) or not isinstance(sequence, (int, float)):
+                raise TypeError(f"sequence must be numeric, got {type(sequence).__name__}")
+
+            index.setdefault(doc_id, []).append(record)
+        except (KeyError, TypeError) as e:
+            skipped_count += 1
+            # Log first few errors in detail, then just count
+            if skipped_count <= 3:
+                logger.warning(
+                    "Skipping malformed timeseries record at index %d: %s",
+                    i,
+                    e,
+                )
+
+    if skipped_count > 3:
+        logger.warning(
+            "Skipped %d total malformed timeseries records (only first 3 logged)",
+            skipped_count,
+        )
+
+    for points in index.values():
+        points.sort(key=lambda p: p["metadata"]["sequence"])
+
+    logger.info(
+        "Loaded %d timeseries points for %d documents from %s",
+        len(records) - skipped_count,
+        len(index),
+        filepath,
+    )
+    return index
+
+
+_synthetic_timeseries_index: Optional[Dict[str, List[Dict[str, Any]]]] = None
+
+
+def get_synthetic_timeseries_index() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Get or lazily build the synthetic timeseries index (singleton).
+
+    First call loads zathras_timeseries.json.gz and builds the
+    document_id -> points index. Subsequent calls return the cached result.
+    """
+    global _synthetic_timeseries_index
+    if _synthetic_timeseries_index is None:
+        _synthetic_timeseries_index = load_synthetic_timeseries()
+    return _synthetic_timeseries_index
+
+
+def fetch_synthetic_timeseries_for_document(
+    document_id: str,
+    *,
+    size: int = 100,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch timeseries points for a document_id from synthetic data.
+
+    Synthetic-mode equivalent of
+    BenchmarkDataSource.fetch_timeseries_for_document.
+
+    Args:
+        document_id: Parent result document_id to look up.
+        size: Maximum number of points to return (API parity with OpenSearch).
+
+    Returns:
+        List of timeseries point dicts sorted by sequence number.
+        Empty list if document_id has no timeseries or data is unavailable.
+
+    Raises:
+        ValueError: If size < 1.
+    """
+    if size < 1:
+        raise ValueError("size must be at least 1")
+    size = min(size, 10000)
+
+    index = get_synthetic_timeseries_index()
+    points = index.get(document_id, [])
+    return points[:size]
+
+
+def _reset_synthetic_timeseries_index() -> None:
+    """Reset the lazy-loaded timeseries index (test helper only)."""
+    global _synthetic_timeseries_index
+    _synthetic_timeseries_index = None
 
 
 def main():

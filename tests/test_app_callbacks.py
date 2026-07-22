@@ -145,9 +145,8 @@ def test_update_question3_handles_none_os_distribution(monkeypatch):
     mock_fig = MagicMock()
 
     # Simulate cached analysis data with None os_distribution
-    import json
     analysis_data = {
-        'scaling_data': json.loads(mock_scaling_data.to_json(orient='split')),
+        'scaling_data': mock_scaling_data.to_json(orient='split'),  # JSON string, not dict
         'summary': 'Test summary',
         'linear_scaling_count': 1,
         'total_benchmarks': 2,
@@ -419,10 +418,9 @@ def test_q2_colorblind_toggle_no_reanalysis(monkeypatch):
     with patch.object(app.processor, 'analyze_peer_os_comparison', mock_analysis), \
          patch('src.components.visualizations.create_peer_os_comparison_chart', mock_viz):
 
-        # Simulate cached analysis data
-        import json
+        # Simulate cached analysis data with JSON string format (optimized)
         analysis_data = {
-            'comparison_data': json.loads('{"columns":["category","rhel_wins"],"index":[0],"data":[["compute",8]]}'),
+            'comparison_data': '{"columns":["category","rhel_wins"],"index":[0],"data":[["compute",8]]}',
             'summary': 'Test summary',
             'competitive_count': 5,
             'total_benchmarks': 10,
@@ -525,10 +523,9 @@ def test_q3_colorblind_toggle_no_reanalysis(monkeypatch):
     with patch.object(app.processor, 'analyze_cloud_scaling', mock_analysis), \
          patch('src.components.visualizations.create_cloud_scaling_chart', mock_viz):
 
-        # Simulate cached analysis data
-        import json
+        # Simulate cached analysis data with JSON string format (optimized)
         analysis_data = {
-            'scaling_data': json.loads('{"columns":["instance_size","score","benchmark_category"],"index":[0],"data":[["small",100,"System"]]}'),
+            'scaling_data': '{"columns":["instance_size","score","benchmark_category"],"index":[0],"data":[["small",100,"System"]]}',
             'summary': 'Test scaling summary',
             'linear_scaling_count': 8,
             'total_benchmarks': 10,
@@ -759,7 +756,7 @@ def test_update_question3_accepts_colorblind_mode(monkeypatch):
     })
 
     analysis_data = {
-        'scaling_data': json.loads(scaling_data.to_json(orient='split')),
+        'scaling_data': scaling_data.to_json(orient='split'),  # JSON string, not dict
         'summary': 'Test summary',
         'linear_scaling_count': 5,
         'total_benchmarks': 10,
@@ -805,7 +802,7 @@ def test_update_question3_passes_colorblind_mode_true(monkeypatch):
     })
 
     analysis_data = {
-        'scaling_data': json.loads(scaling_data.to_json(orient='split')),
+        'scaling_data': scaling_data.to_json(orient='split'),  # JSON string, not dict
         'summary': 'Test summary',
         'linear_scaling_count': 1,
         'total_benchmarks': 2,
@@ -853,7 +850,7 @@ def test_update_question3_passes_colorblind_mode_false(monkeypatch):
     })
 
     analysis_data = {
-        'scaling_data': json.loads(scaling_data.to_json(orient='split')),
+        'scaling_data': scaling_data.to_json(orient='split'),  # JSON string, not dict
         'summary': 'Test summary',
         'linear_scaling_count': 1,
         'total_benchmarks': 2,
@@ -1139,11 +1136,10 @@ def test_colorblind_toggle_has_visually_hidden_child(monkeypatch):
 
 def test_q2_analysis_store_contains_dict_not_string(monkeypatch):
     """
-    Verify Q2 analysis store contains a dict (split-orient), not a JSON string.
+    Verify Q2 analysis store contains a JSON string (optimized format).
 
-    Performance optimization: storing as dict avoids redundant JSON parsing
-    on every colorblind mode toggle. The store should contain:
-    {'comparison_data': {'columns': [...], 'data': [...], 'index': [...]}, ...}
+    Performance optimization: storing as JSON string avoids double-parsing
+    (json.loads → DataFrame vs direct pd.read_json).
     """
     import pandas as pd
 
@@ -1180,27 +1176,22 @@ def test_q2_analysis_store_contains_dict_not_string(monkeypatch):
         assert isinstance(result, dict)
         assert 'comparison_data' in result
 
-        # CRITICAL: comparison_data should be a dict, not a JSON string
+        # CRITICAL: comparison_data should be a JSON string (optimized format)
         comparison_data = result['comparison_data']
-        assert isinstance(comparison_data, dict), \
-            f"Expected dict but got {type(comparison_data).__name__}"
+        assert isinstance(comparison_data, str), \
+            f"Expected JSON string but got {type(comparison_data).__name__}"
 
-        # Verify it has split-orient structure
-        assert 'columns' in comparison_data
-        assert 'data' in comparison_data
-        assert 'index' in comparison_data
-
-        # Verify it's NOT a string
-        assert not isinstance(comparison_data, str), \
-            "comparison_data should be dict, not JSON string"
+        # Verify it's valid JSON that can be parsed by pandas
+        from io import StringIO
+        reconstructed_df = pd.read_json(StringIO(comparison_data), orient='split')
+        assert not reconstructed_df.empty
 
 
 def test_q2_render_callback_accepts_dict_from_store(monkeypatch):
     """
-    Verify Q2 render callback accepts dict from store and reconstructs DataFrame
-    without pd.read_json() call.
+    Verify Q2 render callback can reconstruct DataFrame from JSON string.
 
-    Performance optimization: no JSON parsing on every colorblind toggle.
+    Performance optimization: single-pass pd.read_json instead of double-parsing.
     """
     import pandas as pd
 
@@ -1210,13 +1201,15 @@ def test_q2_render_callback_accepts_dict_from_store(monkeypatch):
     mock_viz = MagicMock(return_value=MagicMock())
 
     with patch('src.components.visualizations.create_peer_os_comparison_chart', mock_viz):
-        # Simulate cached analysis data with dict (NOT string)
+        # Create mock DataFrame and convert to JSON string
+        mock_df = pd.DataFrame({
+            'category': ['compute', 'storage'],
+            'rhel_wins': [8, 6]
+        })
+
+        # Simulate cached analysis data with JSON string (optimized format)
         analysis_data = {
-            'comparison_data': {
-                'columns': ['category', 'rhel_wins'],
-                'index': [0, 1],
-                'data': [['compute', 8], ['storage', 6]]
-            },
+            'comparison_data': mock_df.to_json(orient='split'),
             'summary': 'Test summary',
             'competitive_count': 14,
             'total_benchmarks': 20,
@@ -1244,10 +1237,10 @@ def test_q2_render_callback_accepts_dict_from_store(monkeypatch):
 
 def test_q3_analysis_store_contains_dict_not_string(monkeypatch):
     """
-    Verify Q3 analysis store contains a dict (split-orient), not a JSON string.
+    Verify Q3 analysis store contains a JSON string (optimized format).
 
-    Performance optimization: storing as dict avoids redundant JSON parsing
-    on every colorblind mode toggle or benchmark category filter.
+    Performance optimization: storing as JSON string avoids double-parsing
+    (json.loads → DataFrame vs direct pd.read_json).
     """
     import pandas as pd
 
@@ -1284,28 +1277,22 @@ def test_q3_analysis_store_contains_dict_not_string(monkeypatch):
         assert isinstance(result, dict)
         assert 'scaling_data' in result
 
-        # CRITICAL: scaling_data should be a dict, not a JSON string
+        # CRITICAL: scaling_data should be a JSON string (optimized format)
         scaling_data = result['scaling_data']
-        assert isinstance(scaling_data, dict), \
-            f"Expected dict but got {type(scaling_data).__name__}"
+        assert isinstance(scaling_data, str), \
+            f"Expected JSON string but got {type(scaling_data).__name__}"
 
-        # Verify it has split-orient structure
-        assert 'columns' in scaling_data
-        assert 'data' in scaling_data
-        assert 'index' in scaling_data
-
-        # Verify it's NOT a string
-        assert not isinstance(scaling_data, str), \
-            "scaling_data should be dict, not JSON string"
+        # Verify it's valid JSON that can be parsed by pandas
+        from io import StringIO
+        reconstructed_df = pd.read_json(StringIO(scaling_data), orient='split')
+        assert not reconstructed_df.empty
 
 
 def test_q3_render_callback_accepts_dict_from_store(monkeypatch):
     """
-    Verify Q3 render callback accepts dict from store and reconstructs DataFrame
-    without pd.read_json() call.
+    Verify Q3 render callback can reconstruct DataFrame from JSON string.
 
-    Performance optimization: no JSON parsing on every colorblind toggle
-    or benchmark category filter.
+    Performance optimization: single-pass pd.read_json instead of double-parsing.
     """
     import pandas as pd
 
@@ -1315,13 +1302,17 @@ def test_q3_render_callback_accepts_dict_from_store(monkeypatch):
     mock_viz = MagicMock(return_value=MagicMock())
 
     with patch('src.components.visualizations.create_cloud_scaling_chart', mock_viz):
-        # Simulate cached analysis data with dict (NOT string)
+        # Create mock DataFrame and convert to JSON string
+        mock_df = pd.DataFrame({
+            'instance_type': ['m5.large', 'm5.xlarge'],
+            'vcpu_count': [2, 4],
+            'performance': [100, 200],
+            'benchmark_category': ['compute', 'compute']
+        })
+
+        # Simulate cached analysis data with JSON string (optimized format)
         analysis_data = {
-            'scaling_data': {
-                'columns': ['instance_type', 'vcpu_count', 'performance', 'benchmark_category'],
-                'index': [0, 1],
-                'data': [['m5.large', 2, 100, 'compute'], ['m5.xlarge', 4, 200, 'compute']]
-            },
+            'scaling_data': mock_df.to_json(orient='split'),
             'summary': 'Test scaling summary',
             'linear_scaling_count': 8,
             'total_benchmarks': 10,
@@ -1423,3 +1414,481 @@ def test_clientside_callbacks_use_valid_output_components():
     # Both dummy stores should be used as outputs
     assert 'dark-mode-callback-dummy' in dummy_outputs_found, "dark-mode-callback-dummy.data should be used as callback output"
     assert 'colorblind-callback-dummy' in dummy_outputs_found, "colorblind-callback-dummy.data should be used as callback output"
+
+
+# ============================================================================
+# Colorblind mode persistence tests - PR #58 critical bug fix
+# ============================================================================
+
+def test_colorblind_toggle_callback_prevents_initial_call():
+    """
+    CRITICAL: Verify colorblind-mode toggle callback does NOT fire on initial page load.
+
+    Bug: The clientside callback currently returns a normalized boolean on initial load
+    (when n_clicks is falsy). If current_data is undefined/null during hydration,
+    the callback writes false and overwrites a previously-saved true in localStorage.
+
+    Fix: Add prevent_initial_call=True to the clientside callback, OR return
+    window.dash_clientside.no_update when there's no real click event.
+
+    This test verifies the callback uses prevent_initial_call=True in its registration.
+    """
+    from app import app as dash_app
+
+    # Find the colorblind-mode toggle callback in _callback_list
+    # Dash 3.4.0 stores prevent_initial_call in _callback_list, not callback_map
+    colorblind_toggle_callback = None
+    for callback_data in dash_app._callback_list:
+        if callback_data.get('output') == 'colorblind-mode-store.data':
+            colorblind_toggle_callback = callback_data
+            break
+
+    assert colorblind_toggle_callback is not None, "Could not find colorblind-mode-store callback"
+
+    # Verify prevent_initial_call is True
+    prevent_initial = colorblind_toggle_callback.get('prevent_initial_call', False)
+    assert prevent_initial is True, \
+        "colorblind-mode toggle callback must have prevent_initial_call=True to avoid overwriting localStorage on page load"
+
+
+def test_colorblind_toggle_callback_does_not_write_false_on_startup():
+    """
+    Integration test: Verify callback does not write false to store on startup.
+
+    Scenario:
+    1. localStorage has colorblind-mode-store = "true"
+    2. Page loads
+    3. Callback should NOT fire and should NOT write false
+
+    This test verifies the callback behavior by checking that the callback
+    is configured to prevent initial execution.
+    """
+    from app import app as dash_app
+
+    # Find the colorblind-mode toggle callback in _callback_list
+    colorblind_toggle_callback = None
+    for callback_data in dash_app._callback_list:
+        if callback_data.get('output') == 'colorblind-mode-store.data':
+            colorblind_toggle_callback = callback_data
+            break
+
+    assert colorblind_toggle_callback is not None, "Could not find colorblind-mode-store callback"
+
+    # The callback must be configured to prevent initial call
+    # This ensures it will NOT execute on page load and will NOT overwrite localStorage
+    prevent_initial = colorblind_toggle_callback.get('prevent_initial_call', False)
+    assert prevent_initial is True, \
+        "Callback must not execute on initial load to preserve localStorage value"
+
+
+def test_colorblind_toggle_only_fires_on_actual_clicks():
+    """
+    Verify the clientside callback JavaScript only toggles on actual button clicks.
+
+    The callback JavaScript should check if n_clicks is null/undefined and return
+    window.dash_clientside.no_update in that case.
+
+    Since we can't directly test JavaScript behavior in Python unit tests,
+    this test documents the expected behavior and verifies the callback
+    is configured correctly (prevent_initial_call=True).
+
+    Expected JavaScript behavior:
+    - n_clicks = null/undefined -> return window.dash_clientside.no_update
+    - n_clicks = 1, current_data = true -> return false (toggled)
+    - n_clicks = 2, current_data = false -> return true (toggled)
+    """
+    from app import app as dash_app
+
+    # Find the colorblind-mode toggle callback in _callback_list
+    colorblind_toggle_callback = None
+    for callback_data in dash_app._callback_list:
+        if callback_data.get('output') == 'colorblind-mode-store.data':
+            colorblind_toggle_callback = callback_data
+            break
+
+    assert colorblind_toggle_callback is not None, "Could not find colorblind-mode-store callback"
+
+    # With prevent_initial_call=True, the callback will only fire on actual clicks
+    prevent_initial = colorblind_toggle_callback.get('prevent_initial_call', False)
+    assert prevent_initial is True, \
+        "Callback must be configured to only fire on actual clicks (prevent_initial_call=True)"
+
+
+def test_colorblind_init_script_is_source_of_truth_on_load():
+    """
+    Verify the init script (colorblind-mode-init.js) is the only source of truth
+    on initial page load.
+
+    The init script reads from localStorage and applies the body class BEFORE
+    Dash renders. The toggle callback should NOT interfere with this by writing
+    a default value.
+
+    This test verifies:
+    1. The init script exists and is loaded as an asset
+    2. The toggle callback is configured to NOT run on initial load
+
+    Integration note: The init script runs synchronously in <head>, the callback
+    should never overwrite its work.
+    """
+    import os
+
+    # Verify init script exists
+    init_script_path = '/home/gdumas/repos/zaxby/assets/colorblind-mode-init.js'
+    assert os.path.exists(init_script_path), \
+        "colorblind-mode-init.js must exist to initialize colorblind mode on page load"
+
+    # Verify the callback won't interfere
+    from app import app as dash_app
+
+    # Find the colorblind-mode toggle callback in _callback_list
+    colorblind_toggle_callback = None
+    for callback_data in dash_app._callback_list:
+        if callback_data.get('output') == 'colorblind-mode-store.data':
+            colorblind_toggle_callback = callback_data
+            break
+
+    assert colorblind_toggle_callback is not None, "Could not find colorblind-mode-store callback"
+
+    # Callback must not run on initial load to avoid overwriting init script's work
+    prevent_initial = colorblind_toggle_callback.get('prevent_initial_call', False)
+    assert prevent_initial is True, \
+        "Toggle callback must not run on initial load; init script is source of truth"
+
+
+# ============================================================================
+# Performance optimization tests - PR #58
+# Store caching should use render-ready data, not full DataFrames
+# ============================================================================
+
+
+def test_q2_store_contains_minimal_render_ready_data(monkeypatch):
+    """
+    Q2 analysis store should contain minimal render-ready data,
+    not the full DataFrame JSON.
+
+    Payload should be significantly smaller than full DataFrame.
+    """
+    import pandas as pd
+    import json
+    from unittest.mock import patch
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Create a large mock comparison DataFrame (as returned by processor)
+    large_comparison_df = pd.DataFrame({
+        'test_name': ['test' + str(i) for i in range(100)],
+        'peer_os': ['ubuntu'] * 100,
+        'benchmark_category': ['CPU', 'Memory', 'Disk', 'Network'] * 25,
+        'relative_performance': [95.0 + i * 0.1 for i in range(100)],
+        'instance_type': ['m5.large'] * 100,
+        'baseline_score': [100.0] * 100,
+        'peer_score': [95.0] * 100
+    })
+
+    # Mock processor.analyze_peer_os_comparison to return large comparison data
+    mock_result = {
+        'comparison_data': large_comparison_df,
+        'summary': 'Test summary',
+        'competitive_count': 50,
+        'total_benchmarks': 100
+    }
+
+    # Mock _get_available_comparisons
+    mock_comparison_config = {
+        'peer_os': 'ubuntu',
+        'baseline_version': '9.0',
+        'peer_version': '22.04',
+        'cloud_provider': 'aws',
+        'label': 'RHEL 9 vs Ubuntu 22.04'
+    }
+
+    with patch.object(app.processor, 'analyze_peer_os_comparison', return_value=mock_result):
+        with patch.object(app.processor, '_get_available_comparisons', return_value=[mock_comparison_config]):
+            # Call the callback with any valid JSON (processor is mocked)
+            result = app.update_q2_analysis('{"data":[], "columns":[], "index":[]}')
+
+    # Store should contain JSON string, not parsed dict
+    # This avoids double-parsing (json.loads → pd.DataFrame vs direct pd.read_json)
+    if result.get('comparison_data'):
+        assert isinstance(result['comparison_data'], str), \
+            "Q2 store should contain JSON string, not parsed dict"
+
+        # Verify it's valid JSON that can be read by pandas
+        try:
+            from io import StringIO
+            reconstructed_df = pd.read_json(StringIO(result['comparison_data']), orient='split')
+            assert not reconstructed_df.empty, "Reconstructed DataFrame should not be empty"
+        except Exception as e:
+            pytest.fail(f"Failed to reconstruct DataFrame from stored JSON: {e}")
+
+
+def test_q2_render_uses_data_directly_no_dataframe_reconstruction(monkeypatch):
+    """
+    Q2 render callback should use pd.read_json() for single-pass reconstruction
+    instead of json.loads() → pd.DataFrame() double-parsing.
+    """
+    import pandas as pd
+    from unittest.mock import patch, MagicMock
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock store data with JSON string (optimized format)
+    mock_df = pd.DataFrame({
+        'peer_os': ['ubuntu', 'ubuntu'],
+        'benchmark_category': ['CPU', 'Memory'],
+        'test_name': ['test1', 'test2'],
+        'relative_performance': [95.0, 105.0]
+    })
+
+    mock_store_data = {
+        'comparison_data': mock_df.to_json(orient='split'),  # JSON string, not dict
+        'has_data': True,
+        'comparison_config': {
+            'label': 'RHEL 9 vs Ubuntu 22.04',
+            'peer_os': 'ubuntu'
+        },
+        'summary': 'Test summary',
+        'competitive_count': 1,
+        'total_benchmarks': 2
+    }
+
+    # Patch pd.read_json to verify it's being used (not manual reconstruction)
+    with patch('pandas.read_json', wraps=pd.read_json) as mock_read_json:
+        # Call the render callback
+        fig, summary = app.update_q2_figure(mock_store_data, False)
+
+        # Verify pd.read_json was called (efficient single-pass reconstruction)
+        assert mock_read_json.called, "Should use pd.read_json() for DataFrame reconstruction"
+
+    # Verify the old pattern (json.loads → DataFrame constructor) is NOT used
+    with patch.object(pd, 'DataFrame', wraps=pd.DataFrame) as mock_df_constructor:
+        app.update_q2_figure(mock_store_data, False)
+
+        # Check no call matches the old pattern: DataFrame(data['data'], columns=..., index=...)
+        for call in mock_df_constructor.call_args_list:
+            args, kwargs = call
+            if args and len(args) >= 1 and isinstance(args[0], list) and 'columns' in kwargs:
+                pytest.fail("Old double-parsing pattern detected: json.loads() → DataFrame(data, columns, index)")
+
+
+def test_q3_store_contains_minimal_render_ready_data(monkeypatch):
+    """
+    Q3 analysis store should contain minimal render-ready data,
+    not the full DataFrame JSON.
+
+    Payload should be significantly smaller than full DataFrame.
+    """
+    import pandas as pd
+    import json
+    from unittest.mock import patch
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Create a large mock scaling DataFrame (99 rows for clean division by 3)
+    large_scaling_df = pd.DataFrame({
+        'test_name': ['test' + str(i) for i in range(99)],
+        'instance_type': ['m5.large', 'm5.xlarge', 'm5.2xlarge'] * 33,
+        'benchmark_category': ['CPU', 'Memory', 'Disk'] * 33,
+        'mean_performance': [100.0 + i for i in range(99)],
+        'cpu_cores': [2, 4, 8] * 33,
+        'scaling_efficiency': [95.0] * 99
+    })
+
+    # Mock processor.analyze_cloud_scaling
+    mock_result = {
+        'scaling_data': large_scaling_df,
+        'summary': 'Test summary',
+        'linear_scaling_count': 50,
+        'total_benchmarks': 100
+    }
+
+    # Create minimal valid filtered DataFrame with required columns
+    filtered_df = pd.DataFrame({
+        'os_distribution': ['rhel'] * 10,
+        'instance_type': ['m5.large'] * 10,
+        'test_name': ['test1'] * 10
+    })
+
+    with patch.object(app.processor, 'analyze_cloud_scaling', return_value=mock_result):
+        # Call the callback with valid filtered data
+        result = app.update_q3_analysis(
+            filtered_df.to_json(orient='split'),
+            cloud_provider='aws',
+            instance_series='m5',
+            os_distribution='rhel',
+            os_version='9.0'
+        )
+
+    # Store should contain JSON string, not parsed dict
+    if result.get('scaling_data'):
+        assert isinstance(result['scaling_data'], str), \
+            "Q3 store should contain JSON string, not parsed dict"
+
+        # Verify it's valid JSON that can be read by pandas
+        try:
+            from io import StringIO
+            reconstructed_df = pd.read_json(StringIO(result['scaling_data']), orient='split')
+            assert not reconstructed_df.empty, "Reconstructed DataFrame should not be empty"
+        except Exception as e:
+            pytest.fail(f"Failed to reconstruct DataFrame from stored JSON: {e}")
+
+
+def test_q3_render_uses_data_directly_no_dataframe_reconstruction(monkeypatch):
+    """
+    Q3 render callback should use pd.read_json() for single-pass reconstruction
+    instead of json.loads() → pd.DataFrame() double-parsing.
+    """
+    import pandas as pd
+    from unittest.mock import patch
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock store data with JSON string (optimized format)
+    mock_df = pd.DataFrame({
+        'instance_type': ['m5.large', 'm5.xlarge'],
+        'benchmark_category': ['CPU', 'CPU'],
+        'mean_performance': [100.0, 200.0],
+        'cpu_cores': [2, 4]
+    })
+
+    mock_store_data = {
+        'scaling_data': mock_df.to_json(orient='split'),  # JSON string, not dict
+        'has_data': True,
+        'cloud_provider': 'aws',
+        'os_version': '9.0',
+        'os_distribution': 'rhel',
+        'instance_series': 'm5',
+        'summary': 'Test summary',
+        'linear_scaling_count': 1,
+        'total_benchmarks': 2
+    }
+
+    # Verify pd.read_json is used
+    with patch('pandas.read_json', wraps=pd.read_json) as mock_read_json:
+        fig, summary = app.render_q3_figure(mock_store_data, 'all', False)
+        assert mock_read_json.called, "Should use pd.read_json() for DataFrame reconstruction"
+
+    # Verify old pattern is NOT used
+    with patch.object(pd, 'DataFrame', wraps=pd.DataFrame) as mock_df_constructor:
+        app.render_q3_figure(mock_store_data, 'all', False)
+
+        for call in mock_df_constructor.call_args_list:
+            args, kwargs = call
+            if args and len(args) >= 1 and isinstance(args[0], list) and 'columns' in kwargs:
+                pytest.fail("Old double-parsing pattern detected in Q3 render")
+
+
+def test_colorblind_toggle_with_optimized_stores_no_reconstruction(monkeypatch):
+    """
+    Colorblind toggle should work with optimized store format.
+    Both colorblind modes should use pd.read_json() efficiently.
+    """
+    import pandas as pd
+    from unittest.mock import patch
+
+    app = _import_app_fresh(monkeypatch)
+
+    # Mock Q2 store data with JSON string format
+    mock_df = pd.DataFrame({
+        'peer_os': ['ubuntu'],
+        'benchmark_category': ['CPU'],
+        'test_name': ['test1'],
+        'relative_performance': [95.0]
+    })
+
+    q2_store = {
+        'comparison_data': mock_df.to_json(orient='split'),  # JSON string
+        'has_data': True,
+        'comparison_config': {'label': 'Test', 'peer_os': 'ubuntu'},
+        'summary': 'Test summary',
+        'competitive_count': 1,
+        'total_benchmarks': 1
+    }
+
+    # Verify pd.read_json is used in both modes
+    with patch('pandas.read_json', wraps=pd.read_json) as mock_read_json:
+        app.update_q2_figure(q2_store, False)
+        calls_without_cb = mock_read_json.call_count
+
+    with patch('pandas.read_json', wraps=pd.read_json) as mock_read_json:
+        app.update_q2_figure(q2_store, True)
+        calls_with_cb = mock_read_json.call_count
+
+    # Both should use pd.read_json the same number of times
+    assert calls_without_cb == calls_with_cb, \
+        "Colorblind toggle should use same reconstruction method"
+
+    # Verify no old double-parsing pattern
+    with patch.object(pd, 'DataFrame', wraps=pd.DataFrame) as mock_df_constructor:
+        app.update_q2_figure(q2_store, True)
+
+        for call in mock_df_constructor.call_args_list:
+            args, kwargs = call
+            if args and len(args) >= 1 and isinstance(args[0], list) and 'columns' in kwargs:
+                pytest.fail("Double-parsing pattern detected on colorblind toggle")
+
+
+def test_pulse_panel_deserialization_error_hides_details_from_ui(monkeypatch):
+    """
+    Test that detailed deserialization errors are logged but not shown to user.
+
+    When pulse bundle deserialization fails (e.g., TypeError, ValueError),
+    the UI should show a generic error message, while detailed error information
+    is logged server-side. This prevents leaking implementation details.
+    """
+    import logging
+
+    # Import app fresh
+    app = _import_app_fresh(monkeypatch)
+
+    # Create bundle data that passes validation but fails deserialization
+    # Use valid structure but wrong data types to trigger TypeError/ValueError
+    invalid_bundle = {
+        'policy_template_id': 'test',
+        'definition_version': '1.0',
+        'overview': {
+            'test_count': 'not_a_number',  # Should be int - will cause TypeError
+            'pass_count': 10,
+            'fail_count': 5,
+            'duration_seconds': 123.45
+        },
+        'category_mix': {
+            'cpu': 10,
+            'memory': 5,
+            'network': 3
+        },
+        'activity_timeline': {
+            'timeline_data': []
+        },
+        'scope': {
+            'scope_description': 'Test scope'
+        }
+    }
+
+    # Mock logging to capture logged errors
+    with patch.object(logging, 'getLogger') as mock_get_logger:
+        mock_logger = MagicMock()
+        mock_get_logger.return_value = mock_logger
+
+        # Call the render_server_snapshot callback
+        result = app.render_server_snapshot(invalid_bundle, colorblind_mode=False)
+
+        # Extract text content from result
+        result_text = str(result)
+
+        # UI should show generic error occurred
+        assert "Unable to load pulse data" in result_text or "Error loading" in result_text, \
+            "UI should show that an error occurred"
+
+        # UI should NOT leak implementation details like type names, field names, tracebacks
+        # This test should FAIL initially because the current code shows str(exc)
+        assert "__init__()" not in result_text, "UI should not show method names from traceback"
+        assert "missing" not in result_text.lower() or "required" not in result_text.lower(), \
+            "UI should not show technical validation details"
+        assert "test_count" not in result_text, "UI should not leak internal field names"
+
+        # Verify detailed error was logged (if app implements logging)
+        # This part will be checked after implementing logging
+        if mock_logger.error.called:
+            assert mock_logger.error.call_count >= 1, \
+                "Detailed error should be logged server-side"

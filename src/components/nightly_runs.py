@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from dash import dcc, html
 
 from src.query_service import NightlyRunSnapshot
+from src.components.visualizations import _escape_html
 
 
 def create_nightly_run_selector_dropdown(runs: List[NightlyRunSnapshot]) -> dcc.Dropdown:
@@ -91,10 +92,13 @@ def create_nightly_run_category_chart(
     categories = [cat for cat, _ in run.category_breakdown]
     counts = [count for _, count in run.category_breakdown]
 
+    # Escape category labels to prevent XSS injection in hover tooltips and axis labels
+    escaped_categories = [_escape_html(cat) for cat in categories]
+
     fig = go.Figure(
         go.Bar(
             x=counts,
-            y=categories,
+            y=escaped_categories,  # Use escaped labels for y-axis
             orientation="h",
             marker=dict(color=palette.branding.nightly),
             hovertemplate="%{y}<br>Tests: %{x:,}<extra></extra>",

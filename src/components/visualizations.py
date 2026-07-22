@@ -768,7 +768,7 @@ def create_metrics_table(
 
     fig = go.Figure(data=[go.Table(
         header=dict(
-            values=[f"<b>{col}</b>" for col in display_df.columns],
+            values=[f"<b>{_escape_html(str(col))}</b>" for col in display_df.columns],
             fill_color=palette.table.header,
             align='left',
             font=dict(size=12)

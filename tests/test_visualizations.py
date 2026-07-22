@@ -2941,3 +2941,45 @@ def test_heatmap_colorblind_high_values_appear_blue():
     assert last_position == 1.0, f"Last position should be 1.0, got {last_position}"
     assert last_color.lower() == "#0072b2", \
         f"Last color (high values) should be blue #0072b2, got {last_color}"
+
+
+# ============================================================================
+# Security Tests - HTML Escaping
+# ============================================================================
+
+
+def test_metrics_table_escapes_column_names_with_html():
+    """
+    Test that create_metrics_table() escapes column names containing HTML.
+
+    This prevents XSS if column names are ever derived from user input or data.
+    Column names with <script> tags should be HTML-escaped in the table header.
+    """
+    # Create test data with malicious column name
+    test_df = pd.DataFrame({
+        "Col<script>alert('xss')</script>": [1, 2, 3],
+        "Normal Column": [4, 5, 6]
+    })
+
+    fig = create_metrics_table(test_df)
+
+    # Extract header values from the table
+    assert len(fig.data) > 0, "Table should have data"
+    table_trace = fig.data[0]
+    header_values = table_trace.header.values
+
+    # Header should be a list or tuple of HTML strings
+    assert isinstance(header_values, (list, tuple)), "Header values should be a list or tuple"
+
+    # Join all header HTML to check for unescaped tags
+    all_headers = " ".join(str(h) for h in header_values)
+
+    # Raw <script> tags should NOT appear in the output
+    assert "<script>" not in all_headers, \
+        "Raw <script> tag should be escaped, not embedded in header HTML"
+    assert "</script>" not in all_headers, \
+        "Raw </script> tag should be escaped, not embedded in header HTML"
+
+    # Escaped versions SHOULD appear
+    assert "&lt;script&gt;" in all_headers or "Col&lt;script" in all_headers, \
+        "Column name with HTML should be escaped using &lt; and &gt;"

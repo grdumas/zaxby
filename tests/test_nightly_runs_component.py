@@ -241,3 +241,100 @@ def test_nightly_runs_section_toggle_icon():
             icon_found = True
             break
     assert icon_found
+
+
+def test_create_nightly_run_category_chart_escapes_malicious_category_names():
+    """Test that category labels with HTML/script tags are escaped (XSS prevention)."""
+    import plotly.graph_objects as go
+    import json
+
+    # Create run with malicious category name
+    malicious_run = NightlyRunSnapshot(
+        timestamp=datetime(2025, 5, 18, 10, 0, 0, tzinfo=timezone.utc),
+        test_count=100,
+        pass_count=95,
+        fail_count=5,
+        category_breakdown=[
+            ("Category<script>alert('xss')</script>", 50),
+            ("Normal Category", 30),
+            ("<img src=x onerror=alert('xss')>", 20),
+        ],
+        source="opensearch",
+        error=None,
+    )
+
+    fig = create_nightly_run_category_chart(malicious_run)
+
+    assert isinstance(fig, go.Figure)
+
+    # Convert figure to JSON to check all fields
+    fig_json = json.dumps(fig.to_dict())
+
+    # Script tags should NOT appear unescaped in the figure
+    assert "<script>" not in fig_json, "Script tags must be escaped in hover content"
+    assert "alert('xss')" not in fig_json, "JavaScript code must be escaped"
+    assert "<img src=" not in fig_json, "HTML tags must be escaped"
+
+    # Escaped versions SHOULD appear
+    assert "&lt;script&gt;" in fig_json or "hovertext" in fig_json, (
+        "Category names should be escaped or stored in hovertext/customdata"
+    )
+
+
+def test_create_nightly_run_category_chart_colorblind_mode_with_escaped_categories():
+    """Test that escaped categories work correctly in colorblind mode."""
+    import plotly.graph_objects as go
+
+    # Create run with HTML characters that need escaping
+    run_with_special_chars = NightlyRunSnapshot(
+        timestamp=datetime(2025, 5, 18, 10, 0, 0, tzinfo=timezone.utc),
+        test_count=100,
+        pass_count=95,
+        fail_count=5,
+        category_breakdown=[
+            ("Category & <Tests>", 50),
+            ("Memory > 100MB", 30),
+            ("I/O \"Fast\"", 20),
+        ],
+        source="opensearch",
+        error=None,
+    )
+
+    # Test in both standard and colorblind modes
+    for colorblind in [False, True]:
+        fig = create_nightly_run_category_chart(run_with_special_chars, colorblind)
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) == 1
+
+        # Categories should still be in y-axis for positioning
+        assert len(fig.data[0].y) == 3
+
+        # Verify hover template doesn't contain raw unescaped categories
+        fig_json = fig.to_json()
+        assert "<Tests>" not in fig_json or "&lt;Tests&gt;" in fig_json
+
+
+def test_create_nightly_run_category_chart_numeric_values_remain_formatted():
+    """Test that numeric values (test counts) are still formatted correctly after fix."""
+    import plotly.graph_objects as go
+
+    run = NightlyRunSnapshot(
+        timestamp=datetime(2025, 5, 18, 10, 0, 0, tzinfo=timezone.utc),
+        test_count=100,
+        pass_count=95,
+        fail_count=5,
+        category_breakdown=[
+            ("CPU", 1500),  # Test with thousands separator
+            ("Memory", 2000),
+        ],
+        source="opensearch",
+        error=None,
+    )
+
+    fig = create_nightly_run_category_chart(run)
+
+    # Check that hover template still formats numbers with thousands separator
+    hover_template = fig.data[0].hovertemplate
+    assert "%{x:,}" in hover_template or "Tests:" in hover_template, (
+        "Numeric formatting for test counts should be preserved"
+    )

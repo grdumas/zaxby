@@ -15,18 +15,22 @@
         document.body.classList.add('colorblind-mode');
     }
 
-    // Cross-tab sync is intentionally NOT implemented.
-    // Reason: Syncing only the CSS class creates inconsistent state where the toggle
-    // indicator appears updated but charts remain in the old mode until page refresh.
-    // This is because:
-    // 1. The storage event can update document.body.classList (CSS only)
-    // 2. But it cannot directly update the dcc.Store which triggers chart re-renders
-    // 3. Dash callbacks depend on colorblind-mode-store.data for chart updates
+    // Cross-tab synchronization is NOT implemented.
     //
-    // Full cross-tab sync would require either:
-    // - Updating the dcc.Store from the storage event (not recommended - bypasses Dash)
-    // - Adding a dcc.Interval polling component (adds unnecessary overhead)
+    // Each browser tab maintains independent colorblind mode state.
+    // The dcc.Store component is tab-local (not shared across tabs).
     //
-    // Current behavior: Each tab maintains its own independent colorblind mode state.
-    // Users must manually toggle in each tab, which is simple and predictable.
+    // This is an intentional design choice (as of commit 8916e95) to:
+    // 1. Avoid complex store synchronization logic
+    // 2. Prevent race conditions between tabs
+    // 3. Maintain simple, predictable behavior
+    //
+    // Users can toggle colorblind mode independently in each tab.
+    //
+    // Historical context: Previous implementations attempted cross-tab sync via
+    // localStorage events, but this created inconsistent state where the toggle
+    // indicator appeared updated but charts remained in the old mode until refresh.
+    // The storage event could update CSS classes but not the dcc.Store that drives
+    // chart re-renders. Full sync would require Dash anti-patterns (bypassing
+    // callbacks) or polling overhead (dcc.Interval).
 })();

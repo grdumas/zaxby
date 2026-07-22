@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 import plotly.graph_objects as go
 from dash import dcc, html
 
+from src.components.visualizations import _escape_html
 from src.query_service import (
     ActivityTimelineSnapshot,
     CategoryKpiSnapshot,
@@ -63,10 +64,16 @@ def figure_pulse_activity_timeline(
     labels = [p[0] for p in timeline.by_month]
     counts = [p[1] for p in timeline.by_month]
 
+    # Security: Escape month labels to prevent XSS.
+    # Month labels may originate from untrusted OpenSearch content.
+    # We escape them for both axis positioning and hover display to ensure
+    # no raw HTML/script tags are present anywhere in the figure data.
+    escaped_labels = [_escape_html(label) for label in labels]
+
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=labels,
+            x=escaped_labels,  # Use escaped labels for axis positioning
             y=counts,
             mode="lines+markers",
             line=dict(color=palette.branding.pulse_line, width=2),
@@ -108,10 +115,16 @@ def figure_pulse_category_mix(
     labels = [p[0] for p in pairs]
     counts = [p[1] for p in pairs]
 
+    # Security: Escape category labels to prevent XSS.
+    # Category labels may originate from untrusted OpenSearch content.
+    # We escape them for both axis positioning and hover display to ensure
+    # no raw HTML/script tags are present anywhere in the figure data.
+    escaped_labels = [_escape_html(label) for label in labels]
+
     fig = go.Figure(
         go.Bar(
             x=counts,
-            y=labels,
+            y=escaped_labels,  # Use escaped labels for axis positioning
             orientation="h",
             marker=dict(color=palette.branding.pulse_bar),
             hovertemplate="%{y}<br>Documents: %{x:,}<extra></extra>",

@@ -546,23 +546,27 @@ app.clientside_callback(
 # Clientside callback for colorblind mode toggle
 # Toggles the colorblind-mode-store value when button is clicked
 # Uses strict normalization to prevent string "false" from being treated as truthy
+# CRITICAL: prevent_initial_call=True ensures this callback does NOT fire on page load
+# The init script (colorblind-mode-init.js) is the only source of truth on initial load
 app.clientside_callback(
     """
     function(n_clicks, current_data) {
-        if (n_clicks) {
-            // Strict normalization: only true, 'true', or 1 are considered enabled
-            // This prevents "false" string from being truthy (!!"false" === true)
-            const normalized = (current_data === true || current_data === 'true' || current_data === 1);
-            return !normalized;
+        // Only toggle on actual clicks, never on initial load
+        // prevent_initial_call=True ensures this callback doesn't fire on page load
+        // but we add an explicit guard as defense-in-depth
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
         }
-        // On initial load, normalize and return stored value
+        // Strict normalization: only true, 'true', or 1 are considered enabled
+        // This prevents "false" string from being truthy (!!"false" === true)
         const normalized = (current_data === true || current_data === 'true' || current_data === 1);
-        return normalized;
+        return !normalized;
     }
     """,
     Output('colorblind-mode-store', 'data'),
     Input('colorblind-mode-toggle', 'n_clicks'),
-    State('colorblind-mode-store', 'data')
+    State('colorblind-mode-store', 'data'),
+    prevent_initial_call=True
 )
 
 
@@ -1181,10 +1185,16 @@ def render_server_snapshot(bundle_data, colorblind_mode):
         timeline_snap = ActivityTimelineSnapshot(**bundle_data['activity_timeline'])
         scope_snap = PulseScopeFootnote(**bundle_data['scope'])
     except (TypeError, ValueError) as exc:
+        # Log detailed error server-side for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Pulse bundle deserialization failed: {exc}", exc_info=True)
+
+        # Show generic error to user (don't leak implementation details)
         return html.Div(
             [
-                html.P("Error deserializing Pulse KPI bundle:", className="text-danger fw-bold"),
-                html.P(str(exc), className="text-muted"),
+                html.P("Unable to load pulse data", className="text-danger fw-bold"),
+                html.P("Please refresh the page or contact support if the issue persists.", className="text-muted"),
             ],
             className="alert alert-danger",
         )
@@ -1830,12 +1840,13 @@ def update_q2_analysis(filtered_data_json):
         instance_type=None  # Don't filter to single HW, show all common HW
     )
 
-    # Serialize comparison_data to JSON for storage
+    # Store DataFrame as JSON string (not parsed dict) to avoid double-parsing
+    # Render callback will use pd.read_json() for single-pass reconstruction
     comparison_df = q2_result['comparison_data']
     has_data = not comparison_df.empty
 
     return {
-        'comparison_data': json.loads(comparison_df.to_json(orient='split')) if has_data else None,
+        'comparison_data': comparison_df.to_json(orient='split') if has_data else None,
         'summary': q2_result.get('summary', 'No summary available'),
         'competitive_count': q2_result.get('competitive_count', 0),
         'total_benchmarks': q2_result.get('total_benchmarks', 0),
@@ -1872,13 +1883,10 @@ def update_q2_figure(analysis_data, colorblind_mode):
                       className="text-muted")
         ], color="warning")
 
-    # Deserialize comparison_data from dict
-    comparison_data = analysis_data['comparison_data']
-    comparison_df = pd.DataFrame(
-        comparison_data['data'],
-        columns=comparison_data['columns'],
-        index=comparison_data.get('index')
-    )
+    # Use pd.read_json() for efficient single-pass DataFrame reconstruction
+    # Avoids double-parsing: dict → JSON → DataFrame (old) vs JSON → DataFrame (new)
+    comparison_json = analysis_data['comparison_data']
+    comparison_df = pd.read_json(StringIO(comparison_json), orient='split')
     comp_config = analysis_data['comparison_config']
 
     # Create visualization
@@ -2447,12 +2455,13 @@ def update_q3_analysis(filtered_data_json, cloud_provider, instance_series, os_d
         os_version=os_version
     )
 
-    # Serialize scaling_data to JSON for storage
+    # Store DataFrame as JSON string (not parsed dict) to avoid double-parsing
+    # Render callback will use pd.read_json() for single-pass reconstruction
     scaling_data = q3_result['scaling_data']
     has_data = not scaling_data.empty
 
     return {
-        'scaling_data': json.loads(scaling_data.to_json(orient='split')) if has_data else None,
+        'scaling_data': scaling_data.to_json(orient='split') if has_data else None,
         'summary': q3_result.get('summary', 'No summary available'),
         'linear_scaling_count': q3_result.get('linear_scaling_count', 0),
         'total_benchmarks': q3_result.get('total_benchmarks', 0),
@@ -2490,13 +2499,10 @@ def render_q3_figure(analysis_data, benchmark_category, colorblind_mode):
         empty_fig = visualizations.create_empty_figure("Select cloud provider and OS version")
         return empty_fig, ""
 
-    # Deserialize scaling_data from dict
-    scaling_dict = analysis_data['scaling_data']
-    scaling_data = pd.DataFrame(
-        scaling_dict['data'],
-        columns=scaling_dict['columns'],
-        index=scaling_dict.get('index')
-    )
+    # Use pd.read_json() for efficient single-pass DataFrame reconstruction
+    # Avoids double-parsing: dict → JSON → DataFrame (old) vs JSON → DataFrame (new)
+    scaling_json = analysis_data['scaling_data']
+    scaling_data = pd.read_json(StringIO(scaling_json), orient='split')
 
     # Filter scaling data by benchmark category if specified
     if not scaling_data.empty and benchmark_category and benchmark_category != 'all':

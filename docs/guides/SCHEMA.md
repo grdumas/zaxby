@@ -275,6 +275,8 @@ The `point_metrics` structure varies by test type, similar to how `results.runs.
 
 ### Linking Strategy
 
+**Field naming note**: Query examples use field names directly (e.g., `metadata.document_id`). If your OpenSearch mapping defines fields as both `text` and `keyword` types, append `.keyword` for exact-match term queries and sorting (e.g., `metadata.document_id.keyword`). The examples assume standard mappings where string identifier fields can be queried directly.
+
 **From result to timeseries:**
 
 To find all timeseries documents for a given result document:

@@ -267,3 +267,56 @@ def test_common_metadata_included(generator, sample_results):
         "instance_type should be a non-empty string"
     assert isinstance(metadata["os_vendor"], str) and metadata["os_vendor"], \
         "os_vendor should be a non-empty string"
+
+
+def test_point_metrics_non_empty(generator, sample_results):
+    """Every timeseries point has non-empty point_metrics."""
+    timeseries_docs = generator.generate_timeseries_documents(sample_results)
+
+    # Check that all timeseries docs have non-empty point_metrics
+    for ts_doc in timeseries_docs:
+        point_metrics = ts_doc["results"]["point_metrics"]
+        parent_id = ts_doc["metadata"]["document_id"]
+
+        assert point_metrics, \
+            f"Timeseries point for parent {parent_id} has empty point_metrics"
+        assert len(point_metrics) > 0, \
+            f"Timeseries point for parent {parent_id} should have at least one metric"
+
+
+def test_aggregate_only_metrics_included(generator, sample_results):
+    """Test types with only _mean metrics (coremark_pro, passmark) have non-empty point_metrics."""
+    timeseries_docs = generator.generate_timeseries_documents(sample_results)
+
+    # Find timeseries for coremark_pro or passmark parents
+    aggregate_only_test_types = ["coremark_pro", "passmark"]
+
+    # Build lookup of parent test types
+    parent_test_types = {}
+    for result_doc in sample_results:
+        doc_id = result_doc["metadata"]["document_id"]
+        test_name = result_doc["test"]["name"]
+        parent_test_types[doc_id] = test_name
+
+    # Check timeseries for aggregate-only test types
+    found_aggregate_only = False
+    for ts_doc in timeseries_docs:
+        parent_id = ts_doc["metadata"]["document_id"]
+        test_type = parent_test_types.get(parent_id)
+
+        if test_type in aggregate_only_test_types:
+            found_aggregate_only = True
+            point_metrics = ts_doc["results"]["point_metrics"]
+
+            # Should have non-empty point_metrics with expected _mean keys
+            assert point_metrics, \
+                f"{test_type} timeseries should have non-empty point_metrics"
+
+            # Check that at least one _mean metric is present
+            mean_metrics = [k for k in point_metrics.keys() if k.endswith("_mean")]
+            assert mean_metrics, \
+                f"{test_type} timeseries should include _mean metrics, got: {list(point_metrics.keys())}"
+
+    # Verify we actually tested some aggregate-only test types
+    if not found_aggregate_only:
+        pytest.skip("No coremark_pro or passmark results in sample")

@@ -394,9 +394,26 @@ class SyntheticDataGenerator:
         point_metrics = {}
 
         for metric_name, parent_value in parent_metrics.items():
-            # Skip aggregate statistics (these are derived, not raw metrics)
+            # Skip aggregate statistics only if base metric exists
+            # (e.g., skip "latency_mean" if "latency" exists, but keep "SUMM_CPU_mean"
+            # if no "SUMM_CPU" base metric)
             if metric_name.endswith(("_mean", "_min", "_max", "_stddev")):
-                continue
+                # Check if base metric exists
+                for suffix in ["_mean", "_min", "_max", "_stddev"]:
+                    if metric_name.endswith(suffix):
+                        base_metric = metric_name.rsplit(suffix, 1)[0]
+                        if base_metric in parent_metrics:
+                            # Skip this aggregate since base exists
+                            break
+                else:
+                    # No base metric found, keep this aggregate-only metric
+                    pass
+
+                # If we broke (base exists), skip this metric
+                if any(metric_name.endswith(suffix) and
+                       metric_name.rsplit(suffix, 1)[0] in parent_metrics
+                       for suffix in ["_mean", "_min", "_max", "_stddev"]):
+                    continue
 
             # Apply gaussian variance (2-8% stddev)
             stddev_pct = random.uniform(0.02, 0.08)

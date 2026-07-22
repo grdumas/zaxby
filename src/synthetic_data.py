@@ -1374,13 +1374,13 @@ def main():
     print(f"  • {short_sequences} short sequences (10-20 points)")
     print(f"  • {long_sequences} long sequences (50-100+ points)")
 
-    # Build generation metadata with explicit timestamp for reproducibility
-    # Use a fixed timestamp for deterministic builds with the same seed
-    fixed_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    # Build generation metadata with current timestamp
+    # (Pass explicit generation_timestamp parameter for reproducible builds)
+    current_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     generation_metadata = generator.build_generation_metadata(
         documents,
         timeseries_docs,
-        generation_timestamp=fixed_timestamp
+        generation_timestamp=current_timestamp
     )
 
     print("\n" + "=" * 80)

@@ -237,37 +237,24 @@ class TestTask8MakedirsWithNoDir:
             assert os.path.isdir(os.path.join(tmpdir, "subdir"))
 
     def test_save_to_file_with_compression_no_directory(self):
-        """Test save_to_file with compression when filename has no directory."""
+        """Test save_to_file with compression (forced via threshold=0) when filename has no directory."""
         generator = SyntheticDataGenerator(seed=42)
 
-        # Create large enough data to trigger compression
-        # Need > 10MB uncompressed
-        docs = []
-        for i in range(5000):
-            docs.append({
-                "metadata": {
-                    "id": f"test_{i}",
-                    "long_field": "x" * 2000  # Make it larger
-                },
-                "test": {"name": "coremark"},
-                "results": {
-                    "status": "PASS",
-                    "runs": {
-                        "run_0": {
-                            "metrics": {f"metric_{j}": float(j) for j in range(50)}
-                        }
-                    }
-                }
-            })
+        # Create minimal test data (compression forced via threshold=0)
+        docs = [
+            {"metadata": {"id": "test_1"}, "test": {"name": "coremark"}, "results": {"status": "PASS"}},
+            {"metadata": {"id": "test_2"}, "test": {"name": "dhrystone"}, "results": {"status": "PASS"}},
+            {"metadata": {"id": "test_3"}, "test": {"name": "iperf3"}, "results": {"status": "FAIL"}}
+        ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
 
-                # This should compress and add .gz extension
+                # Force compression by setting threshold to 0
                 filename = "large_output.json"
-                generator.save_to_file(docs, filename, compress_threshold_mb=1)
+                generator.save_to_file(docs, filename, compress_threshold_mb=0)
 
                 # Should create compressed file
                 compressed_filename = filename + ".gz"

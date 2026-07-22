@@ -16,10 +16,11 @@ Enhanced Features:
 import json
 import random
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 import os
 import logging
+import gzip
 
 # Aggregate metric suffixes to filter when base metric exists
 AGGREGATE_SUFFIXES = ("_mean", "_min", "_max", "_stddev")
@@ -1141,12 +1142,142 @@ class SyntheticDataGenerator:
         else:
             return "score"
     
-    def save_to_file(self, documents: List[Dict[str, Any]], filename: str):
-        """Save generated documents to a JSON file."""
+    def save_to_file(
+        self,
+        documents: List[Dict[str, Any]],
+        filename: str,
+        compress_threshold_mb: int = 10
+    ):
+        """
+        Save generated documents to a JSON file with optional compression.
+
+        Args:
+            documents: List of documents to save
+            filename: Output filename (without .gz extension)
+            compress_threshold_mb: Compress if file size exceeds this threshold in MB
+        """
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w') as f:
+
+        # First write to temporary uncompressed file
+        temp_file = filename + ".tmp"
+        with open(temp_file, 'w') as f:
             json.dump(documents, f, indent=2)
-        print(f"Saved {len(documents)} documents to {filename}")
+
+        # Check file size
+        file_size_mb = os.path.getsize(temp_file) / (1024 * 1024)
+
+        if file_size_mb > compress_threshold_mb:
+            # Compress and remove temp file
+            compressed_file = filename + ".gz"
+            with open(temp_file, 'rb') as f_in:
+                with gzip.open(compressed_file, 'wb') as f_out:
+                    f_out.write(f_in.read())
+
+            os.remove(temp_file)
+            print(f"Saved {len(documents)} documents to {compressed_file}")
+            print(f"  Uncompressed size: {file_size_mb:.2f} MB")
+            print(f"  Compressed size: {os.path.getsize(compressed_file) / (1024*1024):.2f} MB")
+        else:
+            # Keep uncompressed, rename temp to final
+            os.rename(temp_file, filename)
+            print(f"Saved {len(documents)} documents to {filename}")
+            print(f"  File size: {file_size_mb:.2f} MB")
+
+    def save_to_jsonl(
+        self,
+        documents: List[Dict[str, Any]],
+        filename: str,
+        compress_threshold_mb: int = 10
+    ):
+        """
+        Save documents in JSONL format (one JSON object per line).
+
+        Args:
+            documents: List of documents to save
+            filename: Output filename (without .gz extension)
+            compress_threshold_mb: Compress if file size exceeds this threshold in MB
+        """
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+        # Write to temporary file
+        temp_file = filename + ".tmp"
+        with open(temp_file, 'w') as f:
+            for doc in documents:
+                json.dump(doc, f)
+                f.write('\n')
+
+        # Check file size
+        file_size_mb = os.path.getsize(temp_file) / (1024 * 1024)
+
+        if file_size_mb > compress_threshold_mb:
+            # Compress and remove temp file
+            compressed_file = filename + ".gz"
+            with open(temp_file, 'rb') as f_in:
+                with gzip.open(compressed_file, 'wb') as f_out:
+                    f_out.write(f_in.read())
+
+            os.remove(temp_file)
+            print(f"Saved {len(documents)} documents to {compressed_file} (JSONL format)")
+            print(f"  Uncompressed size: {file_size_mb:.2f} MB")
+            print(f"  Compressed size: {os.path.getsize(compressed_file) / (1024*1024):.2f} MB")
+        else:
+            # Keep uncompressed, rename temp to final
+            os.rename(temp_file, filename)
+            print(f"Saved {len(documents)} documents to {filename} (JSONL format)")
+            print(f"  File size: {file_size_mb:.2f} MB")
+
+    def build_generation_metadata(
+        self,
+        result_documents: List[Dict[str, Any]],
+        timeseries_documents: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Build metadata about the generated dataset.
+
+        Args:
+            result_documents: List of result documents
+            timeseries_documents: List of timeseries documents
+
+        Returns:
+            Dictionary with generation metadata
+        """
+        # Count unique timeseries sequences
+        unique_sequences = set(
+            doc["metadata"]["timeseries_id"]
+            for doc in timeseries_documents
+        )
+
+        # Calculate sequence length distribution
+        sequences_by_id = {}
+        for doc in timeseries_documents:
+            ts_id = doc["metadata"]["timeseries_id"]
+            sequences_by_id[ts_id] = sequences_by_id.get(ts_id, 0) + 1
+
+        short_sequences = sum(1 for count in sequences_by_id.values() if 10 <= count <= 20)
+        long_sequences = sum(1 for count in sequences_by_id.values() if count >= 50)
+
+        # Calculate average points per result
+        passing_results = sum(
+            1 for doc in result_documents
+            if doc["results"]["status"] == "PASS"
+        )
+        avg_points = len(timeseries_documents) / passing_results if passing_results > 0 else 0
+
+        return {
+            "generation_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "result_document_count": len(result_documents),
+            "timeseries_document_count": len(timeseries_documents),
+            "unique_timeseries_sequences": len(unique_sequences),
+            "avg_points_per_result": round(avg_points, 1),
+            "dataset_characteristics": {
+                "short_sequences_count": short_sequences,
+                "long_sequences_count": long_sequences,
+                "short_sequence_range": "10-20 points",
+                "long_sequence_range": "50-100 points",
+                "passing_result_count": passing_results,
+                "failed_result_count": len(result_documents) - passing_results
+            }
+        }
 
 
 def main():

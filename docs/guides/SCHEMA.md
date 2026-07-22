@@ -231,7 +231,7 @@ Each timeseries document represents a single point in a sequence (e.g., one iter
 | Field | Type | Description |
 |-------|------|-------------|
 | `metadata.timeseries_id` | string | Unique identifier for this timeseries sequence |
-| `metadata.document_id` | string | Link to parent result document in `zathras-results` |
+| `metadata.document_id` | string | Links to parent result via field value (not OpenSearch `_id`) in `zathras-results` |
 | `metadata.sequence` | integer | Point number in timeseries (0, 1, 2, ...) |
 | `metadata.test_timestamp` | date | ISO 8601 timestamp; mapped as date for range queries |
 

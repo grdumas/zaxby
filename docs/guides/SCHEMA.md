@@ -400,8 +400,10 @@ Two link patterns are supported:
 
 Example deep link to OpenSearch Discover:
 ```
-/app/discover#/?_a=(index:zathras-timeseries,query:(term:(metadata.document_id:coremark_abc123)))
+/app/discover#/?_g=(time:(from:now-15y,to:now))&_a=(columns:!(_source),filters:!(),index:'zathras-timeseries',interval:auto,query:(language:kuery,query:'metadata.document_id: "coremark_abc123"'))
 ```
+
+**Note**: For production use, generate URLs using the `opensearch_discover_url_for_document()` helper from `src/opensearch_links.py` to ensure correct Rison encoding and base URL handling.
 
 ### Configuration
 

@@ -255,6 +255,63 @@ Each timeseries document represents a single point in a sequence (e.g., one iter
 
 The `point_metrics` structure varies by test type, similar to how `results.runs.run_X.metrics` varies in the results index.
 
+#### Per-Test-Type Point Metrics Examples
+
+**uperf** (network performance):
+```json
+{
+  "results": {
+    "point_metrics": {
+      "tcp_stream_bw_gbs": 7.52,
+      "tcp_rr_trans_per_sec": 39845.21
+    }
+  }
+}
+```
+Note: Base metrics only (e.g., `tcp_stream_bw_gbs`). Aggregate variants (`_mean`, `_min`, `_max`, `_stddev`) are excluded when the base metric exists.
+
+**passmark** (aggregate-only test type):
+```json
+{
+  "results": {
+    "point_metrics": {
+      "CPU_INTEGER_MATH_mean": 384211.35,
+      "CPU_FLOATINGPOINT_MATH_mean": 207654.12,
+      "ME_WRITE_mean": 14189.76,
+      "ME_READ_mean": 15621.43
+    }
+  }
+}
+```
+Note: Aggregate metrics (`_mean`) are preserved because no base metrics exist for passmark.
+
+**sysbench** (mixed integer and float metrics):
+```json
+{
+  "results": {
+    "point_metrics": {
+      "events_per_sec": 123456.78,
+      "latency_ms": 0.081,
+      "cpu_threads": 96
+    }
+  }
+}
+```
+Note: `events_per_sec` and `latency_ms` have variance applied (±2-8% stddev). `cpu_threads` is an integer and remains constant (no variance).
+
+**Zero-value metrics** (error rates, packet loss):
+```json
+{
+  "results": {
+    "point_metrics": {
+      "throughput": 5432.10,
+      "error_rate": 0.0
+    }
+  }
+}
+```
+Note: Zero-valued float metrics (`0.0`) are preserved as-is (meaningful value, no variance applied).
+
 ### Data Grain and Volume
 
 **Grain**: 1 timeseries document per iteration/run point

@@ -906,3 +906,197 @@ def test_skips_docs_with_missing_metadata(caplog):
     assert any("missing_timestamp_004" in msg and "test_timestamp" in msg.lower()
                for msg in warning_messages), \
         "Should log warning about missing test_timestamp"
+
+
+def test_empty_input_returns_empty_list(generator):
+    """Empty input should return empty list."""
+    timeseries_docs = generator.generate_timeseries_documents([])
+
+    assert isinstance(timeseries_docs, list), "Should return a list"
+    assert len(timeseries_docs) == 0, "Should return empty list for empty input"
+
+
+def test_all_fail_input_returns_empty_list(generator):
+    """All-FAIL input should return empty list."""
+    all_fail_results = [
+        {
+            "metadata": {
+                "document_id": f"fail_test_{i:03d}",
+                "test_timestamp": "2026-01-25T10:00:00Z",
+                "cloud_provider": "aws",
+                "instance_type": "m5.large",
+                "os_vendor": "redhat"
+            },
+            "test": {"name": "fio", "version": "v3.0"},
+            "results": {"status": "FAIL", "total_runs": 0, "runs": {}}
+        }
+        for i in range(5)
+    ]
+
+    timeseries_docs = generator.generate_timeseries_documents(all_fail_results)
+
+    assert len(timeseries_docs) == 0, \
+        "All-FAIL input should produce no timeseries documents"
+
+
+def test_timestamp_spacing_default_30_seconds(generator, sample_results):
+    """Consecutive points within a sequence should differ by exactly 30 seconds."""
+    from datetime import datetime, timedelta
+
+    timeseries_docs = generator.generate_timeseries_documents(sample_results)
+
+    # Group by timeseries_id
+    sequences_by_id = {}
+    for doc in timeseries_docs:
+        ts_id = doc["metadata"]["timeseries_id"]
+        if ts_id not in sequences_by_id:
+            sequences_by_id[ts_id] = []
+        sequences_by_id[ts_id].append(doc)
+
+    # Check timestamp spacing within each sequence
+    for ts_id, points in sequences_by_id.items():
+        if len(points) < 2:
+            continue  # Need at least 2 points to check spacing
+
+        # Sort by sequence number
+        points_sorted = sorted(points, key=lambda p: p["metadata"]["sequence"])
+
+        # Check consecutive pairs
+        for i in range(len(points_sorted) - 1):
+            curr = points_sorted[i]
+            next_point = points_sorted[i + 1]
+
+            # Parse timestamps (handle Z suffix)
+            curr_ts_str = curr["metadata"]["test_timestamp"].replace("Z", "+00:00")
+            next_ts_str = next_point["metadata"]["test_timestamp"].replace("Z", "+00:00")
+
+            curr_ts = datetime.fromisoformat(curr_ts_str)
+            next_ts = datetime.fromisoformat(next_ts_str)
+
+            delta = next_ts - curr_ts
+            expected_delta = timedelta(seconds=30)
+
+            assert delta == expected_delta, \
+                f"Timeseries {ts_id} sequence {curr['metadata']['sequence']}->{next_point['metadata']['sequence']}: " \
+                f"expected {expected_delta} spacing, got {delta}"
+
+
+def test_timeseries_id_format_matches_pattern(generator, sample_results):
+    """All timeseries_id values should match {test_type}_{hex}_timeseries pattern."""
+    import re
+
+    timeseries_docs = generator.generate_timeseries_documents(sample_results)
+
+    # Pattern: test_type (lowercase letters/underscores) + underscore + 12 hex chars + "_timeseries"
+    pattern = re.compile(r'^[a-z_]+_[0-9a-f]{12}_timeseries$')
+
+    timeseries_ids = set(doc["metadata"]["timeseries_id"] for doc in timeseries_docs)
+
+    for ts_id in timeseries_ids:
+        assert pattern.match(ts_id), \
+            f"Timeseries ID '{ts_id}' does not match expected pattern"
+
+
+def test_custom_point_interval_seconds(generator):
+    """Custom point_interval_seconds should produce correct timestamp spacing."""
+    from datetime import datetime, timedelta
+
+    # Create a simple result
+    result = {
+        "metadata": {
+            "document_id": "test_interval_001",
+            "test_timestamp": "2026-01-25T10:00:00Z",
+            "cloud_provider": "aws",
+            "instance_type": "m5.large",
+            "os_vendor": "redhat"
+        },
+        "test": {"name": "uperf", "version": "v1.0"},
+        "results": {
+            "status": "PASS",
+            "total_runs": 1,
+            "runs": {
+                "run_0": {
+                    "status": "PASS",
+                    "metrics": {"throughput": 1000.0}
+                }
+            }
+        }
+    }
+
+    # Generate with custom 60-second interval
+    timeseries_docs = generator.generate_timeseries_documents(
+        [result],
+        short_sequence_range=(3, 3),  # Force exactly 3 points
+        point_interval_seconds=60
+    )
+
+    # Sort by sequence
+    points = sorted(timeseries_docs, key=lambda p: p["metadata"]["sequence"])
+
+    # Verify we got exactly 3 points
+    assert len(points) == 3, "Should generate exactly 3 points"
+
+    # Check 60-second spacing
+    for i in range(len(points) - 1):
+        curr_ts_str = points[i]["metadata"]["test_timestamp"].replace("Z", "+00:00")
+        next_ts_str = points[i + 1]["metadata"]["test_timestamp"].replace("Z", "+00:00")
+
+        curr_ts = datetime.fromisoformat(curr_ts_str)
+        next_ts = datetime.fromisoformat(next_ts_str)
+
+        delta = next_ts - curr_ts
+        expected_delta = timedelta(seconds=60)
+
+        assert delta == expected_delta, \
+            f"Expected 60s spacing, got {delta}"
+
+
+def test_custom_long_sequence_probability(generator):
+    """Custom long_sequence_probability should control sequence length distribution."""
+    # Create 50 simple PASS results
+    results = [
+        {
+            "metadata": {
+                "document_id": f"test_prob_{i:03d}",
+                "test_timestamp": f"2026-01-{(i % 28) + 1:02d}T10:00:00Z",
+                "cloud_provider": "aws",
+                "instance_type": "m5.large",
+                "os_vendor": "redhat"
+            },
+            "test": {"name": "uperf", "version": "v1.0"},
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "status": "PASS",
+                        "metrics": {"throughput": 1000.0 + i}
+                    }
+                }
+            }
+        }
+        for i in range(50)
+    ]
+
+    # Generate with 100% long sequence probability
+    timeseries_docs = generator.generate_timeseries_documents(
+        results,
+        short_sequence_range=(2, 4),
+        long_sequence_range=(8, 12),
+        long_sequence_probability=1.0
+    )
+
+    # Count sequence lengths
+    sequences_by_id = {}
+    for doc in timeseries_docs:
+        ts_id = doc["metadata"]["timeseries_id"]
+        if ts_id not in sequences_by_id:
+            sequences_by_id[ts_id] = 0
+        sequences_by_id[ts_id] += 1
+
+    lengths = list(sequences_by_id.values())
+
+    # All sequences should be in the long range (8-12)
+    for length in lengths:
+        assert 8 <= length <= 12, \
+            f"With long_sequence_probability=1.0, all sequences should be long (8-12), got {length}"

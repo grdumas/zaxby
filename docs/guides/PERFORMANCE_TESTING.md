@@ -240,29 +240,52 @@ At test completion, a summary table shows these metrics per task type.
 
 To integrate performance tests into CI pipelines:
 
-1. **Function benchmarks**: Run on every PR, compare against `main` baseline:
-   ```bash
-   pytest tests/performance/ --benchmark-only --benchmark-compare=main
-   ```
+### Baseline Workflow
 
-2. **Load tests**: Run nightly or on release branches:
-   ```bash
-   # Start app in background
-   DATA_MODE=synthetic python app.py &
-   APP_PID=$!
-   sleep 5  # Wait for app startup
+pytest-benchmark compares against saved benchmark artifacts (JSON files), not git branches. The typical workflow involves saving baselines from the main branch and comparing PR builds against those artifacts.
 
-   # Run load test
-   locust -f tests/performance/locustfile.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
+**On main branch (save baseline):**
+```bash
+# Autosave with timestamp
+pytest tests/performance/ --benchmark-only --benchmark-autosave
 
-   # Cleanup
-   kill $APP_PID
-   ```
+# Or specify a named baseline
+pytest tests/performance/ --benchmark-only --benchmark-save=baseline-main
+```
 
-3. **Baseline drift alerts**: Fail CI if performance degrades >20%:
-   ```bash
-   pytest tests/performance/ --benchmark-only --benchmark-compare=baseline --benchmark-compare-fail=mean:20%
-   ```
+This creates a JSON file in `.benchmarks/` (e.g., `.benchmarks/Linux-CPython-3.11-64bit/0001_baseline-main.json`).
+
+**In PR builds (compare against baseline):**
+```bash
+# Download the baseline artifact from the main branch build
+# (Implementation depends on CI system - GitHub Actions artifacts, GitLab artifacts, etc.)
+# Example: download .benchmarks/ directory from main branch build
+
+# Run benchmarks and compare against the saved baseline file
+# Use the filename from .benchmarks/ directory (e.g., 0001_baseline-main)
+pytest tests/performance/ --benchmark-only --benchmark-compare=0001_baseline-main
+
+# Fail if performance degrades >20%
+pytest tests/performance/ --benchmark-only --benchmark-compare=0001_baseline-main --benchmark-compare-fail=mean:20%
+```
+
+**Note**: The compare argument takes the benchmark filename (without path or .json extension), not a git branch name. List available baselines with `pytest-benchmark list`.
+
+### Load Tests
+
+Run nightly or on release branches:
+```bash
+# Start app in background
+DATA_MODE=synthetic python app.py &
+APP_PID=$!
+sleep 5  # Wait for app startup
+
+# Run load test
+locust -f tests/performance/locustfile.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
+
+# Cleanup
+kill $APP_PID
+```
 
 ## Troubleshooting
 

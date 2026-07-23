@@ -271,7 +271,12 @@ def test_handle_point_drilldown_opensearch_mode_error_sanitized(monkeypatch):
     monkeypatch.setenv("DATA_MODE", "opensearch")
 
     sys.modules.pop("app", None)
-    import app as app_module
+    import app as app_module  # noqa: E402
+
+    # Force OpenSearch mode by resetting error flags
+    # (Import may have set OPENSEARCH_LOAD_ERROR if connection failed at startup)
+    app_module.OPENSEARCH_LOAD_ERROR = None
+    app_module.SYNTHETIC_AFTER_OPENSEARCH_FAILURE = False
 
     with patch('dash.ctx') as mock_ctx:
         mock_ctx.triggered = [{'prop_id': 'btn-view-points.n_clicks', 'value': 1}]
@@ -287,8 +292,8 @@ def test_handle_point_drilldown_opensearch_mode_error_sanitized(monkeypatch):
             }
         }
 
-        # Mock BenchmarkDataSource to throw exception
-        with patch('src.opensearch_client.BenchmarkDataSource') as mock_client_class:
+        # Patch BenchmarkDataSource where it's used (in app_module namespace)
+        with patch.object(app_module, 'BenchmarkDataSource') as mock_client_class:
             mock_client = MagicMock()
             mock_client.fetch_timeseries_for_document.side_effect = \
                 ConnectionError("Connection to 192.168.1.1:9200 failed")
@@ -304,18 +309,21 @@ def test_handle_point_drilldown_opensearch_mode_error_sanitized(monkeypatch):
                 nav_state={'view': 'investigation'}
             )
 
-    assert is_open is True, "Modal should open with error or no-data message"
-    # Title could be "Error" or "No Data" depending on OpenSearch load state
-    assert title in ["Error", "No Data"], f"Title should be Error or No Data, got {title}"
+    # Verify modal opens with error
+    assert is_open is True, "Modal should open with error message"
+    assert title == "Error", f"Title should be 'Error', got '{title}'"
+
+    # Verify error message is sanitized (no sensitive details leaked)
     body_str = str(body)
     assert "192.168.1.1" not in body_str, \
         "Internal IP should not leak to UI"
     assert "9200" not in body_str, \
         "Internal port should not leak to UI"
-    # Body should have a generic message (no sensitive details) - check for common generic phrases
+
+    # Verify generic error message is present
     body_lower = body_str.lower()
-    assert any(phrase in body_lower for phrase in ["error", "failed", "no point", "not found"]), \
-        f"Body should contain generic message without sensitive details, got: {body_str}"
+    assert any(phrase in body_lower for phrase in ["error", "failed", "could not"]), \
+        f"Body should contain generic error message, got: {body_str}"
 
 
 def test_handle_point_drilldown_no_selection_returns_no_op(monkeypatch):

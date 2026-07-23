@@ -2849,11 +2849,19 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
         colorblind_mode=colorblind_mode
     )
 
-    # Create detailed table
-    table_df = test_df[[
-        'timestamp', 'os_version', 'instance_type', 'cloud_provider',
-        'primary_metric_value', 'primary_metric_unit', 'status'
-    ]].sort_values('timestamp', ascending=False).head(50)
+    # Create detailed table - check for required columns first
+    table_cols = ['timestamp', 'os_version', 'instance_type', 'cloud_provider',
+                  'primary_metric_value', 'primary_metric_unit', 'status']
+    available_table_cols = [col for col in table_cols if col in test_df.columns]
+
+    if available_table_cols:
+        table_df = test_df[available_table_cols].sort_values(
+            'timestamp' if 'timestamp' in available_table_cols else available_table_cols[0],
+            ascending=False
+        ).head(50)
+    else:
+        # Fallback to all columns if specific ones aren't available
+        table_df = test_df.head(50)
 
     table_fig = visualizations.create_metrics_table(
         table_df,
@@ -2918,31 +2926,37 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
 
     # Build dropdown options for point drill-down (RPOPC-1183)
     # Check for required columns before building dropdown
-    required_cols = ['document_id', 'primary_metric_name', 'primary_metric_value', 'primary_metric_unit']
+    required_cols = ['document_id', 'primary_metric_name', 'primary_metric_value', 'primary_metric_unit',
+                     'timestamp', 'instance_type', 'cloud_provider']
     has_required_cols = all(col in test_df.columns for col in required_cols)
 
     dropdown_options = []
     if has_required_cols:
-        drilldown_rows = test_df[
-            ['document_id', 'timestamp', 'instance_type', 'cloud_provider',
-             'primary_metric_name', 'primary_metric_value', 'primary_metric_unit']
-        ].sort_values('timestamp', ascending=False).head(50)
+        drilldown_rows = test_df[required_cols].sort_values('timestamp', ascending=False).head(50)
 
         for _, row in drilldown_rows.iterrows():
             doc_id = row.get('document_id')
             if pd.isna(doc_id) or not doc_id:
                 continue
 
-            label = f"{row['timestamp']} | {row.get('instance_type', '?')} | {row.get('cloud_provider', '?')}"
-            value = json.dumps({
-                'document_id': str(doc_id),
-                'primary_metric_name': str(row.get('primary_metric_name', '')),
-                'primary_metric_value': float(row['primary_metric_value']) if pd.notna(row.get('primary_metric_value')) else None,
-                'primary_metric_unit': str(row.get('primary_metric_unit', '')),
-                'timestamp': str(row['timestamp']),
-                'instance_type': str(row.get('instance_type', '')),
-                'cloud_provider': str(row.get('cloud_provider', '')),
-            })
+            # Skip rows with non-numeric primary_metric_value
+            try:
+                metric_val = row.get('primary_metric_value')
+                if pd.notna(metric_val):
+                    float(metric_val)  # Validate it's convertible to float
+            except (ValueError, TypeError):
+                continue  # Skip this row
+
+            # Build label from row data
+            timestamp_str = str(row.get('timestamp', '?'))
+            instance_str = str(row.get('instance_type', '?'))
+            cloud_str = str(row.get('cloud_provider', '?'))
+            label = f"{timestamp_str} | {instance_str} | {cloud_str}"
+
+            # Security: Use document_id only (not full JSON payload)
+            # Metadata will be fetched server-side from the DataFrame
+            value = str(doc_id)
+
             dropdown_options.append({'label': label, 'value': value})
 
     return summary_component, comparison_fig, timeline_fig, table_component, dropdown_options
@@ -2970,13 +2984,15 @@ def toggle_view_points_button(selected_value):
      Input('btn-point-drilldown-close', 'n_clicks')],
     [State('point-drilldown-modal', 'is_open'),
      State('point-drilldown-select', 'value'),
-     State('colorblind-mode-store', 'data')],
+     State('colorblind-mode-store', 'data'),
+     State('filtered-data-store', 'data'),
+     State('navigation-state', 'data')],
     prevent_initial_call=True
 )
-def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, colorblind_mode):
+def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, colorblind_mode, filtered_data_json, nav_state):
     """Handle point drill-down modal open/close and data fetching."""
     from dash import ctx
-    import json
+    import logging
 
     colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
@@ -2985,18 +3001,60 @@ def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, c
         return False, "", "", ""
 
     if trigger_id == 'btn-view-points' and selected_value:
-        try:
-            run_info = json.loads(selected_value)
-        except (json.JSONDecodeError, TypeError):
-            return True, "Error", dbc.Alert("Invalid selection", color="danger"), ""
+        # Security: selected_value is now a simple document_id (not JSON)
+        document_id = str(selected_value).strip() if selected_value else None
 
-        document_id = run_info.get('document_id')
-        metric_name = run_info.get('primary_metric_name', '')
-        metric_unit = run_info.get('primary_metric_unit', '')
-        summary_value = run_info.get('primary_metric_value')
-        timestamp = run_info.get('timestamp', '')
-        instance_type = run_info.get('instance_type', '')
-        cloud_provider = run_info.get('cloud_provider', '')
+        if not document_id:
+            return True, "Error", dbc.Alert("No test run selected", color="danger"), ""
+
+        # Server-side validation: Fetch metadata from filtered_data_json
+        # This prevents client tampering (can't request arbitrary document_id)
+        metadata = None
+        if filtered_data_json:
+            try:
+                from io import StringIO
+                test_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+
+                # Find the row matching this document_id
+                matching_rows = test_df[test_df['document_id'] == document_id]
+                if matching_rows.empty:
+                    # document_id not in current filtered data - reject
+                    return True, "Error", dbc.Alert(
+                        "Selected test run not found in current view",
+                        color="danger"
+                    ), ""
+
+                # Extract metadata from the row
+                row = matching_rows.iloc[0]
+                metadata = {
+                    'metric_name': row.get('primary_metric_name', 'metric'),
+                    'metric_unit': row.get('primary_metric_unit', ''),
+                    'summary_value': row.get('primary_metric_value'),
+                    'timestamp': str(row.get('timestamp', '?')),
+                    'instance_type': str(row.get('instance_type', '?')),
+                    'cloud_provider': str(row.get('cloud_provider', '?')),
+                }
+            except Exception as exc:
+                logging.error(f"Failed to parse filtered data for validation: {exc}", exc_info=True)
+                # Fallback to defaults if data parsing fails
+                metadata = {
+                    'metric_name': 'metric',
+                    'metric_unit': '',
+                    'summary_value': None,
+                    'timestamp': '?',
+                    'instance_type': '?',
+                    'cloud_provider': '?',
+                }
+
+        if not metadata:
+            metadata = {
+                'metric_name': 'metric',
+                'metric_unit': '',
+                'summary_value': None,
+                'timestamp': '?',
+                'instance_type': '?',
+                'cloud_provider': '?',
+            }
 
         # Fetch timeseries points (dual-mode support)
         use_opensearch = (
@@ -3005,23 +3063,48 @@ def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, c
             and not SYNTHETIC_AFTER_OPENSEARCH_FAILURE
         )
 
+        points = None
+        error_occurred = False
+
         if use_opensearch:
             try:
                 client = BenchmarkDataSource()
                 points = client.fetch_timeseries_for_document(document_id)
             except Exception as exc:
-                return True, "Error", dbc.Alert(
-                    f"Failed to fetch timeseries: {exc}", color="danger"
-                ), ""
+                # Log detailed error server-side
+                logging.error(f"OpenSearch fetch failed for document {document_id}: {exc}", exc_info=True)
+                # Show sanitized error to user
+                error_occurred = True
         else:
-            from src.data_processing import fetch_synthetic_timeseries_for_document
-            points = fetch_synthetic_timeseries_for_document(document_id)
+            # Synthetic mode
+            try:
+                from src.data_processing import fetch_synthetic_timeseries_for_document
+                points = fetch_synthetic_timeseries_for_document(document_id)
+            except Exception as exc:
+                # Log detailed error server-side
+                logging.error(f"Synthetic fetch failed for document {document_id}: {exc}", exc_info=True)
+                # Show sanitized error to user
+                error_occurred = True
+
+        if error_occurred:
+            return True, "Error", dbc.Alert(
+                "Failed to load timeseries data. Please try again or contact support.",
+                color="danger"
+            ), ""
 
         if not points:
             return True, "No Data", dbc.Alert(
                 f"No point-level data found for document {document_id}",
                 color="warning"
             ), ""
+
+        # Use validated metadata from server-side lookup
+        metric_name = metadata.get('metric_name', 'metric')
+        metric_unit = metadata.get('metric_unit', '')
+        summary_value = metadata.get('summary_value')
+        timestamp = metadata.get('timestamp', '?')
+        instance_type = metadata.get('instance_type', '?')
+        cloud_provider = metadata.get('cloud_provider', '?')
 
         # Build chart
         fig = visualizations.create_point_drilldown_chart(
@@ -3046,8 +3129,9 @@ def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, c
         dashboards_base = (os.getenv("OPENSEARCH_DASHBOARDS_BASE_URL") or "").strip()
         ts_idx = timeseries_index_name()
         if dashboards_base and ts_idx and points:
-            # Get timeseries_id from first point
-            ts_id = points[0].get('metadata', {}).get('timeseries_id')
+            # Get timeseries_id from first point - handle null metadata safely
+            first_point = points[0] if points else {}
+            ts_id = ((first_point.get('metadata') or {}) if first_point else {}).get('timeseries_id')
             if ts_id:
                 try:
                     ts_url = opensearch_discover_url_for_timeseries_id(

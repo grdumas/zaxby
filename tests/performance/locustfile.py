@@ -193,10 +193,16 @@ class DashboardUser(HttpUser):
         Triggers update_nightly_runs callback, which runs daily date_histogram
         aggregation with sub-aggregations for pass/fail counts and test category
         breakdown.
+
+        This callback has multiple outputs (nightly-runs-store.data and
+        nightly-runs-section.children), so uses multi-output format.
         """
         payload = {
-            "output": "nightly-runs-store.data",
-            "outputs": {"id": "nightly-runs-store", "property": "data"},
+            "output": "..nightly-runs-store.data..nightly-runs-section.children..",
+            "outputs": [
+                {"id": "nightly-runs-store", "property": "data"},
+                {"id": "nightly-runs-section", "property": "children"},
+            ],
             "inputs": [
                 {"id": "header-date-range", "property": "start_date", "value": None},
                 {"id": "header-date-range", "property": "end_date", "value": None},

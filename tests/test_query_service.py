@@ -1169,7 +1169,9 @@ def test_aggregate_recent_nightly_runs_with_date_range():
         datetime(2025, 5, 20, tzinfo=timezone.utc),
     )
 
-    runs = aggregate_recent_nightly_runs_from_dataframe(df, date_range=date_range)
+    runs = aggregate_recent_nightly_runs_from_dataframe(
+        df, date_range=date_range, min_test_threshold=2
+    )
 
     # Should only include May 18 (within range), not May 1
     assert len(runs) == 1

@@ -460,22 +460,28 @@ def test_fetch_baseline_results_with_filters(baseline_config):
     assert len(call_args["query"]["bool"]["must"]) >= 2  # Date range + filters
 
 
-def test_fetch_baseline_results_handles_exception(baseline_config):
-    """Test fetch_baseline_results propagates exceptions."""
+def test_fetch_baseline_results_handles_exception(baseline_config, caplog):
+    """Test fetch_baseline_results propagates exceptions with context."""
     mock_client = MagicMock()
     mock_client.search_results.side_effect = Exception("Connection error")
 
-    with pytest.raises(Exception, match="Connection error"):
+    with pytest.raises(RuntimeError, match=r"Failed to fetch baseline results for baseline_id=.*: Connection error"):
         fetch_baseline_results(mock_client, baseline_config)
 
+    # Verify error was logged with OpenSearch operation context
+    assert any("OpenSearch operation failed" in record.message for record in caplog.records)
 
-def test_fetch_nightly_results_handles_exception():
-    """Test fetch_nightly_results propagates exceptions."""
+
+def test_fetch_nightly_results_handles_exception(caplog):
+    """Test fetch_nightly_results propagates exceptions with context."""
     mock_client = MagicMock()
     mock_client.search_results.side_effect = Exception("Connection error")
 
-    with pytest.raises(Exception, match="Connection error"):
+    with pytest.raises(RuntimeError, match=r"Failed to fetch nightly results: Connection error"):
         fetch_nightly_results(mock_client)
+
+    # Verify error was logged with OpenSearch operation context
+    assert any("OpenSearch operation failed" in record.message for record in caplog.records)
 
 
 def test_benchmark_delta_dataclass():

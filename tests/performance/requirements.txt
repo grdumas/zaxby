@@ -1,0 +1,11 @@
+# Performance Testing Dependencies
+# Install with: pip install -r tests/performance/requirements.txt
+
+# Function-level benchmarks with statistical analysis (p50/p95/p99)
+pytest-benchmark>=4.0.0
+
+# HTTP load testing with parameterized concurrency
+locust>=2.20.0
+
+# Optional resource monitoring (CPU, memory)
+psutil>=5.9.0

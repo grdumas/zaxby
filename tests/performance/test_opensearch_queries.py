@@ -841,3 +841,204 @@ class TestConcurrentQueryLoad:
             assert stats["p95"] < 600, f"P95 latency too high for 10 users: {stats['p95']:.1f}ms"
         elif num_users == 20:
             assert stats["p95"] < 1200, f"P95 latency too high for 20 users: {stats['p95']:.1f}ms"
+
+
+# --- Test Class 5: Large Result Pagination ---
+
+
+class TestLargeResultPagination:
+    """
+    Scenario 5: Large result pagination -- scroll through 10K+ document sets.
+
+    Tests benchmark scroll API and search_after pagination patterns for handling
+    large result sets.
+    """
+
+    def test_scroll_results_full(self, benchmark, opensearch_client: BenchmarkDataSource, opensearch_results_count: int):
+        """
+        Benchmark full scroll of results index (up to 10K docs).
+
+        Uses scroll API with 2m timeout and batch_size=1000.
+        Expected baseline: < 2000ms for 10K docs on production cluster.
+        """
+        if opensearch_results_count < 100:
+            pytest.skip(f"Insufficient documents for scroll test: {opensearch_results_count}")
+
+        # Limit to min(results_count, 10000) to avoid excessive test time
+        max_docs = min(opensearch_results_count, 10000)
+
+        result = benchmark(opensearch_client.scroll_results, max_docs=max_docs)
+
+        # Validate results
+        assert isinstance(result, list), "Expected list of documents"
+        assert len(result) > 0, "Scroll returned no documents"
+        logger.info(f"Scroll retrieved {len(result)} documents")
+
+    def test_scroll_results_batched(self, opensearch_client: BenchmarkDataSource, opensearch_results_count: int):
+        """
+        Benchmark scroll with manual per-batch timing.
+
+        Measures latency for each scroll batch (batch_size=1000) to identify
+        pagination performance characteristics.
+
+        Expected: First batch < 100ms, subsequent batches < 50ms.
+        """
+        if opensearch_results_count < 100:
+            pytest.skip(f"Insufficient documents for scroll test: {opensearch_results_count}")
+
+        max_docs = min(opensearch_results_count, 5000)  # Smaller limit for batched test
+        batch_size = 1000
+
+        try:
+            batch_latencies = []
+            all_documents = []
+
+            # Initial search with scroll
+            start = time.time()
+            response = opensearch_client.client.search(
+                index=opensearch_client.results_index,
+                scroll="2m",
+                size=batch_size,
+                body={"query": {"match_all": {}}},
+            )
+            first_batch_latency = (time.time() - start) * 1000
+            batch_latencies.append(first_batch_latency)
+
+            scroll_id = response["_scroll_id"]
+            hits = response["hits"]["hits"]
+            all_documents.extend([hit["_source"] for hit in hits])
+
+            # Subsequent scroll batches
+            while len(hits) > 0 and len(all_documents) < max_docs:
+                start = time.time()
+                response = opensearch_client.client.scroll(scroll_id=scroll_id, scroll="2m")
+                batch_latency = (time.time() - start) * 1000
+                batch_latencies.append(batch_latency)
+
+                scroll_id = response["_scroll_id"]
+                hits = response["hits"]["hits"]
+                all_documents.extend([hit["_source"] for hit in hits])
+
+            # Clear scroll
+            try:
+                opensearch_client.client.clear_scroll(scroll_id=scroll_id)
+            except Exception:
+                pass
+
+            # Compute and log statistics
+            stats = _compute_latency_stats(batch_latencies)
+            logger.info(
+                f"Scroll batched: {len(batch_latencies)} batches, {len(all_documents)} docs | "
+                f"First batch: {batch_latencies[0]:.1f}ms | "
+                f"Mean: {stats['mean']:.1f}ms | P95: {stats['p95']:.1f}ms"
+            )
+
+            # Assertions
+            assert len(all_documents) > 0, "Scroll returned no documents"
+            assert stats["mean"] < 200, f"Mean batch latency too high: {stats['mean']:.1f}ms"
+
+        except Exception as exc:
+            logger.error(f"Scroll batched test failed: {exc}")
+            pytest.fail(f"Scroll batched test failed: {exc}")
+
+    def test_large_search_with_size(self, benchmark, opensearch_client: BenchmarkDataSource, opensearch_results_count: int):
+        """
+        Benchmark large single search with size=MAX_SEARCH_HITS (10000).
+
+        Tests non-scroll approach for retrieving large result sets in one request.
+        Expected baseline: < 500ms for 10K docs.
+        """
+        if opensearch_results_count < 100:
+            pytest.skip(f"Insufficient documents for large search test: {opensearch_results_count}")
+
+        body = {
+            "size": MAX_SEARCH_HITS,
+            "query": {"match_all": {}},
+            "sort": [
+                {RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"},
+                {FIELD_DOCUMENT_ID: "asc"}
+            ]
+        }
+
+        result = benchmark(opensearch_client.search_results, body)
+
+        took_ms = result.get("took", -1)
+        assert took_ms >= 0, "Response missing 'took' field"
+        logger.info(f"Large search (size={MAX_SEARCH_HITS}) - OpenSearch took: {took_ms}ms")
+
+        # Validate results
+        assert "hits" in result, "Response missing hits"
+        hits = result["hits"]["hits"]
+        logger.info(f"Large search retrieved {len(hits)} documents")
+
+    def test_search_after_pagination(self, opensearch_client: BenchmarkDataSource, opensearch_results_count: int):
+        """
+        Benchmark search_after pagination pattern for deep pages.
+
+        Implements the search_after strategy documented in query_service.py:
+        - Initial search with sort
+        - Subsequent pages using search_after with last hit's sort values
+
+        Expected: Each page < 100ms for page_size=500.
+        """
+        if opensearch_results_count < 100:
+            pytest.skip(f"Insufficient documents for search_after test: {opensearch_results_count}")
+
+        page_size = 500
+        max_pages = 5  # Test first 5 pages (2500 docs)
+
+        try:
+            page_latencies = []
+            all_documents = []
+
+            # Initial search
+            body = {
+                "size": page_size,
+                "query": {"match_all": {}},
+                "sort": [
+                    {RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"},
+                    {FIELD_DOCUMENT_ID: "asc"}
+                ]
+            }
+
+            start = time.time()
+            response = opensearch_client.search_results(body)
+            first_page_latency = (time.time() - start) * 1000
+            page_latencies.append(first_page_latency)
+
+            hits = response["hits"]["hits"]
+            all_documents.extend([hit["_source"] for hit in hits])
+
+            # Subsequent pages with search_after
+            for page_num in range(1, max_pages):
+                if not hits:
+                    break
+
+                # Get sort values from last hit
+                last_hit = hits[-1]
+                body["search_after"] = last_hit["sort"]
+
+                start = time.time()
+                response = opensearch_client.search_results(body)
+                page_latency = (time.time() - start) * 1000
+                page_latencies.append(page_latency)
+
+                hits = response["hits"]["hits"]
+                all_documents.extend([hit["_source"] for hit in hits])
+
+            # Compute and log statistics
+            stats = _compute_latency_stats(page_latencies)
+            logger.info(
+                f"search_after pagination: {len(page_latencies)} pages, {len(all_documents)} docs | "
+                f"First page: {page_latencies[0]:.1f}ms | "
+                f"Mean: {stats['mean']:.1f}ms | P95: {stats['p95']:.1f}ms"
+            )
+
+            # Assertions
+            assert len(all_documents) > 0, "search_after returned no documents"
+            assert stats["mean"] < 200, f"Mean page latency too high: {stats['mean']:.1f}ms"
+            assert stats["p95"] < 400, f"P95 page latency too high: {stats['p95']:.1f}ms"
+
+        except Exception as exc:
+            logger.error(f"search_after pagination test failed: {exc}")
+            pytest.fail(f"search_after pagination test failed: {exc}")

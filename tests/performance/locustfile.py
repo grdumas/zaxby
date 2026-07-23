@@ -25,6 +25,9 @@ Usage:
     locust -f tests/performance/locustfile.py --host http://localhost:8050
     # Then open http://localhost:8089
 
+  Reproducible runs (with seeded random filter selection):
+    LOCUST_SEED=42 locust -f tests/performance/locustfile.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
+
 Note: For 50+ user tests, run the app with gunicorn multi-process:
   gunicorn -w 4 -b 127.0.0.1:8050 app:server
   (Use 0.0.0.0 only when intentionally exposing to network)
@@ -32,6 +35,7 @@ Note: For 50+ user tests, run the app with gunicorn multi-process:
 
 from __future__ import annotations
 
+import os
 import random
 from locust import HttpUser, task, between, events
 
@@ -56,13 +60,29 @@ class DashboardUser(HttpUser):
         Initialize session by loading the main page.
 
         Validates connectivity and fetches initial layout.
+        Optionally seeds random number generator for reproducible filter selection.
         """
+        # Support optional seeding via LOCUST_SEED environment variable
+        seed_str = os.environ.get("LOCUST_SEED")
+        if seed_str:
+            try:
+                seed = int(seed_str)
+                random.seed(seed)
+            except ValueError:
+                raise ValueError(
+                    f"LOCUST_SEED must be an integer, got: {seed_str}"
+                )
+
         response = self.client.get("/", name="Initial Page Load")
         if response.status_code != 200:
             raise Exception(
                 f"App not reachable at {self.host}. "
                 f"Ensure app is running with: DATA_MODE=synthetic python app.py"
             )
+
+        # Track filtered data state for analysis task
+        # analyze_data depends on filtered-data-store being populated
+        self.filtered_data_store = None
 
     @task(1)
     def load_page(self):
@@ -121,14 +141,16 @@ class DashboardUser(HttpUser):
         filter_choice = random.choice(["os_version", "cloud_provider", "test_name", "status"])
 
         # Build filter values based on choice
+        # OS versions use "dist:version" format (e.g., "rhel:9.6")
+        # Status values are uppercase ("PASS", "FAIL", "UNKNOWN")
         if filter_choice == "os_version":
-            filter_value = random.choice([["RHEL 9.6"], ["RHEL 10.1"], []])
+            filter_value = random.choice([["rhel:9.6"], ["rhel:10.1"], []])
         elif filter_choice == "cloud_provider":
             filter_value = random.choice([["aws"], ["gcp"], ["azure"], []])
         elif filter_choice == "test_name":
             filter_value = random.choice([["coremark"], ["pyperf"], []])
         else:  # status
-            filter_value = random.choice([["pass"], ["fail"], []])
+            filter_value = random.choice([["PASS"], ["FAIL"], []])
 
         # Map filter choice to component ID for changedPropIds
         component_id = filter_to_component_id[filter_choice]
@@ -148,12 +170,22 @@ class DashboardUser(HttpUser):
             "changedPropIds": [f"filter-{component_id}.value"],
         }
 
-        self.client.post(
+        response = self.client.post(
             "/_dash-update-component",
             json=payload,
             name="Update Filters",
             headers={"Content-Type": "application/json"},
         )
+
+        # Store filtered data for analyze_data task
+        if response.status_code == 200:
+            try:
+                import json as json_module
+                result = response.json()
+                if "response" in result and "filtered-data-store" in result["response"]:
+                    self.filtered_data_store = result["response"]["filtered-data-store"]["data"]
+            except (json_module.JSONDecodeError, KeyError):
+                pass
 
     @task(2)
     def analyze_data(self):
@@ -165,15 +197,15 @@ class DashboardUser(HttpUser):
 
         This is the heaviest analysis operation, computing three regression
         comparisons with category grouping and statistical calculations.
+
+        Uses filtered data from update_filters task if available, otherwise
+        sends None to trigger analysis on full dataset.
         """
-        # This callback depends on filtered-data-store being populated first,
-        # but in Locust we simulate it directly. In a real session, the filter
-        # update would have already populated the store.
         payload = {
             "output": "analysis-results-store.data",
             "outputs": {"id": "analysis-results-store", "property": "data"},
             "inputs": [
-                {"id": "filtered-data-store", "property": "data", "value": None}
+                {"id": "filtered-data-store", "property": "data", "value": self.filtered_data_store}
             ],
             "changedPropIds": ["filtered-data-store.data"],
         }

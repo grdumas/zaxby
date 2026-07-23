@@ -2917,28 +2917,33 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     )
 
     # Build dropdown options for point drill-down (RPOPC-1183)
-    drilldown_rows = test_df[
-        ['document_id', 'timestamp', 'instance_type', 'cloud_provider',
-         'primary_metric_name', 'primary_metric_value', 'primary_metric_unit']
-    ].sort_values('timestamp', ascending=False).head(50)
+    # Check for required columns before building dropdown
+    required_cols = ['document_id', 'primary_metric_name', 'primary_metric_value', 'primary_metric_unit']
+    has_required_cols = all(col in test_df.columns for col in required_cols)
 
     dropdown_options = []
-    for _, row in drilldown_rows.iterrows():
-        doc_id = row.get('document_id')
-        if pd.isna(doc_id) or not doc_id:
-            continue
+    if has_required_cols:
+        drilldown_rows = test_df[
+            ['document_id', 'timestamp', 'instance_type', 'cloud_provider',
+             'primary_metric_name', 'primary_metric_value', 'primary_metric_unit']
+        ].sort_values('timestamp', ascending=False).head(50)
 
-        label = f"{row['timestamp']} | {row.get('instance_type', '?')} | {row.get('cloud_provider', '?')}"
-        value = json.dumps({
-            'document_id': str(doc_id),
-            'primary_metric_name': str(row.get('primary_metric_name', '')),
-            'primary_metric_value': float(row['primary_metric_value']) if pd.notna(row.get('primary_metric_value')) else None,
-            'primary_metric_unit': str(row.get('primary_metric_unit', '')),
-            'timestamp': str(row['timestamp']),
-            'instance_type': str(row.get('instance_type', '')),
-            'cloud_provider': str(row.get('cloud_provider', '')),
-        })
-        dropdown_options.append({'label': label, 'value': value})
+        for _, row in drilldown_rows.iterrows():
+            doc_id = row.get('document_id')
+            if pd.isna(doc_id) or not doc_id:
+                continue
+
+            label = f"{row['timestamp']} | {row.get('instance_type', '?')} | {row.get('cloud_provider', '?')}"
+            value = json.dumps({
+                'document_id': str(doc_id),
+                'primary_metric_name': str(row.get('primary_metric_name', '')),
+                'primary_metric_value': float(row['primary_metric_value']) if pd.notna(row.get('primary_metric_value')) else None,
+                'primary_metric_unit': str(row.get('primary_metric_unit', '')),
+                'timestamp': str(row['timestamp']),
+                'instance_type': str(row.get('instance_type', '')),
+                'cloud_provider': str(row.get('cloud_provider', '')),
+            })
+            dropdown_options.append({'label': label, 'value': value})
 
     return summary_component, comparison_fig, timeline_fig, table_component, dropdown_options
 

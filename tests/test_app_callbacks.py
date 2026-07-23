@@ -605,9 +605,9 @@ def test_investigation_view_accepts_colorblind_mode(monkeypatch):
         # Should not raise an error
         result = app.update_investigation_view(nav_state, filtered_data_json, colorblind_mode)
 
-        # Verify result structure (4 outputs: summary, comparison chart, timeline chart, table)
+        # Verify result structure (5 outputs: summary, comparison chart, timeline chart, table, dropdown options)
         assert isinstance(result, tuple)
-        assert len(result) == 4
+        assert len(result) == 5
 
 
 def test_investigation_view_passes_colorblind_to_charts(monkeypatch):

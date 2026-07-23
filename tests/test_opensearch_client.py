@@ -2,6 +2,7 @@
 Tests for OpenSearch client module.
 """
 
+import logging
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from src.opensearch_client import BenchmarkDataSource
@@ -95,6 +96,8 @@ def test_fetch_timeseries_for_document(mock_opensearch_client):
             assert kwargs['body']['query']['bool']['must'][0]['term'][
                 'metadata.document_id'
             ] == 'parent-doc-id'
+            # Verify sort clause for ordered results
+            assert kwargs['body']['sort'] == [{"metadata.sequence": {"order": "asc"}}]
 
 
 def test_get_all_documents_deprecation(mock_opensearch_client):
@@ -236,12 +239,120 @@ def test_query_with_filters(mock_opensearch_client):
             
             filters = {'os_version': '9.5'}
             docs = client.query_with_filters(filters=filters)
-            
+
             assert len(docs) == 1
             assert docs[0]['test'] == 'filtered_doc'
-            
+
             # Verify search was called
             client.client.search.assert_called_once()
 
+
+def test_fetch_timeseries_returns_sorted_results(mock_opensearch_client):
+    """fetch_timeseries_for_document returns results sorted by metadata.sequence ascending."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            client.client.search = Mock(
+                return_value={'hits': {'hits': []}}
+            )
+            client.fetch_timeseries_for_document('doc-123')
+
+            # Verify sort clause is present
+            _, kwargs = client.client.search.call_args
+            assert 'sort' in kwargs['body']
+            assert kwargs['body']['sort'] == [{"metadata.sequence": {"order": "asc"}}]
+
+
+def test_fetch_timeseries_handles_large_datasets(mock_opensearch_client):
+    """fetch_timeseries_for_document can retrieve more than 100 points."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+
+            # Mock a dataset with 500 points
+            mock_hits = [{'_source': {'metadata': {'sequence': i}}} for i in range(500)]
+            client.client.search = Mock(
+                return_value={'hits': {'hits': mock_hits}}
+            )
+
+            # Request 500 points
+            rows = client.fetch_timeseries_for_document('doc-123', size=500)
+
+            # Verify we got all 500 points
+            assert len(rows) == 500
+
+            # Verify size parameter was passed
+            _, kwargs = client.client.search.call_args
+            assert kwargs['body']['size'] == 500
+
+
+def test_fetch_timeseries_logs_operations(mock_opensearch_client, caplog):
+    """fetch_timeseries_for_document logs operation context."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+            client.client.search = Mock(
+                return_value={'hits': {'hits': [
+                    {'_source': {'k': 1}},
+                    {'_source': {'k': 2}},
+                ]}}
+            )
+
+            with caplog.at_level(logging.INFO):
+                rows = client.fetch_timeseries_for_document('doc-456', size=10)
+
+            # Verify logging occurred with context
+            assert len(rows) == 2
+
+            # Check that logs contain operation type, document_id, and result count
+            log_messages = [rec.message for rec in caplog.records]
+
+            # Should have a log entry mentioning the fetch operation
+            fetch_logs = [msg for msg in log_messages if 'fetch' in msg.lower() or 'timeseries' in msg.lower()]
+            assert len(fetch_logs) > 0
+
+            # Should mention document_id
+            doc_id_logs = [msg for msg in log_messages if 'doc-456' in msg]
+            assert len(doc_id_logs) > 0
+
+            # Should mention result count
+            count_logs = [msg for msg in log_messages if '2' in msg or 'retrieved' in msg.lower()]
+            assert len(count_logs) > 0
+
+
+def test_fetch_timeseries_warns_when_hitting_size_limit(mock_opensearch_client, caplog):
+    """fetch_timeseries_for_document warns when result count equals size limit."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+
+            # Mock exactly 100 results (hitting the limit)
+            mock_hits = [{'_source': {'k': i}} for i in range(100)]
+            client.client.search = Mock(
+                return_value={'hits': {'hits': mock_hits}}
+            )
+
+            with caplog.at_level(logging.WARNING):
+                rows = client.fetch_timeseries_for_document('doc-789', size=100)
+
+            assert len(rows) == 100
+
+            # Should warn about potential truncation
+            warning_logs = [rec for rec in caplog.records if rec.levelname == 'WARNING']
+            assert len(warning_logs) > 0
+            assert any('limit' in rec.message.lower() or 'truncat' in rec.message.lower()
+                      for rec in warning_logs)
 
 

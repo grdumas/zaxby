@@ -2096,11 +2096,14 @@ def create_point_drilldown_chart(
     # Extract sequences and metric values
     sequences = []
     values = []
+    actual_metric_used = metric_name
+    fallback_occurred = False
 
     for point in points:
-        meta = point.get("metadata", {})
-        results = point.get("results", {})
-        point_metrics = results.get("point_metrics", {})
+        # Use 'or {}' pattern to handle explicit None values (accepted in PR #40)
+        meta = point.get("metadata") or {}
+        results = point.get("results") or {}
+        point_metrics = results.get("point_metrics") or {}
 
         seq = meta.get("sequence")
         if seq is None:
@@ -2110,7 +2113,11 @@ def create_point_drilldown_chart(
         value = point_metrics.get(metric_name)
         if value is None and point_metrics:
             # Metric not found, use first available
-            value = next(iter(point_metrics.values()))
+            if not fallback_occurred:
+                # Track actual metric key on first fallback
+                actual_metric_used = next(iter(point_metrics.keys()))
+                fallback_occurred = True
+            value = point_metrics.get(actual_metric_used)
 
         if value is not None:
             sequences.append(seq)
@@ -2118,6 +2125,10 @@ def create_point_drilldown_chart(
 
     if not sequences:
         return create_empty_figure("No metric data available in points")
+
+    # Sort by sequence number before plotting
+    sorted_pairs = sorted(zip(sequences, values), key=lambda x: x[0])
+    sequences, values = zip(*sorted_pairs) if sorted_pairs else ([], [])
 
     # Create scatter trace
     fig = go.Figure()
@@ -2132,7 +2143,7 @@ def create_point_drilldown_chart(
         mode='lines+markers',
         line=dict(color=palette.branding.pulse_line),
         marker=dict(symbol=marker_symbol) if marker_symbol else None,
-        name=_escape_html(metric_name),
+        name=_escape_html(actual_metric_used),
     ))
 
     # Add summary reference line if provided
@@ -2149,13 +2160,26 @@ def create_point_drilldown_chart(
     unit_label = f" ({_escape_html(metric_unit)})" if metric_unit else ""
 
     fig.update_layout(
-        title=f"Point-Level Data: {_escape_html(metric_name)}",
+        title=f"Point-Level Data: {_escape_html(actual_metric_used)}",
         xaxis_title="Sequence",
-        yaxis_title=f"{_escape_html(metric_name)}{unit_label}",
+        yaxis_title=f"{_escape_html(actual_metric_used)}{unit_label}",
         template='plotly_white',
         height=450,
         showlegend=False,
     )
+
+    # Add annotation when fallback occurred
+    if fallback_occurred:
+        fig.add_annotation(
+            text=f"Requested '{_escape_html(metric_name)}' not found; showing '{_escape_html(actual_metric_used)}'",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=-0.15,
+            showarrow=False,
+            font=dict(size=10, color="gray"),
+            xanchor="center",
+        )
 
     return fig
 

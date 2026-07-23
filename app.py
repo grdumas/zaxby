@@ -1062,9 +1062,53 @@ def create_investigation_layout(
                 dcc.Loading(
                     html.Div(id='investigation-table'),
                     type="default"
-                )
+                ),
+
+                # Point drill-down UI (RPOPC-1183)
+                html.Hr(),
+                html.H5("Point-Level Drill-Down", className="mt-3 mb-3"),
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Dropdown(
+                            id='point-drilldown-select',
+                            placeholder="Select a test run to view point-level data...",
+                            clearable=True,
+                        ),
+                    ], width=9),
+                    dbc.Col([
+                        dbc.Button(
+                            "View Points",
+                            id='btn-view-points',
+                            color="primary",
+                            size="sm",
+                            disabled=True,
+                            className="w-100 mt-1",
+                        ),
+                    ], width=3),
+                ], className="mb-2"),
+                html.Small(
+                    "Select a test run from the dropdown, then click View Points to see "
+                    "individual data points for that run.",
+                    className="text-muted",
+                ),
             ])
-        ])
+        ]),
+
+        # Point drill-down modal (RPOPC-1183)
+        dbc.Modal([
+            dbc.ModalHeader([
+                dbc.ModalTitle(id="point-drilldown-modal-title", children="Point-Level Data")
+            ], close_button=True),
+            dbc.ModalBody([
+                dcc.Loading([
+                    html.Div(id='point-drilldown-modal-body')
+                ], type="default")
+            ]),
+            dbc.ModalFooter([
+                html.Div(id='point-drilldown-discover-link', className="flex-grow-1"),
+                dbc.Button("Close", id="btn-point-drilldown-close", color="secondary")
+            ])
+        ], id="point-drilldown-modal", size="xl", is_open=False, scrollable=True),
     ])
 
 
@@ -2866,6 +2910,19 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     )
 
     return summary_component, comparison_fig, timeline_fig, table_component
+
+
+# --- Point Drill-Down Callbacks (RPOPC-1183) ---
+
+
+@app.callback(
+    Output('btn-view-points', 'disabled'),
+    Input('point-drilldown-select', 'value'),
+    prevent_initial_call=True
+)
+def toggle_view_points_button(selected_value):
+    """Enable View Points button when a test run is selected."""
+    return not bool(selected_value)
 
 
 # --- Track Mode Callbacks (RPOPC-1165) ---

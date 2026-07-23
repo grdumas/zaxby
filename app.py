@@ -3016,7 +3016,8 @@ def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, c
                 test_df = pd.read_json(StringIO(filtered_data_json), orient='split')
 
                 # Find the row matching this document_id
-                matching_rows = test_df[test_df['document_id'] == document_id]
+                # Normalize dtype to string for consistent comparison
+                matching_rows = test_df[test_df['document_id'].astype(str) == document_id]
                 if matching_rows.empty:
                     # document_id not in current filtered data - reject
                     return True, "Error", dbc.Alert(

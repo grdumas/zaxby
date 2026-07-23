@@ -2053,6 +2053,133 @@ def create_category_hardware_heatmap(
         margin=dict(l=150, r=100, t=50, b=100),
         xaxis=dict(tickangle=45)
     )
-    
+
+    return fig
+
+
+def create_point_drilldown_chart(
+    points: list,
+    metric_name: str,
+    metric_unit: Optional[str] = None,
+    summary_value: Optional[float] = None,
+    colorblind_mode: bool = False
+) -> go.Figure:
+    """
+    Create a timeseries chart showing point-level data for a test run.
+
+    Used in the Investigate mode point drill-down modal (RPOPC-1183).
+    Plots individual data points from a timeseries document, showing sequence
+    on X-axis and metric value on Y-axis, with optional summary reference line.
+
+    Args:
+        points: List of timeseries point dicts from fetch_timeseries_for_document
+                or fetch_synthetic_timeseries_for_document. Expected structure:
+                {
+                    "metadata": {"sequence": <int>, ...},
+                    "results": {"point_metrics": {<metric_name>: <float>, ...}}
+                }
+        metric_name: Name of metric to plot from point_metrics dict
+        metric_unit: Unit string for Y-axis label (e.g., "GB/s")
+        summary_value: Optional summary metric value to show as reference line
+        colorblind_mode: If True, add marker symbols for redundant encoding
+
+    Returns:
+        Plotly Figure with line+markers chart or empty figure if no data
+    """
+    from src.color_palettes import get_palette
+
+    if not points:
+        return create_empty_figure("No timeseries data available")
+
+    palette = get_palette(colorblind_mode)
+
+    # Extract sequences and metric values
+    sequences = []
+    values = []
+    actual_metric_used = metric_name
+    fallback_occurred = False
+
+    for point in points:
+        # Use 'or {}' pattern to handle explicit None values (accepted in PR #40)
+        meta = point.get("metadata") or {}
+        results = point.get("results") or {}
+        point_metrics = results.get("point_metrics") or {}
+
+        seq = meta.get("sequence")
+        if seq is None:
+            continue
+
+        # Try to get the requested metric, fall back to first available
+        value = point_metrics.get(metric_name)
+        if value is None and point_metrics:
+            # Metric not found, use first available
+            if not fallback_occurred:
+                # Track actual metric key on first fallback
+                actual_metric_used = next(iter(point_metrics.keys()))
+                fallback_occurred = True
+            value = point_metrics.get(actual_metric_used)
+
+        if value is not None:
+            sequences.append(seq)
+            values.append(value)
+
+    if not sequences:
+        return create_empty_figure("No metric data available in points")
+
+    # Sort by sequence number before plotting
+    sorted_pairs = sorted(zip(sequences, values), key=lambda x: x[0])
+    sequences, values = zip(*sorted_pairs) if sorted_pairs else ([], [])
+
+    # Create scatter trace
+    fig = go.Figure()
+
+    marker_symbol = None
+    if colorblind_mode:
+        marker_symbol = palette.patterns.marker_symbols[0]
+
+    fig.add_trace(go.Scatter(
+        x=sequences,
+        y=values,
+        mode='lines+markers',
+        line=dict(color=palette.branding.pulse_line),
+        marker=dict(symbol=marker_symbol) if marker_symbol else None,
+        name=_escape_html(actual_metric_used),
+    ))
+
+    # Add summary reference line if provided
+    if summary_value is not None:
+        fig.add_hline(
+            y=summary_value,
+            line_dash="dash",
+            line_color="gray",
+            annotation_text=f"Summary: {summary_value:.2f}",
+            annotation_position="right",
+        )
+
+    # Layout
+    unit_label = f" ({_escape_html(metric_unit)})" if metric_unit else ""
+
+    fig.update_layout(
+        title=f"Point-Level Data: {_escape_html(actual_metric_used)}",
+        xaxis_title="Sequence",
+        yaxis_title=f"{_escape_html(actual_metric_used)}{unit_label}",
+        template='plotly_white',
+        height=450,
+        showlegend=False,
+    )
+
+    # Add annotation when fallback occurred
+    if fallback_occurred:
+        fig.add_annotation(
+            text=f"Requested '{_escape_html(metric_name)}' not found; showing '{_escape_html(actual_metric_used)}'",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=-0.15,
+            showarrow=False,
+            font=dict(size=10, color="gray"),
+            xanchor="center",
+        )
+
     return fig
 

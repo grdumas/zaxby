@@ -605,9 +605,9 @@ def test_investigation_view_accepts_colorblind_mode(monkeypatch):
         # Should not raise an error
         result = app.update_investigation_view(nav_state, filtered_data_json, colorblind_mode)
 
-        # Verify result structure (4 outputs: summary, comparison chart, timeline chart, table)
+        # Verify result structure (6 outputs: summary, comparison chart, timeline chart, table, dropdown options, drilldown data)
         assert isinstance(result, tuple)
-        assert len(result) == 4
+        assert len(result) == 6
 
 
 def test_investigation_view_passes_colorblind_to_charts(monkeypatch):
@@ -1896,3 +1896,111 @@ def test_pulse_panel_deserialization_error_hides_details_from_ui(monkeypatch):
         if mock_logger.error.called:
             assert mock_logger.error.call_count >= 1, \
                 "Detailed error should be logged server-side"
+
+
+# --- Task 1: Tests for dedicated point-drilldown-data-store (RPOPC-1183) ---
+
+
+def test_update_investigation_view_returns_six_outputs(monkeypatch):
+    """
+    Test that update_investigation_view returns 6 outputs including
+    the new point-drilldown-data-store.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    # Setup: investigation nav state with valid params
+    nav_state = {
+        'view': 'investigation',
+        'investigation_params': {
+            'test_name': 'test_benchmark',
+            'baseline_version': '9.5',
+            'comparison_version': '10.0',
+            'os_distribution': 'rhel'
+        }
+    }
+
+    # Mock filtered data with all required columns for investigation view
+    import pandas as pd
+    test_df = pd.DataFrame({
+        'document_id': ['doc1', 'doc2'],
+        'primary_metric_name': ['throughput', 'throughput'],
+        'primary_metric_value': [100, 200],
+        'primary_metric_unit': ['ops/s', 'ops/s'],
+        'timestamp': ['2025-01-01T00:00:00', '2025-01-02T00:00:00'],
+        'instance_type': ['m5.large', 'm5.large'],
+        'cloud_provider': ['aws', 'aws'],
+        'test_name': ['test_benchmark', 'test_benchmark'],
+        'os_distribution': ['rhel', 'rhel'],
+        'os_version': ['9.5', '10.0'],
+        'status': ['pass', 'pass'],
+    })
+    filtered_data_json = test_df.to_json(orient='split')
+
+    # Call the callback
+    result = app.update_investigation_view(nav_state, filtered_data_json, False)
+
+    # Should return 6 values (not 5)
+    assert len(result) == 6, \
+        f"Expected 6 outputs (including point-drilldown-data-store), got {len(result)}"
+
+
+def test_update_investigation_view_sixth_output_is_metadata_dict(monkeypatch):
+    """
+    Test that the 6th output is a dict with document_id keys mapping to metadata dicts.
+    """
+    app = _import_app_fresh(monkeypatch)
+
+    nav_state = {
+        'view': 'investigation',
+        'investigation_params': {
+            'test_name': 'test_benchmark',
+            'baseline_version': '9.5',
+            'comparison_version': '10.0',
+            'os_distribution': 'rhel'
+        }
+    }
+
+    import pandas as pd
+    test_df = pd.DataFrame({
+        'document_id': ['doc1', 'doc2'],
+        'primary_metric_name': ['throughput', 'latency'],
+        'primary_metric_value': [100.5, 200.3],
+        'primary_metric_unit': ['ops/s', 'ms'],
+        'timestamp': ['2025-01-01T00:00:00', '2025-01-02T00:00:00'],
+        'instance_type': ['m5.large', 'c5.xlarge'],
+        'cloud_provider': ['aws', 'gcp'],
+        'test_name': ['test_benchmark', 'test_benchmark'],
+        'os_distribution': ['rhel', 'rhel'],
+        'os_version': ['9.5', '10.0'],
+        'status': ['pass', 'pass'],
+    })
+    filtered_data_json = test_df.to_json(orient='split')
+
+    result = app.update_investigation_view(nav_state, filtered_data_json, False)
+
+    # Extract the 6th output (index 5)
+    drilldown_data = result[5]
+
+    # Should be a dict
+    assert isinstance(drilldown_data, dict), \
+        f"6th output should be a dict, got {type(drilldown_data)}"
+
+    # Should have document_id keys
+    assert 'doc1' in drilldown_data, "Should have doc1 key"
+    assert 'doc2' in drilldown_data, "Should have doc2 key"
+
+    # Each value should be a metadata dict with expected keys
+    doc1_meta = drilldown_data['doc1']
+    assert 'metric_name' in doc1_meta
+    assert 'metric_unit' in doc1_meta
+    assert 'summary_value' in doc1_meta
+    assert 'timestamp' in doc1_meta
+    assert 'instance_type' in doc1_meta
+    assert 'cloud_provider' in doc1_meta
+
+    # Verify values match the DataFrame
+    assert doc1_meta['metric_name'] == 'throughput'
+    assert doc1_meta['metric_unit'] == 'ops/s'
+    assert doc1_meta['summary_value'] == 100.5
+    assert doc1_meta['instance_type'] == 'm5.large'
+    assert doc1_meta['cloud_provider'] == 'aws'

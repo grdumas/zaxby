@@ -167,7 +167,7 @@ class BenchmarkDataSource:
         self,
         document_id: str,
         *,
-        size: int = 100,
+        size: int = 10000,
         document_id_field: str = "metadata.document_id",
     ) -> List[Dict[str, Any]]:
         """
@@ -175,7 +175,7 @@ class BenchmarkDataSource:
 
         Args:
             document_id: Parent run id (metadata.document_id in zathras-results).
-            size: Max hits to return (capped for safety).
+            size: Max hits to return (default 10000, capped for safety).
             document_id_field: Field path in timeseries docs linking to the parent (adjust if mapping uses .keyword).
         """
         if not self.timeseries_index:
@@ -186,6 +186,11 @@ class BenchmarkDataSource:
             raise ValueError("size must be at least 1")
         size = min(size, 10000)
 
+        logger.info(
+            "Fetching timeseries data for document_id=%s (size=%d, index=%s)",
+            document_id, size, self.timeseries_index
+        )
+
         body = {
             "query": {
                 "bool": {
@@ -195,10 +200,26 @@ class BenchmarkDataSource:
                 }
             },
             "size": size,
+            "sort": [{"metadata.sequence": {"order": "asc"}}],
         }
         try:
             response = self.search_timeseries(body)
             hits = response.get("hits", {}).get("hits", [])
+            result_count = len(hits)
+
+            logger.info(
+                "Retrieved %d timeseries point(s) for document_id=%s",
+                result_count, document_id
+            )
+
+            if result_count == size:
+                logger.warning(
+                    "Timeseries fetch for document_id=%s hit size limit (%d). "
+                    "Results may be truncated. Consider narrowing query scope or using "
+                    "pagination (search_after) for complete retrieval.",
+                    document_id, size
+                )
+
             return [hit["_source"] for hit in hits]
         except exceptions.NotFoundError:
             logger.error("Timeseries index %r not found", self.timeseries_index)

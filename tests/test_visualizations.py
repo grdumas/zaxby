@@ -3154,3 +3154,404 @@ def test_metrics_table_escapes_column_names_with_html():
     # Escaped versions SHOULD appear
     assert "&lt;script&gt;" in all_headers or "Col&lt;script" in all_headers, \
         "Column name with HTML should be escaped using &lt; and &gt;"
+
+
+# --- Point Drill-Down Chart Tests (RPOPC-1183) ---
+
+
+@pytest.fixture
+def sample_timeseries_points():
+    """Sample timeseries points matching zathras_timeseries.json structure."""
+    return [
+        {
+            "metadata": {
+                "document_id": "test_doc123",
+                "sequence": i,
+                "timeseries_id": "test_abc_timeseries",
+                "test_timestamp": f"2026-01-25T05:3{i}:23.928784Z",
+            },
+            "results": {
+                "point_metrics": {
+                    "tcp_stream_bw_gbs": 7.0 + i * 0.1,
+                    "latency_us": 30.0 + i,
+                }
+            }
+        }
+        for i in range(5)
+    ]
+
+
+def test_create_point_drilldown_chart_basic(sample_timeseries_points):
+    """Test basic point drill-down chart rendering."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        metric_unit="GB/s",
+        summary_value=None,
+        colorblind_mode=False,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+
+    trace = fig.data[0]
+    assert trace.type == "scatter"
+    assert trace.mode == "lines+markers"
+
+    # X-axis should be sequence values 0-4
+    assert list(trace.x) == [0, 1, 2, 3, 4]
+
+    # Y-axis should match metric values
+    expected_y = [7.0, 7.1, 7.2, 7.3, 7.4]
+    assert list(trace.y) == expected_y
+
+    # Title should include metric name
+    assert "tcp_stream_bw_gbs" in fig.layout.title.text
+    assert "Sequence" in fig.layout.xaxis.title.text
+    assert "tcp_stream_bw_gbs" in fig.layout.yaxis.title.text
+    assert "GB/s" in fig.layout.yaxis.title.text
+
+
+def test_create_point_drilldown_chart_empty_points():
+    """Test empty points list returns empty figure."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=[],
+        metric_name="tcp_stream_bw_gbs",
+    )
+
+    assert isinstance(fig, go.Figure)
+    # Empty figure has no traces
+    assert len(fig.data) == 0
+    # Should have annotation with empty message
+    assert len(fig.layout.annotations) > 0
+    annotation_texts = [ann.text for ann in fig.layout.annotations]
+    assert any("No timeseries data" in text for text in annotation_texts)
+
+
+def test_create_point_drilldown_chart_with_summary_line(sample_timeseries_points):
+    """Test summary reference line appears when summary_value is provided."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        summary_value=7.2,
+    )
+
+    # Should have a horizontal line shape
+    assert len(fig.layout.shapes) > 0
+    hline = fig.layout.shapes[0]
+    assert hline.type == "line"
+    assert hline.y0 == 7.2
+    assert hline.y1 == 7.2
+    assert "dash" in hline.line.dash
+
+
+def test_create_point_drilldown_chart_no_summary_line(sample_timeseries_points):
+    """Test no summary line when summary_value is None."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        summary_value=None,
+    )
+
+    # Should have no shapes
+    assert len(fig.layout.shapes) == 0
+
+
+def test_create_point_drilldown_chart_colorblind_mode(sample_timeseries_points):
+    """Test colorblind mode adds marker symbols."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        colorblind_mode=True,
+    )
+
+    trace = fig.data[0]
+    # Should have marker symbol for redundant encoding
+    assert trace.marker.symbol is not None
+
+
+def test_create_point_drilldown_chart_metric_not_in_point_metrics(sample_timeseries_points):
+    """Test fallback when metric_name not in point_metrics."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Request a metric that doesn't exist
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="nonexistent_metric",
+    )
+
+    # Should still render (falls back to first available metric)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    # Should have data (using tcp_stream_bw_gbs as fallback)
+    assert len(fig.data[0].y) == 5
+
+
+def test_create_point_drilldown_chart_escapes_metric_name():
+    """Test HTML entities in metric name are escaped."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    malicious_points = [
+        {
+            "metadata": {"sequence": 0},
+            "results": {"point_metrics": {"<script>alert</script>": 100.0}}
+        }
+    ]
+
+    fig = create_point_drilldown_chart(
+        points=malicious_points,
+        metric_name="<script>alert</script>",
+    )
+
+    # Title should not contain raw script tags
+    assert "<script>" not in fig.layout.title.text
+    assert "</script>" not in fig.layout.title.text
+    # Should contain escaped version
+    assert "&lt;script&gt;" in fig.layout.title.text or "alert" in fig.layout.title.text
+
+
+def test_create_point_drilldown_chart_handles_null_metadata_dict():
+    """Test handles explicit None for metadata dict (issue #1)."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Point with metadata explicitly set to None (not missing)
+    points_with_null_metadata = [
+        {
+            "metadata": None,  # Explicit null
+            "results": {"point_metrics": {"tcp_stream_bw_gbs": 7.0}}
+        },
+        {
+            "metadata": {"sequence": 1},
+            "results": {"point_metrics": {"tcp_stream_bw_gbs": 7.1}}
+        }
+    ]
+
+    # Should not crash with AttributeError
+    fig = create_point_drilldown_chart(
+        points=points_with_null_metadata,
+        metric_name="tcp_stream_bw_gbs",
+    )
+
+    # Should skip point with null metadata and render the valid point
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    # Should have 1 data point (skipped the null metadata point)
+    assert len(fig.data[0].y) == 1
+    assert list(fig.data[0].y) == [7.1]
+
+
+def test_create_point_drilldown_chart_handles_null_results_dict():
+    """Test handles explicit None for results dict (issue #1)."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Point with results explicitly set to None
+    points_with_null_results = [
+        {
+            "metadata": {"sequence": 0},
+            "results": None  # Explicit null
+        },
+        {
+            "metadata": {"sequence": 1},
+            "results": {"point_metrics": {"tcp_stream_bw_gbs": 7.1}}
+        }
+    ]
+
+    # Should not crash with AttributeError
+    fig = create_point_drilldown_chart(
+        points=points_with_null_results,
+        metric_name="tcp_stream_bw_gbs",
+    )
+
+    # Should skip point with null results
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert len(fig.data[0].y) == 1
+    assert list(fig.data[0].y) == [7.1]
+
+
+def test_create_point_drilldown_chart_handles_null_point_metrics():
+    """Test handles explicit None for point_metrics dict (issue #1)."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Point with point_metrics explicitly set to None
+    points_with_null_metrics = [
+        {
+            "metadata": {"sequence": 0},
+            "results": {"point_metrics": None}  # Explicit null
+        },
+        {
+            "metadata": {"sequence": 1},
+            "results": {"point_metrics": {"tcp_stream_bw_gbs": 7.1}}
+        }
+    ]
+
+    # Should not crash with AttributeError
+    fig = create_point_drilldown_chart(
+        points=points_with_null_metrics,
+        metric_name="tcp_stream_bw_gbs",
+    )
+
+    # Should skip point with null point_metrics
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert len(fig.data[0].y) == 1
+    assert list(fig.data[0].y) == [7.1]
+
+
+def test_create_point_drilldown_chart_fallback_metric_shows_actual_name():
+    """Test fallback metric updates labels to show actual metric used (issue #2)."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    points = [
+        {
+            "metadata": {"sequence": i},
+            "results": {
+                "point_metrics": {
+                    "latency_us": 30.0 + i,  # First metric alphabetically
+                    "tcp_stream_bw_gbs": 7.0 + i * 0.1
+                }
+            }
+        }
+        for i in range(3)
+    ]
+
+    # Request nonexistent metric, should fall back to first available
+    fig = create_point_drilldown_chart(
+        points=points,
+        metric_name="nonexistent_metric",
+        metric_unit="units"
+    )
+
+    # The actual metric used is the first in point_metrics dict
+    # Python 3.7+ dicts preserve insertion order, so first is "latency_us"
+    actual_metric = "latency_us"
+
+    # Trace name should show ACTUAL metric used, not requested
+    trace = fig.data[0]
+    assert actual_metric in trace.name, \
+        f"Trace name should show actual metric '{actual_metric}', got: {trace.name}"
+
+    # Title should show ACTUAL metric used
+    assert actual_metric in fig.layout.title.text, \
+        f"Title should show actual metric '{actual_metric}', got: {fig.layout.title.text}"
+
+    # Y-axis should show ACTUAL metric used
+    assert actual_metric in fig.layout.yaxis.title.text, \
+        f"Y-axis should show actual metric '{actual_metric}', got: {fig.layout.yaxis.title.text}"
+
+    # Should NOT show the nonexistent metric name
+    assert "nonexistent_metric" not in trace.name
+    assert "nonexistent_metric" not in fig.layout.title.text
+    # Y-axis might contain "nonexistent_metric (units)" if not fixed
+    # After fix, should show "latency_us" instead
+
+
+def test_create_point_drilldown_chart_fallback_annotation():
+    """Test fallback shows annotation/subtitle when metric not found (issue #2)."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    points = [
+        {
+            "metadata": {"sequence": i},
+            "results": {
+                "point_metrics": {
+                    "actual_metric": 100.0 + i
+                }
+            }
+        }
+        for i in range(3)
+    ]
+
+    # Request nonexistent metric
+    fig = create_point_drilldown_chart(
+        points=points,
+        metric_name="requested_metric",
+    )
+
+    # Should have annotation explaining fallback
+    assert len(fig.layout.annotations) > 0, "Should have fallback annotation"
+
+    annotation_texts = [ann.text for ann in fig.layout.annotations]
+    combined_text = " ".join(annotation_texts)
+
+    # Annotation should mention both requested and actual metrics
+    assert "requested_metric" in combined_text or "not found" in combined_text.lower(), \
+        "Annotation should mention requested metric or 'not found'"
+    assert "actual_metric" in combined_text or "showing" in combined_text.lower(), \
+        "Annotation should mention actual metric or 'showing'"
+
+
+def test_create_point_drilldown_chart_sorts_by_sequence():
+    """Test chart sorts points by sequence number (issue #3)."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Create unsorted points (out of order)
+    unsorted_points = [
+        {
+            "metadata": {"sequence": 3},
+            "results": {"point_metrics": {"metric": 7.3}}
+        },
+        {
+            "metadata": {"sequence": 0},
+            "results": {"point_metrics": {"metric": 7.0}}
+        },
+        {
+            "metadata": {"sequence": 2},
+            "results": {"point_metrics": {"metric": 7.2}}
+        },
+        {
+            "metadata": {"sequence": 1},
+            "results": {"point_metrics": {"metric": 7.1}}
+        },
+    ]
+
+    fig = create_point_drilldown_chart(
+        points=unsorted_points,
+        metric_name="metric",
+    )
+
+    trace = fig.data[0]
+
+    # X-axis (sequences) should be sorted in ascending order
+    assert list(trace.x) == [0, 1, 2, 3], \
+        f"Sequences should be sorted [0, 1, 2, 3], got: {list(trace.x)}"
+
+    # Y-axis values should be in corresponding order
+    assert list(trace.y) == [7.0, 7.1, 7.2, 7.3], \
+        f"Values should match sorted sequences, got: {list(trace.y)}"
+
+
+def test_create_point_drilldown_chart_existing_tests_still_pass(sample_timeseries_points):
+    """Test that existing point drill-down tests still pass after fixes."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Run a basic test to ensure we didn't break existing functionality
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        metric_unit="GB/s",
+        summary_value=7.2,
+        colorblind_mode=False,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    trace = fig.data[0]
+
+    # Should have correct data
+    assert list(trace.x) == [0, 1, 2, 3, 4]
+    expected_y = [7.0, 7.1, 7.2, 7.3, 7.4]
+    assert list(trace.y) == expected_y
+
+    # Should have summary line
+    assert len(fig.layout.shapes) > 0

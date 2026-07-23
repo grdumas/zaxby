@@ -143,6 +143,7 @@ Use locally generated synthetic data for development and testing. The synthetic 
 
 **Dataset Highlights:**
 - **800 benchmark results** across 100 unique scenarios
+- **~45,000 timeseries points** across ~1,700 sequences (point-level drill-down data)
 - **12 benchmark types**: coremark, coremark_pro, passmark, streams, auto_hpl, pyperf, phoronix, uperf, pig, specjbb, fio, sysbench
 - **31 hardware configurations** across AWS, Azure, and GCP
 - **5 RHEL versions**: 9.2, 9.3, 9.4, 9.5, 9.6
@@ -157,6 +158,7 @@ Use locally generated synthetic data for development and testing. The synthetic 
 - ✅ Hardware tier performance scaling
 - ✅ Five performance patterns (stable, minor improvement, improvement, minor regression, regression)
 - ✅ Realistic failure scenarios (timeout, crash, validation, OOM)
+- ✅ Point-level timeseries data for drill-down analysis (30-second intervals, realistic variance)
 
 Set `DATA_MODE=synthetic` in your `.env` file (default).
 
@@ -169,6 +171,12 @@ Set `DATA_MODE=synthetic` in your `.env` file (default).
 source venv/bin/activate
 python src/synthetic_data.py
 ```
+
+Generates the following files in `data/synthetic/`:
+- `benchmark_results.json` - Result documents (800 test executions)
+- `zathras_timeseries.json.gz` - Timeseries points (~45k points, compressed)
+- `zathras_timeseries.jsonl.gz` - Same data in JSONL format
+- `zathras_timeseries_metadata.json` - Generation metadata (counts, distribution)
 
 ## Development
 

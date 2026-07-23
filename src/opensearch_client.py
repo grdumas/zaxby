@@ -149,6 +149,7 @@ class BenchmarkDataSource:
             raise ValueError(
                 "Results index not configured. Set OPENSEARCH_INDEX or OPENSEARCH_INDEX_RESULTS."
             )
+        logger.debug(f"OpenSearch operation: search on index {self.results_index}")
         return self.client.search(index=self.results_index, body=body, **kwargs)
 
     def search_timeseries(self, body: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
@@ -161,6 +162,7 @@ class BenchmarkDataSource:
             raise ValueError(
                 "Timeseries index not configured. Set OPENSEARCH_INDEX_TIMESERIES."
             )
+        logger.debug(f"OpenSearch operation: search on index {self.timeseries_index}")
         return self.client.search(index=self.timeseries_index, body=body, **kwargs)
 
     def fetch_timeseries_for_document(
@@ -241,6 +243,7 @@ class BenchmarkDataSource:
             all_documents: List[Dict[str, Any]] = []
             batch_size = 1000
 
+            logger.debug(f"OpenSearch operation: search with scroll on index {self.results_index}")
             response = self.client.search(
                 index=self.results_index,
                 scroll="2m",
@@ -253,12 +256,14 @@ class BenchmarkDataSource:
             all_documents.extend([hit["_source"] for hit in hits])
 
             while len(hits) > 0 and len(all_documents) < max_docs:
+                logger.debug("OpenSearch operation: scroll")
                 response = self.client.scroll(scroll_id=scroll_id, scroll="2m")
                 scroll_id = response["_scroll_id"]
                 hits = response["hits"]["hits"]
                 all_documents.extend([hit["_source"] for hit in hits])
 
             try:
+                logger.debug("OpenSearch operation: clear_scroll")
                 self.client.clear_scroll(scroll_id=scroll_id)
             except Exception:
                 pass

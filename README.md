@@ -189,6 +189,9 @@ The project includes a comprehensive test suite using pytest. To run the tests:
 pytest tests/
 ```
 
+### Performance Testing
+The project includes a performance testing framework with function-level benchmarks (pytest-benchmark) and HTTP load tests (Locust). Tests use synthetic data mode for consistent, repeatable baselines. See [docs/guides/PERFORMANCE_TESTING.md](docs/guides/PERFORMANCE_TESTING.md) for setup and execution instructions.
+
 ## Documentation
 
 All documentation is organized in the [`docs/`](docs/) directory:

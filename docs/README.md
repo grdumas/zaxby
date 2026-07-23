@@ -51,6 +51,9 @@ Essential technical documentation for working with the dashboard:
 - **[POINT_DRILLDOWN_GUIDE.md](guides/POINT_DRILLDOWN_GUIDE.md)** 📊  
   Point-level timeseries drill-down for individual test runs - view iteration-by-iteration variance and outliers in Investigation mode
 
+- **[PERFORMANCE_TESTING.md](guides/PERFORMANCE_TESTING.md)** ⚡  
+  Performance testing framework with function-level benchmarks and HTTP load tests using pytest-benchmark and Locust
+
 - **[COMPARISON_POLICY.md](guides/COMPARISON_POLICY.md)**  
   Comparison templates and Pulse mode guardrails - defines allowed comparison patterns and validation rules
 

@@ -9,13 +9,18 @@ Run with: pytest tests/performance/test_data_processing_benchmark.py --benchmark
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 import pandas as pd
 import pytest
 
 from src.data_processing import BenchmarkDataProcessor
+
+# Guard: pytest-benchmark is not in root requirements.txt
+pytest.importorskip(
+    "pytest_benchmark",
+    reason="Performance tests require pytest-benchmark. Install with: pip install -r tests/performance/requirements.txt"
+)
 
 
 @pytest.mark.parametrize("scale_documents", ["1k", "10k", "100k"], indirect=True)
@@ -86,8 +91,8 @@ def test_filter_data_single_filter(
         scale_dataframe: Parametrized DataFrame (1k/10k/100k).
     """
     # Extract a valid OS version from the data
-    if scale_dataframe.empty or "os_version" not in scale_dataframe.columns:
-        pytest.skip("DataFrame missing os_version column")
+    assert not scale_dataframe.empty, "DataFrame should not be empty"
+    assert "os_version" in scale_dataframe.columns, "DataFrame missing required column: os_version"
 
     os_versions = scale_dataframe["os_version"].unique()
     if len(os_versions) == 0:
@@ -123,8 +128,7 @@ def test_filter_data_multi_filter(
         scale_dataframe: Parametrized DataFrame (1k/10k/100k).
     """
     # Extract valid filter values from data
-    if scale_dataframe.empty:
-        pytest.skip("DataFrame is empty")
+    assert not scale_dataframe.empty, "DataFrame should not be empty"
 
     os_versions = scale_dataframe.get("os_version", pd.Series(dtype=str)).unique()
     cloud_providers = scale_dataframe.get("cloud_provider", pd.Series(dtype=str)).unique()
@@ -227,8 +231,7 @@ def test_analyze_cloud_scaling(
         scale_dataframe: Parametrized DataFrame (1k/10k/100k).
     """
     # Extract valid parameters from data
-    if scale_dataframe.empty:
-        pytest.skip("DataFrame is empty")
+    assert not scale_dataframe.empty, "DataFrame should not be empty"
 
     cloud_providers = scale_dataframe.get("cloud_provider", pd.Series(dtype=str)).unique()
     os_versions = scale_dataframe.get("os_version", pd.Series(dtype=str)).unique()

@@ -26,12 +26,12 @@ Usage:
     # Then open http://localhost:8089
 
 Note: For 50+ user tests, run the app with gunicorn multi-process:
-  gunicorn -w 4 -b 0.0.0.0:8050 app:server
+  gunicorn -w 4 -b 127.0.0.1:8050 app:server
+  (Use 0.0.0.0 only when intentionally exposing to network)
 """
 
 from __future__ import annotations
 
-import json
 import random
 from locust import HttpUser, task, between, events
 
@@ -109,6 +109,14 @@ class DashboardUser(HttpUser):
 
         Varies filter combinations randomly to simulate realistic usage.
         """
+        # Map filter names to component IDs (component IDs use hyphens, not underscores)
+        filter_to_component_id = {
+            "os_version": "os-version",
+            "cloud_provider": "cloud-provider",
+            "test_name": "test-name",
+            "status": "status",
+        }
+
         # Randomly choose which filter to update
         filter_choice = random.choice(["os_version", "cloud_provider", "test_name", "status"])
 
@@ -122,6 +130,9 @@ class DashboardUser(HttpUser):
         else:  # status
             filter_value = random.choice([["pass"], ["fail"], []])
 
+        # Map filter choice to component ID for changedPropIds
+        component_id = filter_to_component_id[filter_choice]
+
         payload = {
             "output": "filtered-data-store.data",
             "outputs": {"id": "filtered-data-store", "property": "data"},
@@ -134,7 +145,7 @@ class DashboardUser(HttpUser):
                 {"id": "header-date-range", "property": "end_date", "value": None},
                 {"id": "filter-status", "property": "value", "value": filter_value if filter_choice == "status" else []},
             ],
-            "changedPropIds": [f"filter-{filter_choice}.value"],
+            "changedPropIds": [f"filter-{component_id}.value"],
         }
 
         self.client.post(

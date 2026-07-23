@@ -12,8 +12,6 @@ Compare: pytest tests/performance/ --benchmark-compare=baseline_v1
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-
 import pandas as pd
 import pytest
 
@@ -24,6 +22,12 @@ from src.query_service import (
     aggregate_pulse_scope_footnote_from_dataframe,
     aggregate_baseline_comparison_from_dataframe,
     aggregate_recent_nightly_runs_from_dataframe,
+)
+
+# Guard: pytest-benchmark is not in root requirements.txt
+pytest.importorskip(
+    "pytest_benchmark",
+    reason="Performance tests require pytest-benchmark. Install with: pip install -r tests/performance/requirements.txt"
 )
 
 

@@ -273,7 +273,10 @@ def test_on_demand_comparison_error_handling(scheduler, mock_client):
     result = scheduler.run_on_demand_comparison(baseline_config)
 
     assert result.error is not None
+    # Error should contain both the stage context and root cause
+    assert "Failed to fetch baseline results" in result.error
     assert "OpenSearch unavailable" in result.error
+    assert "test-baseline" in result.error
     assert len(result.deltas) == 0
 
 

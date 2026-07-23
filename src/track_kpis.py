@@ -101,6 +101,10 @@ def fetch_baseline_results(
 
     Returns:
         DataFrame with baseline benchmark results
+
+    Raises:
+        RuntimeError: If OpenSearch fetch operation fails. The error message
+            includes the baseline_id and root cause exception.
     """
     start_date, end_date = config.date_range
     query_body = {
@@ -138,8 +142,13 @@ def fetch_baseline_results(
         )
         return _parse_documents_to_dataframe(documents)
     except Exception as exc:
-        logger.error(f"Failed to fetch baseline results: {exc}")
-        return pd.DataFrame()
+        logger.error(
+            f"OpenSearch operation failed: search_results for baseline_id={config.baseline_id}",
+            exc_info=True,
+        )
+        raise RuntimeError(
+            f"Failed to fetch baseline results for baseline_id={config.baseline_id}: {exc}"
+        ) from exc
 
 
 def fetch_nightly_results(
@@ -155,6 +164,10 @@ def fetch_nightly_results(
 
     Returns:
         DataFrame with nightly benchmark results
+
+    Raises:
+        RuntimeError: If OpenSearch fetch operation fails. The error message
+            includes the root cause exception.
     """
     query_body = {
         "query": {"match_all": {}},
@@ -179,8 +192,11 @@ def fetch_nightly_results(
         logger.info(f"Retrieved {len(documents)} nightly documents")
         return _parse_documents_to_dataframe(documents)
     except Exception as exc:
-        logger.error(f"Failed to fetch nightly results: {exc}")
-        return pd.DataFrame()
+        logger.error(
+            "OpenSearch operation failed: search_results for nightly results",
+            exc_info=True,
+        )
+        raise RuntimeError(f"Failed to fetch nightly results: {exc}") from exc
 
 
 def _parse_documents_to_dataframe(documents: List[Dict[str, Any]]) -> pd.DataFrame:

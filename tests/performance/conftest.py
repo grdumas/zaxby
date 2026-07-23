@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import io
 import logging
+import os
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -275,19 +276,31 @@ def opensearch_client():
     """
     OpenSearch client for performance tests.
 
-    Skips the entire session of OpenSearch tests if connection fails.
-    Tests using this fixture will automatically skip when OpenSearch is unavailable.
+    Requires RUN_OPENSEARCH_QUERY_BENCHMARKS=1 environment variable to run.
+    This prevents accidental execution against production clusters.
+
+    Skips the entire session of OpenSearch tests if:
+    - RUN_OPENSEARCH_QUERY_BENCHMARKS is not set to "1"
+    - Connection fails
+    - OpenSearch is unavailable
 
     Returns:
         BenchmarkDataSource instance connected to OpenSearch.
     """
+    # Check opt-in flag
+    if os.getenv("RUN_OPENSEARCH_QUERY_BENCHMARKS") != "1":
+        pytest.skip(
+            "OpenSearch query benchmarks require RUN_OPENSEARCH_QUERY_BENCHMARKS=1. "
+            "Set this environment variable to explicitly opt-in to running these tests."
+        )
+
     try:
         from src.opensearch_client import BenchmarkDataSource
         client = BenchmarkDataSource()
         logger.info("OpenSearch client connected for performance tests")
         return client
     except Exception as exc:
-        pytest.skip(f"OpenSearch not available: {exc}")
+        pytest.skip(f"OpenSearch not available")
 
 
 @pytest.fixture(scope="session")
@@ -358,7 +371,9 @@ def sample_document_ids(opensearch_client) -> List[str]:
         sample_docs = opensearch_client.get_sample_documents(limit=10)
         doc_ids = []
         for doc in sample_docs:
-            doc_id = doc.get("metadata", {}).get("document_id")
+            # Defensive handling: if metadata is explicitly null, (doc.get("metadata") or {})
+            # ensures we get {} instead of None, preventing AttributeError on the second .get()
+            doc_id = (doc.get("metadata") or {}).get("document_id")
             if doc_id:
                 doc_ids.append(doc_id)
 
@@ -372,12 +387,13 @@ def sample_document_ids(opensearch_client) -> List[str]:
         pytest.skip(f"Cannot fetch sample documents: {exc}")
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def cluster_health_snapshot(opensearch_client):
     """
     Capture OpenSearch cluster health before and after test.
 
     Logs delta in shard count, pending tasks, and other cluster metrics.
+    This fixture runs automatically for all tests that use opensearch_client.
 
     Args:
         opensearch_client: OpenSearch client fixture.
@@ -410,12 +426,13 @@ def cluster_health_snapshot(opensearch_client):
         yield
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def opensearch_resource_monitor(opensearch_client):
     """
     Capture OpenSearch node resource metrics before and after test.
 
     Monitors JVM heap, OS memory, and CPU usage.
+    This fixture runs automatically for all tests that use opensearch_client.
 
     Args:
         opensearch_client: OpenSearch client fixture.

@@ -82,8 +82,9 @@ class DashboardUser(HttpUser):
         response = self.client.get("/", name="Initial Page Load")
         if response.status_code != 200:
             raise Exception(
-                f"App not reachable at {self.host}. "
-                f"Ensure app is running with: DATA_MODE=synthetic python app.py"
+                f"App not reachable. "
+                f"Ensure app is running with: DATA_MODE=synthetic python app.py "
+                f"and --host flag is set (e.g., --host http://localhost:8050)"
             )
 
         # Track filtered data state for analysis task

@@ -236,6 +236,129 @@ Locust output includes:
 
 At test completion, a summary table shows these metrics per task type.
 
+## OpenSearch Query Benchmarks
+
+The OpenSearch query performance tests (`tests/performance/test_opensearch_queries.py`) benchmark queries directly against a live OpenSearch cluster. Unlike the DataFrame benchmarks and HTTP load tests, these exercise the actual OpenSearch query layer: search, aggregation, timeseries lookup, scroll, and concurrent load.
+
+### Prerequisites
+
+- **Live OpenSearch cluster** with `zathras-results` and `zathras-timeseries` indices populated
+- **Environment variables** configured (`.env` or environment):
+  - `OPENSEARCH_HOST` (default: `localhost`)
+  - `OPENSEARCH_PORT` (default: `9200`)
+  - `OPENSEARCH_USERNAME` (default: `admin`)
+  - `OPENSEARCH_PASSWORD` (default: `admin`)
+  - `OPENSEARCH_INDEX_RESULTS` or `OPENSEARCH_INDEX` (e.g., `zathras-results`)
+  - `OPENSEARCH_INDEX_TIMESERIES` (e.g., `zathras-timeseries`)
+- **pytest-benchmark** installed: `pip install -r tests/performance/requirements.txt`
+
+Tests skip gracefully when OpenSearch is unavailable.
+
+### Running the Tests
+
+**All OpenSearch query benchmarks:**
+```bash
+pytest tests/performance/test_opensearch_queries.py --benchmark-only -v
+```
+
+**Filter by test class (scenario):**
+```bash
+# Results index queries
+pytest tests/performance/test_opensearch_queries.py -k "TestResultsIndexQueries" --benchmark-only -v
+
+# Timeseries queries
+pytest tests/performance/test_opensearch_queries.py -k "TestTimeseriesIndexQueries" --benchmark-only -v
+
+# Aggregation queries
+pytest tests/performance/test_opensearch_queries.py -k "TestAggregationQueries" --benchmark-only -v
+
+# Concurrent load tests (no --benchmark-only needed, uses manual timing)
+pytest tests/performance/test_opensearch_queries.py -k "TestConcurrentQueryLoad" -v
+
+# Pagination tests
+pytest tests/performance/test_opensearch_queries.py -k "TestLargeResultPagination" --benchmark-only -v
+```
+
+**Save and compare baselines:**
+```bash
+# Save baseline
+pytest tests/performance/test_opensearch_queries.py --benchmark-only --benchmark-save=opensearch_baseline
+
+# Compare
+pytest tests/performance/test_opensearch_queries.py --benchmark-only --benchmark-compare=opensearch_baseline
+```
+
+### Baseline Metrics
+
+Expected latency ranges on a production-scale cluster (~5,600 results docs, ~500K timeseries docs):
+
+| Query Type | Expected p50 | Expected p95 | OpenSearch `took` |
+|------------|--------------|--------------|-------------------|
+| Results overview aggregation | < 30ms | < 50ms | < 20ms |
+| Test name terms aggregation | < 50ms | < 100ms | < 40ms |
+| Monthly histogram | < 40ms | < 80ms | < 30ms |
+| Timestamp stats | < 20ms | < 30ms | < 10ms |
+| Cloud provider filter | < 25ms | < 40ms | < 15ms |
+| Date range filter | < 30ms | < 50ms | < 20ms |
+| OS version filter | < 35ms | < 60ms | < 25ms |
+| Nightly runs aggregation | < 80ms | < 150ms | < 60ms |
+| Timeseries point lookup | < 15ms | < 20ms | < 10ms |
+| Timeseries large lookup (10K) | < 60ms | < 100ms | < 50ms |
+| Category rollup | < 50ms | < 100ms | < 40ms |
+| Multi-field terms | < 40ms | < 80ms | < 30ms |
+| Stats on primary metric | < 30ms | < 50ms | < 20ms |
+| Cardinality aggregation | < 25ms | < 40ms | < 15ms |
+| Scroll 10K docs | < 1500ms | < 2000ms | N/A (scroll) |
+| Large search (size=10K) | < 300ms | < 500ms | < 250ms |
+| search_after per page | < 100ms | < 200ms | < 80ms |
+
+**Concurrent load baselines:**
+- 5 concurrent users: p95 < 200ms
+- 10 concurrent users: p95 < 400ms
+- 20 concurrent users: p95 < 600ms
+
+### Metrics Captured
+
+Tests capture four categories of metrics (per RPOPC-1174 acceptance criteria):
+
+1. **Query execution time (OpenSearch-side)** -- The `took` field in OpenSearch responses (milliseconds spent in OpenSearch executing the query).
+
+2. **Total request latency (network + processing)** -- Wall-clock time measured by pytest-benchmark or manual timing (includes network overhead, serialization, client processing).
+
+3. **Memory usage** -- RSS memory delta via `opensearch_resource_monitor` fixture (JVM heap usage on OpenSearch nodes before/after test).
+
+4. **Cluster health under load** -- Captured via `cluster_health_snapshot` fixture (active shards, pending tasks, cluster status).
+
+### Interpreting Concurrent Load Results
+
+The concurrent tests (`TestConcurrentQueryLoad`) use ThreadPoolExecutor and manual timing to simulate multiple users. Output includes:
+
+- **Latency statistics**: mean, min, max, p50, p95, p99 for all queries
+- **OpenSearch `took` statistics**: same percentiles for server-side execution time
+- **Throughput**: queries per second (total queries / max latency)
+- **Failure count**: any query that raised an exception
+
+**What to look for:**
+- **Latency degradation**: p95 should scale sub-linearly with user count (e.g., 5 users should not cause 5x latency)
+- **No failures**: concurrent tests assert zero query failures
+- **Cluster health**: `cluster_health_snapshot` logs pending task delta; sustained growth indicates cluster under pressure
+
+### Optimization Recommendations
+
+Based on baseline runs, common optimization patterns:
+
+1. **Avoid unbounded `match_all`** -- Use filters when possible to reduce candidate set size.
+
+2. **Use `size: 0` for pure aggregations** -- Prevents unnecessary hit retrieval when only aggregation results are needed (all aggregation tests do this).
+
+3. **Prefer `search_after` over scroll for deep pagination** -- `search_after` is stateless and more efficient for user-driven pagination; scroll is for bulk exports.
+
+4. **Consider index aliases for time-based partitioning** -- If query patterns frequently filter by date range, time-based index partitioning can reduce shard scanning.
+
+5. **Monitor cardinality on aggregation fields** -- High-cardinality terms aggregations (e.g., `document_id`) can be expensive; use cardinality agg to estimate unique values before terms agg.
+
+6. **Use query profiling for slow queries** -- Add `"profile": true` to query body to see detailed OpenSearch execution breakdown.
+
 ## CI Integration (Future)
 
 To integrate performance tests into CI pipelines:

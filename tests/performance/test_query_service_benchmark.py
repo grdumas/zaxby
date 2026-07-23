@@ -119,8 +119,8 @@ def test_aggregate_baseline_comparison(benchmark, scale_dataframe: pd.DataFrame)
         scale_dataframe: Parametrized DataFrame (1k/10k/100k).
     """
     # Split DataFrame into baseline (first half) and nightly (second half) by date
-    if scale_dataframe.empty or "timestamp" not in scale_dataframe.columns:
-        pytest.skip("DataFrame missing timestamp column")
+    assert not scale_dataframe.empty, "DataFrame should not be empty"
+    assert "timestamp" in scale_dataframe.columns, "DataFrame missing required column: timestamp"
 
     dates = scale_dataframe["timestamp"].sort_values()
     midpoint_date = dates.iloc[len(dates) // 2]
@@ -155,8 +155,8 @@ def test_aggregate_recent_nightly_runs(benchmark, scale_dataframe: pd.DataFrame)
         scale_dataframe: Parametrized DataFrame (1k/10k/100k).
     """
     # Extract date range from data
-    if scale_dataframe.empty or "timestamp" not in scale_dataframe.columns:
-        pytest.skip("DataFrame missing timestamp column")
+    assert not scale_dataframe.empty, "DataFrame should not be empty"
+    assert "timestamp" in scale_dataframe.columns, "DataFrame missing required column: timestamp"
 
     min_date = scale_dataframe["timestamp"].min()
     max_date = scale_dataframe["timestamp"].max()

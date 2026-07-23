@@ -461,23 +461,21 @@ def test_fetch_baseline_results_with_filters(baseline_config):
 
 
 def test_fetch_baseline_results_handles_exception(baseline_config):
-    """Test fetch_baseline_results handles exceptions gracefully."""
+    """Test fetch_baseline_results propagates exceptions."""
     mock_client = MagicMock()
     mock_client.search_results.side_effect = Exception("Connection error")
 
-    df = fetch_baseline_results(mock_client, baseline_config)
-
-    assert df.empty
+    with pytest.raises(Exception, match="Connection error"):
+        fetch_baseline_results(mock_client, baseline_config)
 
 
 def test_fetch_nightly_results_handles_exception():
-    """Test fetch_nightly_results handles exceptions gracefully."""
+    """Test fetch_nightly_results propagates exceptions."""
     mock_client = MagicMock()
     mock_client.search_results.side_effect = Exception("Connection error")
 
-    df = fetch_nightly_results(mock_client)
-
-    assert df.empty
+    with pytest.raises(Exception, match="Connection error"):
+        fetch_nightly_results(mock_client)
 
 
 def test_benchmark_delta_dataclass():

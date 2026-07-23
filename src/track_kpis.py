@@ -129,17 +129,13 @@ def fetch_baseline_results(
             else:
                 query_body["query"]["bool"]["must"].append({"term": {field: value}})
 
-    try:
-        response = client.search_results(query_body)
-        hits = response.get("hits", {}).get("hits", [])
-        documents = [hit["_source"] for hit in hits]
-        logger.info(
-            f"Retrieved {len(documents)} baseline documents for baseline_id={config.baseline_id}"
-        )
-        return _parse_documents_to_dataframe(documents)
-    except Exception as exc:
-        logger.error(f"Failed to fetch baseline results: {exc}")
-        return pd.DataFrame()
+    response = client.search_results(query_body)
+    hits = response.get("hits", {}).get("hits", [])
+    documents = [hit["_source"] for hit in hits]
+    logger.info(
+        f"Retrieved {len(documents)} baseline documents for baseline_id={config.baseline_id}"
+    )
+    return _parse_documents_to_dataframe(documents)
 
 
 def fetch_nightly_results(
@@ -172,15 +168,11 @@ def fetch_nightly_results(
                 must_clauses.append({"term": {field: value}})
         query_body["query"] = {"bool": {"must": must_clauses}}
 
-    try:
-        response = client.search_results(query_body)
-        hits = response.get("hits", {}).get("hits", [])
-        documents = [hit["_source"] for hit in hits]
-        logger.info(f"Retrieved {len(documents)} nightly documents")
-        return _parse_documents_to_dataframe(documents)
-    except Exception as exc:
-        logger.error(f"Failed to fetch nightly results: {exc}")
-        return pd.DataFrame()
+    response = client.search_results(query_body)
+    hits = response.get("hits", {}).get("hits", [])
+    documents = [hit["_source"] for hit in hits]
+    logger.info(f"Retrieved {len(documents)} nightly documents")
+    return _parse_documents_to_dataframe(documents)
 
 
 def _parse_documents_to_dataframe(documents: List[Dict[str, Any]]) -> pd.DataFrame:

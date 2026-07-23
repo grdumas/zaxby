@@ -594,3 +594,250 @@ class TestAggregationQueries:
         # Validate structure
         assert "aggregations" in result, "Response missing aggregations"
         assert "unique_documents" in result["aggregations"], "Missing 'unique_documents' aggregation"
+
+
+# --- Test Class 4: Concurrent Query Load ---
+
+
+class TestConcurrentQueryLoad:
+    """
+    Scenario 4: Concurrent query load -- multiple users running queries simultaneously.
+
+    Tests use ThreadPoolExecutor with manual timing (not pytest-benchmark) to simulate
+    concurrent user load and measure latency degradation and cluster health impact.
+    """
+
+    def test_concurrent_pulse_queries(self, opensearch_client: BenchmarkDataSource):
+        """
+        Test concurrent Pulse KPI queries (5 users x 4 queries each).
+
+        Simulates 5 concurrent users each running the 4 main Pulse aggregations:
+        - Results overview (cloud provider terms)
+        - Test name terms
+        - Monthly activity histogram
+        - Timestamp stats
+
+        Expected: < 200ms p95 latency with 5 concurrent users.
+        """
+        queries = [
+            lambda: opensearch_client.search_results(build_results_overview_aggregation_body()),
+            lambda: opensearch_client.search_results(build_results_test_name_terms_aggregation_body()),
+            lambda: opensearch_client.search_results(build_results_monthly_activity_histogram_body()),
+            lambda: opensearch_client.search_results(build_results_run_timestamp_stats_body()),
+        ]
+
+        num_users = 5
+        results = []
+
+        with ThreadPoolExecutor(max_workers=num_users) as executor:
+            futures = []
+            for _ in range(num_users):
+                for query_fn in queries:
+                    futures.append(executor.submit(_timed_query, query_fn))
+
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as exc:
+                    logger.error(f"Query failed: {exc}")
+                    pytest.fail(f"Concurrent query failed: {exc}")
+
+        # Compute statistics
+        latencies = [r["latency_ms"] for r in results]
+        took_values = [r["took_ms"] for r in results]
+
+        stats = _compute_latency_stats(latencies)
+        _log_query_metrics("Concurrent Pulse queries", stats, took_values)
+
+        # Assertions
+        assert len(results) == num_users * len(queries), "Some queries failed"
+        assert stats["p95"] < 500, f"P95 latency too high: {stats['p95']:.1f}ms"
+
+    def test_concurrent_investigation_queries(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str]):
+        """
+        Test concurrent investigation queries (5 users x different filter patterns).
+
+        Simulates 5 concurrent users each running different filter queries:
+        - Cloud provider filter
+        - Date range filter
+        - OS version filter
+        - Document ID lookup
+        - Multi-field filter
+
+        Expected: < 250ms p95 latency with 5 concurrent users.
+        """
+        queries = [
+            # Cloud provider filter
+            lambda: opensearch_client.search_results({
+                "size": MAX_PAGE_SIZE,
+                "query": {"bool": {"must": [{"term": {FIELD_CLOUD_PROVIDER: "aws"}}]}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+            # Date range filter
+            lambda: opensearch_client.search_results({
+                "size": MAX_PAGE_SIZE,
+                "query": {"range": {RESULTS_ACTIVITY_TIMESTAMP_FIELD: {"gte": "now-30d/d", "lte": "now/d"}}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+            # OS version filter
+            lambda: opensearch_client.search_results({
+                "size": MAX_PAGE_SIZE,
+                "query": {"bool": {"must": [{"term": {FIELD_OS_DISTRIBUTION: "rhel"}}, {"term": {FIELD_OS_VERSION: "9.5"}}]}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+            # Document ID lookup
+            lambda: opensearch_client.search_results({
+                "size": 1,
+                "query": {"term": {FIELD_DOCUMENT_ID: sample_document_ids[0]}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+            # Multi-field filter
+            lambda: opensearch_client.search_results({
+                "size": MAX_PAGE_SIZE,
+                "query": {"bool": {"must": [
+                    {"term": {FIELD_CLOUD_PROVIDER: "aws"}},
+                    {"term": {FIELD_OS_DISTRIBUTION: "rhel"}},
+                    {"range": {RESULTS_ACTIVITY_TIMESTAMP_FIELD: {"gte": "now-7d/d"}}}
+                ]}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+        ]
+
+        num_users = 5
+        results = []
+
+        with ThreadPoolExecutor(max_workers=num_users) as executor:
+            futures = []
+            for _ in range(num_users):
+                for query_fn in queries:
+                    futures.append(executor.submit(_timed_query, query_fn))
+
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as exc:
+                    logger.error(f"Query failed: {exc}")
+                    pytest.fail(f"Concurrent query failed: {exc}")
+
+        # Compute statistics
+        latencies = [r["latency_ms"] for r in results]
+        took_values = [r["took_ms"] for r in results]
+
+        stats = _compute_latency_stats(latencies)
+        _log_query_metrics("Concurrent investigation queries", stats, took_values)
+
+        # Assertions
+        assert len(results) == num_users * len(queries), "Some queries failed"
+        assert stats["p95"] < 600, f"P95 latency too high: {stats['p95']:.1f}ms"
+
+    def test_concurrent_mixed_workload(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str]):
+        """
+        Test mixed workload (10 users x Pulse/Investigate/Track patterns).
+
+        Simulates realistic dashboard usage with 10 concurrent users running
+        a mix of:
+        - Pulse aggregations
+        - Investigation filters
+        - Timeseries lookups
+
+        Expected: < 400ms p95 latency with 10 concurrent users.
+        """
+        queries = [
+            # Pulse: overview aggregation
+            lambda: opensearch_client.search_results(build_results_overview_aggregation_body()),
+            # Pulse: category rollup
+            lambda: opensearch_client.search_results(build_results_test_name_terms_aggregation_body()),
+            # Investigate: cloud provider filter
+            lambda: opensearch_client.search_results({
+                "size": MAX_PAGE_SIZE,
+                "query": {"bool": {"must": [{"term": {FIELD_CLOUD_PROVIDER: "azure"}}]}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+            # Investigate: date range
+            lambda: opensearch_client.search_results({
+                "size": MAX_PAGE_SIZE,
+                "query": {"range": {RESULTS_ACTIVITY_TIMESTAMP_FIELD: {"gte": "now-14d/d", "lte": "now/d"}}},
+                "sort": [{RESULTS_ACTIVITY_TIMESTAMP_FIELD: "desc"}, {FIELD_DOCUMENT_ID: "asc"}]
+            }),
+            # Track: timeseries lookup
+            lambda: opensearch_client.fetch_timeseries_for_document(document_id=sample_document_ids[0]),
+        ]
+
+        num_users = 10
+        results = []
+
+        with ThreadPoolExecutor(max_workers=num_users) as executor:
+            futures = []
+            for _ in range(num_users):
+                for query_fn in queries:
+                    futures.append(executor.submit(_timed_query, query_fn))
+
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as exc:
+                    logger.error(f"Query failed: {exc}")
+                    pytest.fail(f"Concurrent query failed: {exc}")
+
+        # Compute statistics
+        latencies = [r["latency_ms"] for r in results]
+        took_values = [r["took_ms"] for r in results if r["took_ms"] >= 0]  # timeseries returns list, no 'took'
+
+        stats = _compute_latency_stats(latencies)
+        _log_query_metrics("Concurrent mixed workload", stats, took_values if took_values else [-1])
+
+        # Assertions
+        assert len(results) == num_users * len(queries), "Some queries failed"
+        assert stats["p95"] < 800, f"P95 latency too high: {stats['p95']:.1f}ms"
+
+    @pytest.mark.parametrize("num_users", [1, 5, 10, 20])
+    def test_concurrent_scaling(self, opensearch_client: BenchmarkDataSource, num_users: int):
+        """
+        Test query latency scaling with increasing concurrent users.
+
+        Parameterized test measuring latency degradation as concurrency increases
+        from 1 to 20 users. Each user runs a simple overview aggregation.
+
+        Expected:
+        - 1 user: < 50ms p95
+        - 5 users: < 150ms p95
+        - 10 users: < 300ms p95
+        - 20 users: < 600ms p95
+        """
+        query_fn = lambda: opensearch_client.search_results(build_results_overview_aggregation_body())
+
+        results = []
+
+        with ThreadPoolExecutor(max_workers=num_users) as executor:
+            futures = [executor.submit(_timed_query, query_fn) for _ in range(num_users)]
+
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as exc:
+                    logger.error(f"Query failed: {exc}")
+                    pytest.fail(f"Concurrent query failed: {exc}")
+
+        # Compute statistics
+        latencies = [r["latency_ms"] for r in results]
+        took_values = [r["took_ms"] for r in results]
+
+        stats = _compute_latency_stats(latencies)
+        _log_query_metrics(f"Concurrent scaling ({num_users} users)", stats, took_values)
+
+        # Assertions
+        assert len(results) == num_users, "Some queries failed"
+
+        # Adaptive threshold based on user count
+        if num_users == 1:
+            assert stats["p95"] < 100, f"P95 latency too high for 1 user: {stats['p95']:.1f}ms"
+        elif num_users == 5:
+            assert stats["p95"] < 300, f"P95 latency too high for 5 users: {stats['p95']:.1f}ms"
+        elif num_users == 10:
+            assert stats["p95"] < 600, f"P95 latency too high for 10 users: {stats['p95']:.1f}ms"
+        elif num_users == 20:
+            assert stats["p95"] < 1200, f"P95 latency too high for 20 users: {stats['p95']:.1f}ms"

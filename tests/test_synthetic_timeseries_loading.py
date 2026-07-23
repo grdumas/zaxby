@@ -292,3 +292,112 @@ def test_integration_load_real_timeseries_file():
     # Each point should have metadata and results
     assert 'metadata' in first_value[0]
     assert 'results' in first_value[0]
+
+
+def test_roundtrip_generate_save_load_verify(tmp_path):
+    """Test full roundtrip: generate → save → load → verify."""
+    import json
+    from src.synthetic_data import SyntheticDataGenerator
+    from src.data_processing import load_synthetic_timeseries
+
+    # Create sample result documents
+    sample_results = [
+        {
+            "metadata": {
+                "document_id": "roundtrip_test_001",
+                "test_timestamp": "2026-01-25T10:00:00Z",
+                "cloud_provider": "aws",
+                "instance_type": "m5.large",
+                "os_vendor": "redhat"
+            },
+            "test": {"name": "uperf", "version": "v1.0"},
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "status": "PASS",
+                        "metrics": {
+                            "throughput": 1000.0,
+                            "latency": 10.0
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "metadata": {
+                "document_id": "roundtrip_test_002",
+                "test_timestamp": "2026-01-25T11:00:00Z",
+                "cloud_provider": "gcp",
+                "instance_type": "c2-standard-4",
+                "os_vendor": "ubuntu"
+            },
+            "test": {"name": "fio", "version": "v3.0"},
+            "results": {
+                "status": "PASS",
+                "total_runs": 1,
+                "runs": {
+                    "run_0": {
+                        "status": "PASS",
+                        "metrics": {
+                            "iops": 5000.0,
+                            "bandwidth": 500.0
+                        }
+                    }
+                }
+            }
+        }
+    ]
+
+    # Step 1: Generate timeseries
+    generator = SyntheticDataGenerator(seed=42)
+    timeseries_docs = generator.generate_timeseries_documents(
+        sample_results,
+        short_sequence_range=(3, 5)  # Small range for faster test
+    )
+
+    # Verify generation worked
+    assert len(timeseries_docs) > 0, "Should generate timeseries docs"
+
+    # Step 2: Save to temp file
+    temp_file = tmp_path / "test_timeseries.json"
+    with open(temp_file, 'w') as f:
+        json.dump(timeseries_docs, f)
+
+    # Step 3: Load back
+    loaded_index = load_synthetic_timeseries(str(temp_file))
+
+    # Step 4: Verify roundtrip preservation
+    # Check document_id mapping
+    assert "roundtrip_test_001" in loaded_index, \
+        "Should have timeseries for first result"
+    assert "roundtrip_test_002" in loaded_index, \
+        "Should have timeseries for second result"
+
+    # Check point count preserved
+    original_by_doc_id = {}
+    for doc in timeseries_docs:
+        doc_id = doc["metadata"]["document_id"]
+        if doc_id not in original_by_doc_id:
+            original_by_doc_id[doc_id] = []
+        original_by_doc_id[doc_id].append(doc)
+
+    for doc_id in ["roundtrip_test_001", "roundtrip_test_002"]:
+        original_count = len(original_by_doc_id[doc_id])
+        loaded_count = len(loaded_index[doc_id])
+        assert original_count == loaded_count, \
+            f"Point count mismatch for {doc_id}: {original_count} vs {loaded_count}"
+
+    # Check sequence ordering preserved
+    for doc_id in ["roundtrip_test_001", "roundtrip_test_002"]:
+        loaded_points = loaded_index[doc_id]
+        sequences = [p["metadata"]["sequence"] for p in loaded_points]
+        assert sequences == sorted(sequences), \
+            f"Loaded points for {doc_id} should be sorted by sequence"
+
+    # Check metric values preserved (sample first point)
+    first_doc_id = "roundtrip_test_001"
+    loaded_first_point = loaded_index[first_doc_id][0]
+    assert "throughput" in loaded_first_point["results"]["point_metrics"], \
+        "Metrics should be preserved in loaded data"

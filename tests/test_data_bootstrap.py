@@ -61,3 +61,29 @@ def test_opensearch_failure_loads_synthetic_when_opt_in():
     assert docs == synthetic
     assert err == "boom"
     assert syn_after is True
+
+
+def test_synthetic_mode_does_not_load_timeseries():
+    """Verify that bootstrap only loads result documents, not timeseries.
+
+    Timeseries are loaded lazily on-demand via get_synthetic_timeseries_index(),
+    not eagerly at startup. This test confirms the separation.
+    """
+    fake_results = [
+        {"metadata": {"document_id": "result_001", "test_timestamp": "2026-01-25T10:00:00Z"}},
+        {"metadata": {"document_id": "result_002", "test_timestamp": "2026-01-25T11:00:00Z"}}
+    ]
+
+    with patch("src.data_processing.load_synthetic_data", return_value=fake_results) as mock_load_results:
+        with patch("src.data_processing.load_synthetic_timeseries") as mock_load_timeseries:
+            docs, err, syn_after = load_initial_benchmark_documents("synthetic")
+
+    # Should load results
+    mock_load_results.assert_called_once()
+    assert docs == fake_results
+
+    # Should NOT load timeseries (that's lazy-loaded later)
+    mock_load_timeseries.assert_not_called()
+
+    assert err is None
+    assert syn_after is False

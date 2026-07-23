@@ -28,7 +28,12 @@ from src.pulse_kpis import (
     fetch_pulse_kpi_bundle,
     pulse_kpi_bundle_from_connection_error,
 )
-from src.opensearch_links import opensearch_discover_url_for_document, results_index_name
+from src.opensearch_links import (
+    opensearch_discover_url_for_document,
+    opensearch_discover_url_for_timeseries_id,
+    results_index_name,
+    timeseries_index_name,
+)
 from src.pulse_ui import render_pulse_v1_panel
 from src.regression_detection import sort_regressions_worst_first
 from src.investigation_templates import InvestigationTemplateError, fetch_investigation_documents
@@ -2732,7 +2737,8 @@ def handle_back_to_overview(investigation_back, track_back):
     [Output('investigation-summary', 'children'),
      Output('investigation-comparison-chart', 'figure'),
      Output('investigation-timeline-chart', 'figure'),
-     Output('investigation-table', 'children')],
+     Output('investigation-table', 'children'),
+     Output('point-drilldown-select', 'options')],
     [Input('navigation-state', 'data'),
      Input('filtered-data-store', 'data'),
      Input('colorblind-mode-store', 'data')],
@@ -2741,6 +2747,7 @@ def handle_back_to_overview(investigation_back, track_back):
 def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     """Update investigation drill-down view."""
     import pandas as pd
+    import json
 
     # Normalize colorblind_mode to bool
     colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
@@ -2748,7 +2755,7 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     empty_fig = visualizations.create_empty_figure("No investigation data")
 
     if not nav_state or nav_state['view'] != 'investigation':
-        return "", empty_fig, empty_fig, ""
+        return "", empty_fig, empty_fig, "", []
 
     params = nav_state.get('investigation_params', {})
     test_name = params.get('test_name', 'Unknown')
@@ -2778,16 +2785,16 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
                 ["Invalid investigation parameters: ", html.Code(str(exc))],
                 color="danger",
             )
-            return summary, empty_fig, empty_fig, ""
+            return summary, empty_fig, empty_fig, "", []
         except Exception as exc:  # noqa: BLE001 — OpenSearch errors vary
             summary = dbc.Alert(
                 ["Investigation query failed: ", html.Code(str(exc))],
                 color="warning",
             )
-            return summary, empty_fig, empty_fig, ""
+            return summary, empty_fig, empty_fig, "", []
     else:
         if not filtered_data_json:
-            return "", empty_fig, empty_fig, ""
+            return "", empty_fig, empty_fig, "", []
         filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
         # Filter data for this specific test and OS distribution
         test_df = filtered_df[
@@ -2798,7 +2805,7 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     if test_df.empty:
         empty_fig = visualizations.create_empty_figure(f"No data for {test_name}")
         summary = dbc.Alert("No data available for this test", color="warning")
-        return summary, empty_fig, empty_fig, ""
+        return summary, empty_fig, empty_fig, "", []
     
     # Split into baseline and comparison
     baseline_df = test_df[test_df['os_version'] == baseline_version]
@@ -2909,7 +2916,31 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
         className="investigation-table-block",
     )
 
-    return summary_component, comparison_fig, timeline_fig, table_component
+    # Build dropdown options for point drill-down (RPOPC-1183)
+    drilldown_rows = test_df[
+        ['document_id', 'timestamp', 'instance_type', 'cloud_provider',
+         'primary_metric_name', 'primary_metric_value', 'primary_metric_unit']
+    ].sort_values('timestamp', ascending=False).head(50)
+
+    dropdown_options = []
+    for _, row in drilldown_rows.iterrows():
+        doc_id = row.get('document_id')
+        if pd.isna(doc_id) or not doc_id:
+            continue
+
+        label = f"{row['timestamp']} | {row.get('instance_type', '?')} | {row.get('cloud_provider', '?')}"
+        value = json.dumps({
+            'document_id': str(doc_id),
+            'primary_metric_name': str(row.get('primary_metric_name', '')),
+            'primary_metric_value': float(row['primary_metric_value']) if pd.notna(row.get('primary_metric_value')) else None,
+            'primary_metric_unit': str(row.get('primary_metric_unit', '')),
+            'timestamp': str(row['timestamp']),
+            'instance_type': str(row.get('instance_type', '')),
+            'cloud_provider': str(row.get('cloud_provider', '')),
+        })
+        dropdown_options.append({'label': label, 'value': value})
+
+    return summary_component, comparison_fig, timeline_fig, table_component, dropdown_options
 
 
 # --- Point Drill-Down Callbacks (RPOPC-1183) ---
@@ -2923,6 +2954,113 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
 def toggle_view_points_button(selected_value):
     """Enable View Points button when a test run is selected."""
     return not bool(selected_value)
+
+
+@app.callback(
+    [Output('point-drilldown-modal', 'is_open'),
+     Output('point-drilldown-modal-title', 'children'),
+     Output('point-drilldown-modal-body', 'children'),
+     Output('point-drilldown-discover-link', 'children')],
+    [Input('btn-view-points', 'n_clicks'),
+     Input('btn-point-drilldown-close', 'n_clicks')],
+    [State('point-drilldown-modal', 'is_open'),
+     State('point-drilldown-select', 'value'),
+     State('colorblind-mode-store', 'data')],
+    prevent_initial_call=True
+)
+def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, colorblind_mode):
+    """Handle point drill-down modal open/close and data fetching."""
+    from dash import ctx
+    import json
+
+    colorblind_mode = _normalize_colorblind_mode(colorblind_mode)
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    if trigger_id == 'btn-point-drilldown-close':
+        return False, "", "", ""
+
+    if trigger_id == 'btn-view-points' and selected_value:
+        try:
+            run_info = json.loads(selected_value)
+        except (json.JSONDecodeError, TypeError):
+            return True, "Error", dbc.Alert("Invalid selection", color="danger"), ""
+
+        document_id = run_info.get('document_id')
+        metric_name = run_info.get('primary_metric_name', '')
+        metric_unit = run_info.get('primary_metric_unit', '')
+        summary_value = run_info.get('primary_metric_value')
+        timestamp = run_info.get('timestamp', '')
+        instance_type = run_info.get('instance_type', '')
+        cloud_provider = run_info.get('cloud_provider', '')
+
+        # Fetch timeseries points (dual-mode support)
+        use_opensearch = (
+            DATA_MODE == "opensearch"
+            and OPENSEARCH_LOAD_ERROR is None
+            and not SYNTHETIC_AFTER_OPENSEARCH_FAILURE
+        )
+
+        if use_opensearch:
+            try:
+                client = BenchmarkDataSource()
+                points = client.fetch_timeseries_for_document(document_id)
+            except Exception as exc:
+                return True, "Error", dbc.Alert(
+                    f"Failed to fetch timeseries: {exc}", color="danger"
+                ), ""
+        else:
+            from src.data_processing import fetch_synthetic_timeseries_for_document
+            points = fetch_synthetic_timeseries_for_document(document_id)
+
+        if not points:
+            return True, "No Data", dbc.Alert(
+                f"No point-level data found for document {document_id}",
+                color="warning"
+            ), ""
+
+        # Build chart
+        fig = visualizations.create_point_drilldown_chart(
+            points=points,
+            metric_name=metric_name,
+            metric_unit=metric_unit,
+            summary_value=summary_value,
+            colorblind_mode=colorblind_mode,
+        )
+
+        title = f"Points: {timestamp} | {instance_type} | {cloud_provider}"
+        body = html.Div([
+            dcc.Graph(figure=fig),
+            html.Small(
+                f"Showing {len(points)} data point(s) for document {document_id}",
+                className="text-muted mt-2",
+            ),
+        ])
+
+        # Build OpenSearch Discover link for timeseries
+        discover_link = ""
+        dashboards_base = (os.getenv("OPENSEARCH_DASHBOARDS_BASE_URL") or "").strip()
+        ts_idx = timeseries_index_name()
+        if dashboards_base and ts_idx and points:
+            # Get timeseries_id from first point
+            ts_id = points[0].get('metadata', {}).get('timeseries_id')
+            if ts_id:
+                try:
+                    ts_url = opensearch_discover_url_for_timeseries_id(
+                        dashboards_base, ts_idx, str(ts_id)
+                    )
+                    discover_link = html.A(
+                        "View in OpenSearch Discover",
+                        href=ts_url,
+                        target="_blank",
+                        rel="noopener noreferrer",
+                        className="btn btn-outline-secondary btn-sm",
+                    )
+                except ValueError:
+                    pass
+
+        return True, title, body, discover_link
+
+    return is_open, "", "", ""
 
 
 # --- Track Mode Callbacks (RPOPC-1165) ---

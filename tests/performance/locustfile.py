@@ -53,25 +53,31 @@ class DashboardUser(HttpUser):
     """
 
     wait_time = between(1, 5)  # 1-5 seconds between requests
-    host = "http://localhost:8050"
 
     def on_start(self):
         """
         Initialize session by loading the main page.
 
         Validates connectivity and fetches initial layout.
-        Optionally seeds random number generator for reproducible filter selection.
+        Optionally seeds per-user random number generator for reproducible filter selection.
+
+        Each user gets its own Random instance seeded with the same value to ensure
+        reproducibility while avoiding race conditions between concurrent users.
         """
         # Support optional seeding via LOCUST_SEED environment variable
+        # Use per-user RNG instead of global random.seed() to avoid race conditions
         seed_str = os.environ.get("LOCUST_SEED")
         if seed_str:
             try:
                 seed = int(seed_str)
-                random.seed(seed)
+                self.rng = random.Random(seed)
             except ValueError:
                 raise ValueError(
                     f"LOCUST_SEED must be an integer, got: {seed_str}"
                 )
+        else:
+            # No seed provided, use default RNG (each user still gets their own instance)
+            self.rng = random.Random()
 
         response = self.client.get("/", name="Initial Page Load")
         if response.status_code != 200:
@@ -138,19 +144,19 @@ class DashboardUser(HttpUser):
         }
 
         # Randomly choose which filter to update
-        filter_choice = random.choice(["os_version", "cloud_provider", "test_name", "status"])
+        filter_choice = self.rng.choice(["os_version", "cloud_provider", "test_name", "status"])
 
         # Build filter values based on choice
         # OS versions use "dist:version" format (e.g., "rhel:9.6")
         # Status values are uppercase ("PASS", "FAIL", "UNKNOWN")
         if filter_choice == "os_version":
-            filter_value = random.choice([["rhel:9.6"], ["rhel:10.1"], []])
+            filter_value = self.rng.choice([["rhel:9.6"], ["rhel:10.1"], []])
         elif filter_choice == "cloud_provider":
-            filter_value = random.choice([["aws"], ["gcp"], ["azure"], []])
+            filter_value = self.rng.choice([["aws"], ["gcp"], ["azure"], []])
         elif filter_choice == "test_name":
-            filter_value = random.choice([["coremark"], ["pyperf"], []])
+            filter_value = self.rng.choice([["coremark"], ["pyperf"], []])
         else:  # status
-            filter_value = random.choice([["PASS"], ["FAIL"], []])
+            filter_value = self.rng.choice([["PASS"], ["FAIL"], []])
 
         # Map filter choice to component ID for changedPropIds
         component_id = filter_to_component_id[filter_choice]

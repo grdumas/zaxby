@@ -132,7 +132,7 @@ def test_filter_data_multi_filter(
 
     os_versions = scale_dataframe.get("os_version", pd.Series(dtype=str)).unique()
     cloud_providers = scale_dataframe.get("cloud_provider", pd.Series(dtype=str)).unique()
-    timestamps = scale_dataframe.get("timestamp", pd.Series())
+    timestamps = scale_dataframe.get("timestamp", pd.Series(dtype="datetime64[ns]"))
 
     if len(os_versions) == 0 or len(cloud_providers) == 0 or len(timestamps) == 0:
         pytest.skip("Insufficient data for multi-filter")
@@ -142,7 +142,7 @@ def test_filter_data_multi_filter(
     filter_cloud = [cloud_providers[0]] if len(cloud_providers) > 0 else None
     min_date = timestamps.min()
     max_date = timestamps.max()
-    date_range = (min_date, max_date) if min_date and max_date else None
+    date_range = (min_date, max_date) if pd.notna(min_date) and pd.notna(max_date) else None
 
     result = benchmark(
         benchmark_processor.filter_data,

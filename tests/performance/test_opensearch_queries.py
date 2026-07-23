@@ -53,22 +53,27 @@ logger = logging.getLogger(__name__)
 # --- Module-level helpers ---
 
 
-def _timed_query(fn: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+def _timed_query(fn: Callable[[], Any]) -> Dict[str, Any]:
     """
     Execute a query callable and capture both wall-clock and OpenSearch execution time.
 
     Args:
-        fn: Callable that returns an OpenSearch response dict.
+        fn: Callable that returns an OpenSearch response (dict or list).
 
     Returns:
         Dict with keys: latency_ms (wall clock), took_ms (OpenSearch execution), response.
     """
-    start = time.time()
+    start = time.perf_counter()
     response = fn()
-    end = time.time()
+    end = time.perf_counter()
 
     latency_ms = (end - start) * 1000
-    took_ms = response.get("took", -1)
+
+    # Handle both dict and non-dict responses
+    if isinstance(response, dict):
+        took_ms = response.get("took", -1)
+    else:
+        took_ms = -1
 
     return {
         "latency_ms": latency_ms,
@@ -80,6 +85,9 @@ def _timed_query(fn: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
 def _compute_latency_stats(latencies: List[float]) -> Dict[str, float]:
     """
     Compute latency statistics from a list of measurements.
+
+    Uses nearest-rank percentile calculation: for percentile p,
+    index = min(n-1, max(0, ceil(p*n) - 1))
 
     Args:
         latencies: List of latency values in milliseconds.
@@ -93,13 +101,18 @@ def _compute_latency_stats(latencies: List[float]) -> Dict[str, float]:
     sorted_latencies = sorted(latencies)
     n = len(sorted_latencies)
 
+    # Nearest-rank percentile calculation
+    def percentile(p: float) -> float:
+        idx = min(n - 1, max(0, math.ceil(p * n) - 1))
+        return sorted_latencies[idx]
+
     return {
         "mean": statistics.mean(latencies),
         "min": min(latencies),
         "max": max(latencies),
-        "p50": sorted_latencies[int(n * 0.50)],
-        "p95": sorted_latencies[int(n * 0.95)] if n > 1 else sorted_latencies[0],
-        "p99": sorted_latencies[int(n * 0.99)] if n > 1 else sorted_latencies[0],
+        "p50": percentile(0.50),
+        "p95": percentile(0.95),
+        "p99": percentile(0.99),
     }
 
 
@@ -236,10 +249,13 @@ class TestResultsIndexQueries:
 
         # Validate results
         assert "hits" in result, "Response missing hits"
-        hits = result["hits"]["hits"]
+        hits = result.get("hits", {}).get("hits", [])
         if hits:
-            # Verify filter worked
-            assert hits[0]["_source"]["metadata"]["cloud_provider"] == "aws"
+            # Verify filter worked (defensive access to nested fields)
+            first_hit = hits[0]
+            source = first_hit.get("_source", {})
+            metadata = source.get("metadata", {})
+            assert metadata.get("cloud_provider") == "aws", "Expected cloud_provider=aws in first hit"
 
     def test_results_filter_by_date_range(self, benchmark, opensearch_client: BenchmarkDataSource):
         """
@@ -363,7 +379,7 @@ class TestTimeseriesIndexQueries:
     of thousands of documents.
     """
 
-    def test_timeseries_point_lookup(self, benchmark, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str]):
+    def test_timeseries_point_lookup(self, benchmark, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str], opensearch_timeseries_count: int):
         """
         Benchmark single timeseries point lookup by document_id.
 
@@ -381,7 +397,7 @@ class TestTimeseriesIndexQueries:
         assert isinstance(result, list), "Expected list of timeseries documents"
         logger.info(f"Timeseries point lookup - Retrieved {len(result)} points for document {doc_id}")
 
-    def test_timeseries_point_lookup_large(self, benchmark, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str]):
+    def test_timeseries_point_lookup_large(self, benchmark, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str], opensearch_timeseries_count: int):
         """
         Benchmark large timeseries point lookup (size=10000).
 
@@ -399,7 +415,7 @@ class TestTimeseriesIndexQueries:
         assert isinstance(result, list), "Expected list of timeseries documents"
         logger.info(f"Large timeseries lookup - Retrieved {len(result)} points for document {doc_id}")
 
-    def test_timeseries_bounded_time_window(self, benchmark, opensearch_client: BenchmarkDataSource):
+    def test_timeseries_bounded_time_window(self, benchmark, opensearch_client: BenchmarkDataSource, opensearch_timeseries_count: int):
         """
         Benchmark timeseries range query on test timestamp.
 
@@ -732,7 +748,7 @@ class TestConcurrentQueryLoad:
         assert len(results) == num_users * len(queries), "Some queries failed"
         assert stats["p95"] < 600, f"P95 latency too high: {stats['p95']:.1f}ms"
 
-    def test_concurrent_mixed_workload(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str]):
+    def test_concurrent_mixed_workload(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str], opensearch_timeseries_count: int):
         """
         Test mixed workload (10 users x Pulse/Investigate/Track patterns).
 
@@ -894,36 +910,41 @@ class TestLargeResultPagination:
             all_documents = []
 
             # Initial search with scroll
-            start = time.time()
+            logger.debug(f"OpenSearch operation: search with scroll on index {opensearch_client.results_index}")
+            start = time.perf_counter()
             response = opensearch_client.client.search(
                 index=opensearch_client.results_index,
                 scroll="2m",
                 size=batch_size,
                 body={"query": {"match_all": {}}},
             )
-            first_batch_latency = (time.time() - start) * 1000
+            first_batch_latency = (time.perf_counter() - start) * 1000
             batch_latencies.append(first_batch_latency)
 
-            scroll_id = response["_scroll_id"]
-            hits = response["hits"]["hits"]
-            all_documents.extend([hit["_source"] for hit in hits])
+            # Defensive access to _scroll_id and hits
+            scroll_id = response.get("_scroll_id")
+            hits = response.get("hits", {}).get("hits", [])
+            all_documents.extend([hit.get("_source", {}) for hit in hits if "_source" in hit])
 
             # Subsequent scroll batches
-            while len(hits) > 0 and len(all_documents) < max_docs:
-                start = time.time()
+            while len(hits) > 0 and len(all_documents) < max_docs and scroll_id:
+                logger.debug("OpenSearch operation: scroll")
+                start = time.perf_counter()
                 response = opensearch_client.client.scroll(scroll_id=scroll_id, scroll="2m")
-                batch_latency = (time.time() - start) * 1000
+                batch_latency = (time.perf_counter() - start) * 1000
                 batch_latencies.append(batch_latency)
 
-                scroll_id = response["_scroll_id"]
-                hits = response["hits"]["hits"]
-                all_documents.extend([hit["_source"] for hit in hits])
+                scroll_id = response.get("_scroll_id")
+                hits = response.get("hits", {}).get("hits", [])
+                all_documents.extend([hit.get("_source", {}) for hit in hits if "_source" in hit])
 
-            # Clear scroll
-            try:
-                opensearch_client.client.clear_scroll(scroll_id=scroll_id)
-            except Exception:
-                pass
+            # Clear scroll (only if scroll_id is valid)
+            if scroll_id:
+                try:
+                    logger.debug("OpenSearch operation: clear_scroll")
+                    opensearch_client.client.clear_scroll(scroll_id=scroll_id)
+                except Exception:
+                    pass
 
             # Compute and log statistics
             stats = _compute_latency_stats(batch_latencies)
@@ -968,7 +989,7 @@ class TestLargeResultPagination:
 
         # Validate results
         assert "hits" in result, "Response missing hits"
-        hits = result["hits"]["hits"]
+        hits = result.get("hits", {}).get("hits", [])
         logger.info(f"Large search retrieved {len(hits)} documents")
 
     def test_search_after_pagination(self, opensearch_client: BenchmarkDataSource, opensearch_results_count: int):
@@ -1001,30 +1022,33 @@ class TestLargeResultPagination:
                 ]
             }
 
-            start = time.time()
+            start = time.perf_counter()
             response = opensearch_client.search_results(body)
-            first_page_latency = (time.time() - start) * 1000
+            first_page_latency = (time.perf_counter() - start) * 1000
             page_latencies.append(first_page_latency)
 
-            hits = response["hits"]["hits"]
-            all_documents.extend([hit["_source"] for hit in hits])
+            hits = response.get("hits", {}).get("hits", [])
+            all_documents.extend([hit.get("_source", {}) for hit in hits if "_source" in hit])
 
             # Subsequent pages with search_after
             for page_num in range(1, max_pages):
                 if not hits:
                     break
 
-                # Get sort values from last hit
+                # Get sort values from last hit (defensive access)
                 last_hit = hits[-1]
-                body["search_after"] = last_hit["sort"]
+                last_hit_sort = last_hit.get("sort")
+                if not last_hit_sort:
+                    break
+                body["search_after"] = last_hit_sort
 
-                start = time.time()
+                start = time.perf_counter()
                 response = opensearch_client.search_results(body)
-                page_latency = (time.time() - start) * 1000
+                page_latency = (time.perf_counter() - start) * 1000
                 page_latencies.append(page_latency)
 
-                hits = response["hits"]["hits"]
-                all_documents.extend([hit["_source"] for hit in hits])
+                hits = response.get("hits", {}).get("hits", [])
+                all_documents.extend([hit.get("_source", {}) for hit in hits if "_source" in hit])
 
             # Compute and log statistics
             stats = _compute_latency_stats(page_latencies)

@@ -215,7 +215,8 @@ class BenchmarkDataSource:
             if result_count == size:
                 logger.warning(
                     "Timeseries fetch for document_id=%s hit size limit (%d). "
-                    "Results may be truncated. Consider increasing size parameter.",
+                    "Results may be truncated. Consider narrowing query scope or using "
+                    "pagination (search_after) for complete retrieval.",
                     document_id, size
                 )
 

@@ -356,3 +356,63 @@ def test_fetch_timeseries_warns_when_hitting_size_limit(mock_opensearch_client, 
                       for rec in warning_logs)
 
 
+def test_fetch_timeseries_warns_with_correct_advice_at_size_limit(mock_opensearch_client, caplog):
+    """Warning at size limit should suggest pagination, not increasing size."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+
+            # Mock OpenSearch client to return exactly 10000 hits
+            mock_hits = [{'_source': {'metadata': {'sequence': i}}} for i in range(10000)]
+            client.client.search = Mock(
+                return_value={'hits': {'hits': mock_hits}}
+            )
+
+            with caplog.at_level(logging.WARNING):
+                result = client.fetch_timeseries_for_document('test-doc-123', size=10000)
+
+            # Should warn about truncation
+            assert len(result) == 10000
+            warning_logs = [r for r in caplog.records if r.levelname == 'WARNING']
+            assert len(warning_logs) >= 1
+
+            warning_msg = warning_logs[0].message.lower()
+            # Should NOT suggest increasing size (impossible - capped at 10k)
+            assert 'increasing size' not in warning_msg and 'increas' not in warning_msg
+            # SHOULD suggest pagination or narrowing scope
+            assert 'pagination' in warning_msg or 'search_after' in warning_msg or 'narrow' in warning_msg
+
+
+
+
+def test_fetch_timeseries_warns_with_correct_advice_at_size_limit(mock_opensearch_client, caplog):
+    """Warning at size limit should suggest pagination, not increasing size."""
+    with patch.dict('os.environ', {
+        'OPENSEARCH_INDEX': 'ri',
+        'OPENSEARCH_INDEX_TIMESERIES': 'tsi',
+    }):
+        with patch.object(BenchmarkDataSource, '_verify_connection'):
+            client = BenchmarkDataSource()
+
+            # Mock OpenSearch client to return exactly 10000 hits
+            mock_hits = [{'_source': {'metadata': {'sequence': i}}} for i in range(10000)]
+            client.client.search = Mock(
+                return_value={'hits': {'hits': mock_hits}}
+            )
+
+            with caplog.at_level(logging.WARNING):
+                result = client.fetch_timeseries_for_document('test-doc-123', size=10000)
+
+            # Should warn about truncation
+            assert len(result) == 10000
+            warning_logs = [r for r in caplog.records if r.levelname == 'WARNING']
+            assert len(warning_logs) >= 1
+
+            warning_msg = warning_logs[0].message.lower()
+            # Should NOT suggest increasing size (impossible - capped at 10k)
+            assert 'increasing size' not in warning_msg and 'increas' not in warning_msg
+            # SHOULD suggest pagination or narrowing scope
+            assert 'pagination' in warning_msg or 'search_after' in warning_msg or 'narrow' in warning_msg

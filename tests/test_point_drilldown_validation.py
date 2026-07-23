@@ -97,3 +97,120 @@ def test_document_id_not_found_returns_empty():
     matching_rows = test_df[test_df['document_id'].astype(str) == document_id]
 
     assert len(matching_rows) == 0
+
+
+# --- Tests for pure validation function (Task 3, RPOPC-1183 refactor) ---
+
+
+def test_validate_point_drilldown_request_success(monkeypatch):
+    """Validation should succeed when document_id is in drilldown_data."""
+    import sys
+    monkeypatch.setenv("DATA_MODE", "synthetic")
+    sys.modules.pop("app", None)
+    import app  # noqa: E402
+
+    drilldown_data = {
+        'doc123': {
+            'metric_name': 'latency',
+            'metric_unit': 'ms',
+            'summary_value': 100.5,
+            'timestamp': '2025-01-01T00:00:00',
+            'instance_type': 'm5.large',
+            'cloud_provider': 'aws'
+        }
+    }
+
+    metadata, error = app.validate_point_drilldown_request('doc123', drilldown_data)
+
+    assert error is None
+    assert metadata is not None
+    assert metadata['metric_name'] == 'latency'
+    assert metadata['metric_unit'] == 'ms'
+    assert metadata['summary_value'] == 100.5
+
+
+def test_validate_point_drilldown_request_none_data(monkeypatch):
+    """Validation should fail with appropriate error when drilldown_data is None."""
+    import sys
+    monkeypatch.setenv("DATA_MODE", "synthetic")
+    sys.modules.pop("app", None)
+    import app  # noqa: E402
+
+    metadata, error = app.validate_point_drilldown_request('doc123', None)
+
+    assert metadata is None
+    assert error is not None
+    assert 'drill-down data' in error.lower()
+    assert 'refresh' in error.lower()
+
+
+def test_validate_point_drilldown_request_empty_data(monkeypatch):
+    """Validation should fail when drilldown_data is empty dict."""
+    import sys
+    monkeypatch.setenv("DATA_MODE", "synthetic")
+    sys.modules.pop("app", None)
+    import app  # noqa: E402
+
+    metadata, error = app.validate_point_drilldown_request('doc123', {})
+
+    assert metadata is None
+    assert error is not None
+    assert 'drill-down data' in error.lower()
+
+
+def test_validate_point_drilldown_request_document_not_found(monkeypatch):
+    """Validation should fail when document_id is not in drilldown_data."""
+    import sys
+    monkeypatch.setenv("DATA_MODE", "synthetic")
+    sys.modules.pop("app", None)
+    import app  # noqa: E402
+
+    drilldown_data = {
+        'doc123': {
+            'metric_name': 'latency',
+            'metric_unit': 'ms',
+            'summary_value': 100.5,
+            'timestamp': '2025-01-01T00:00:00',
+            'instance_type': 'm5.large',
+            'cloud_provider': 'aws'
+        }
+    }
+
+    metadata, error = app.validate_point_drilldown_request('doc999', drilldown_data)
+
+    assert metadata is None
+    assert error is not None
+    assert 'not found' in error.lower()
+    assert 'current view' in error.lower()
+
+
+def test_validate_point_drilldown_request_none_document_id(monkeypatch):
+    """Validation should fail gracefully when document_id is None."""
+    import sys
+    monkeypatch.setenv("DATA_MODE", "synthetic")
+    sys.modules.pop("app", None)
+    import app  # noqa: E402
+
+    drilldown_data = {'doc123': {}}
+
+    metadata, error = app.validate_point_drilldown_request(None, drilldown_data)
+
+    assert metadata is None
+    assert error is not None
+    assert 'no test run selected' in error.lower()
+
+
+def test_validate_point_drilldown_request_empty_document_id(monkeypatch):
+    """Validation should fail when document_id is empty string."""
+    import sys
+    monkeypatch.setenv("DATA_MODE", "synthetic")
+    sys.modules.pop("app", None)
+    import app  # noqa: E402
+
+    drilldown_data = {'doc123': {}}
+
+    metadata, error = app.validate_point_drilldown_request('', drilldown_data)
+
+    assert metadata is None
+    assert error is not None
+    assert 'no test run selected' in error.lower()

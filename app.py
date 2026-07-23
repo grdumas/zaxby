@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 from datetime import datetime
 from io import StringIO
 from dash import Dash, html, dcc, Input, Output, State, callback, no_update
@@ -2983,6 +2984,34 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
 # --- Point Drill-Down Callbacks (RPOPC-1183) ---
 
 
+def validate_point_drilldown_request(
+    document_id: str | None,
+    drilldown_data: dict | None
+) -> tuple[dict | None, str | None]:
+    """
+    Validate point drill-down request and extract metadata.
+
+    Args:
+        document_id: Selected document ID
+        drilldown_data: Server-controlled metadata dict from point-drilldown-data-store
+
+    Returns:
+        (metadata_dict, None) on success
+        (None, error_message) on failure
+    """
+    if not document_id:
+        return None, "No test run selected"
+
+    if not drilldown_data:
+        return None, "No drill-down data available. Please refresh the investigation view."
+
+    if document_id not in drilldown_data:
+        logging.warning(f"Validation failed: document_id {document_id} not in allowed set")
+        return None, "Selected test run not found in current view"
+
+    return drilldown_data[document_id], None
+
+
 @app.callback(
     Output('btn-view-points', 'disabled'),
     Input('point-drilldown-select', 'value'),
@@ -3022,25 +3051,11 @@ def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, c
         # Security: selected_value is now a simple document_id (not JSON)
         document_id = str(selected_value).strip() if selected_value else None
 
-        if not document_id:
-            return True, "Error", dbc.Alert("No test run selected", color="danger"), ""
-
         # Server-side validation using dedicated drill-down store
-        if not drilldown_data:
-            return True, "Error", dbc.Alert(
-                "No drill-down data available. Please refresh the investigation view.",
-                color="danger"
-            ), ""
+        metadata, error_msg = validate_point_drilldown_request(document_id, drilldown_data)
 
-        if document_id not in drilldown_data:
-            logging.warning(f"Validation failed: document_id {document_id} not in allowed set")
-            return True, "Error", dbc.Alert(
-                "Selected test run not found in current view",
-                color="danger"
-            ), ""
-
-        # Extract metadata from the validated store
-        metadata = drilldown_data[document_id]
+        if error_msg:
+            return True, "Error", dbc.Alert(error_msg, color="danger"), ""
 
         # Fetch timeseries points (dual-mode support)
         use_opensearch = (

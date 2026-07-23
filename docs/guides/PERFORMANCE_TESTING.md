@@ -183,8 +183,11 @@ For 50+ user tests, the Dash development server (single-threaded Werkzeug) becom
 # Install gunicorn
 pip install gunicorn
 
-# Run with 4 worker processes
-gunicorn -w 4 -b 0.0.0.0:8050 "app:server"
+# Run with 4 worker processes (localhost binding for security)
+gunicorn -w 4 -b 127.0.0.1:8050 "app:server"
+
+# Only use 0.0.0.0 when intentionally exposing to network
+# gunicorn -w 4 -b 0.0.0.0:8050 "app:server"
 ```
 
 Then run Locust tests against this multi-process server.
@@ -194,10 +197,16 @@ Then run Locust tests against this multi-process server.
 For interactive load testing with real-time charts:
 
 ```bash
-locust -f tests/performance/locustfile.py --host http://localhost:8050
+# Bind to localhost for security (default)
+locust -f tests/performance/locustfile.py --host http://localhost:8050 --web-host 127.0.0.1 --web-port 8089
+
+# For non-local scenarios, add authentication
+locust -f tests/performance/locustfile.py --host http://localhost:8050 --web-auth username:password
 ```
 
 Open http://localhost:8089 in a browser, set user count and spawn rate, then click "Start swarming".
+
+**Security Note**: The Locust Web UI binds to localhost (127.0.0.1) by default in Locust 2.0+, preventing external access. If running on a remote server or exposing to a network, always use `--web-auth` to require authentication.
 
 ### User Tasks
 

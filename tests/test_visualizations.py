@@ -3154,3 +3154,167 @@ def test_metrics_table_escapes_column_names_with_html():
     # Escaped versions SHOULD appear
     assert "&lt;script&gt;" in all_headers or "Col&lt;script" in all_headers, \
         "Column name with HTML should be escaped using &lt; and &gt;"
+
+
+# --- Point Drill-Down Chart Tests (RPOPC-1183) ---
+
+
+@pytest.fixture
+def sample_timeseries_points():
+    """Sample timeseries points matching zathras_timeseries.json structure."""
+    return [
+        {
+            "metadata": {
+                "document_id": "test_doc123",
+                "sequence": i,
+                "timeseries_id": "test_abc_timeseries",
+                "test_timestamp": f"2026-01-25T05:3{i}:23.928784Z",
+            },
+            "results": {
+                "point_metrics": {
+                    "tcp_stream_bw_gbs": 7.0 + i * 0.1,
+                    "latency_us": 30.0 + i,
+                }
+            }
+        }
+        for i in range(5)
+    ]
+
+
+def test_create_point_drilldown_chart_basic(sample_timeseries_points):
+    """Test basic point drill-down chart rendering."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        metric_unit="GB/s",
+        summary_value=None,
+        colorblind_mode=False,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+
+    trace = fig.data[0]
+    assert trace.type == "scatter"
+    assert trace.mode == "lines+markers"
+
+    # X-axis should be sequence values 0-4
+    assert list(trace.x) == [0, 1, 2, 3, 4]
+
+    # Y-axis should match metric values
+    expected_y = [7.0, 7.1, 7.2, 7.3, 7.4]
+    assert list(trace.y) == expected_y
+
+    # Title should include metric name
+    assert "tcp_stream_bw_gbs" in fig.layout.title.text
+    assert "Sequence" in fig.layout.xaxis.title.text
+    assert "tcp_stream_bw_gbs" in fig.layout.yaxis.title.text
+    assert "GB/s" in fig.layout.yaxis.title.text
+
+
+def test_create_point_drilldown_chart_empty_points():
+    """Test empty points list returns empty figure."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=[],
+        metric_name="tcp_stream_bw_gbs",
+    )
+
+    assert isinstance(fig, go.Figure)
+    # Empty figure has no traces
+    assert len(fig.data) == 0
+    # Should have annotation with empty message
+    assert len(fig.layout.annotations) > 0
+    annotation_texts = [ann.text for ann in fig.layout.annotations]
+    assert any("No timeseries data" in text for text in annotation_texts)
+
+
+def test_create_point_drilldown_chart_with_summary_line(sample_timeseries_points):
+    """Test summary reference line appears when summary_value is provided."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        summary_value=7.2,
+    )
+
+    # Should have a horizontal line shape
+    assert len(fig.layout.shapes) > 0
+    hline = fig.layout.shapes[0]
+    assert hline.type == "line"
+    assert hline.y0 == 7.2
+    assert hline.y1 == 7.2
+    assert "dash" in hline.line.dash
+
+
+def test_create_point_drilldown_chart_no_summary_line(sample_timeseries_points):
+    """Test no summary line when summary_value is None."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        summary_value=None,
+    )
+
+    # Should have no shapes
+    assert len(fig.layout.shapes) == 0
+
+
+def test_create_point_drilldown_chart_colorblind_mode(sample_timeseries_points):
+    """Test colorblind mode adds marker symbols."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="tcp_stream_bw_gbs",
+        colorblind_mode=True,
+    )
+
+    trace = fig.data[0]
+    # Should have marker symbol for redundant encoding
+    assert trace.marker.symbol is not None
+
+
+def test_create_point_drilldown_chart_metric_not_in_point_metrics(sample_timeseries_points):
+    """Test fallback when metric_name not in point_metrics."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    # Request a metric that doesn't exist
+    fig = create_point_drilldown_chart(
+        points=sample_timeseries_points,
+        metric_name="nonexistent_metric",
+    )
+
+    # Should still render (falls back to first available metric)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    # Should have data (using tcp_stream_bw_gbs as fallback)
+    assert len(fig.data[0].y) == 5
+
+
+def test_create_point_drilldown_chart_escapes_metric_name():
+    """Test HTML entities in metric name are escaped."""
+    from src.components.visualizations import create_point_drilldown_chart
+
+    malicious_points = [
+        {
+            "metadata": {"sequence": 0},
+            "results": {"point_metrics": {"<script>alert</script>": 100.0}}
+        }
+    ]
+
+    fig = create_point_drilldown_chart(
+        points=malicious_points,
+        metric_name="<script>alert</script>",
+    )
+
+    # Title should not contain raw script tags
+    assert "<script>" not in fig.layout.title.text
+    assert "</script>" not in fig.layout.title.text
+    # Should contain escaped version
+    assert "&lt;script&gt;" in fig.layout.title.text or "alert" in fig.layout.title.text

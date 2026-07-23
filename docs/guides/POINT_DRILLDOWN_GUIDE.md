@@ -108,7 +108,7 @@ sequenceDiagram
 
 ### Dropdown Population (`update_investigation_view` callback)
 
-**Source**: `app.py` lines 2930-2981
+**Source**: The `update_investigation_view` function in `app.py`
 
 1. Filter investigation DataFrame for required columns
 2. Skip rows with NaN `document_id` or non-numeric `primary_metric_value`
@@ -121,9 +121,9 @@ sequenceDiagram
 
 ### Point Drill-Down Request (`handle_point_drilldown` callback)
 
-**Source**: `app.py` lines 3025-3153
+**Source**: The `handle_point_drilldown` function in `app.py`
 
-**Validation** (`validate_point_drilldown_request`, line 2987):
+**Validation** (the `validate_point_drilldown_request` function):
 1. Reject None or empty `document_id`
 2. Reject None or empty `drilldown_data`
 3. Reject `document_id` not in `drilldown_data` (prevents client-side tampering)
@@ -181,15 +181,15 @@ sequenceDiagram
 
 **Mitigation**: Dropdown value is a simple `document_id` string. All metadata (metric name, unit, summary value, instance, cloud) is stored server-side in `drilldown_data` store.
 
-**Code reference**: `app.py` line 2965-2981 (dropdown construction)
+**Code reference**: The dropdown construction logic in the `update_investigation_view` function in `app.py`
 
 ### 2. Server-Side Validation
 
 **Threat**: Client sends `document_id` not in the filtered investigation data
 
-**Mitigation**: `validate_point_drilldown_request()` checks `document_id` against `drilldown_data` dict. Rejects any `document_id` not present.
+**Mitigation**: The `validate_point_drilldown_request` function checks `document_id` against `drilldown_data` dict. Rejects any `document_id` not present.
 
-**Code reference**: `app.py` line 2987-3012 (validation function)
+**Code reference**: The `validate_point_drilldown_request` function in `app.py`
 
 **Test coverage**: `tests/test_investigate_drilldown.py::test_handle_point_drilldown_validates_document_id_against_drilldown_data`
 
@@ -202,7 +202,7 @@ sequenceDiagram
 - Generic error returned to UI: "Failed to load timeseries data. Please try again or contact support."
 - No exception message, traceback, or internal details in user-facing output
 
-**Code reference**: `app.py` line 3081-3093 (exception handling)
+**Code reference**: The exception handling blocks in the `handle_point_drilldown` function in `app.py`
 
 **Test coverage**:
 - `tests/test_investigate_drilldown.py::test_handle_point_drilldown_sanitizes_exceptions`
@@ -212,7 +212,7 @@ sequenceDiagram
 
 ### Visualization (`create_point_drilldown_chart`)
 
-**Source**: `src/components/visualizations.py` line 2060
+**Source**: The `create_point_drilldown_chart` function in `src/components/visualizations.py`
 
 **Data extraction**:
 - X-axis: `metadata.sequence` from each point (0, 1, 2, ...)

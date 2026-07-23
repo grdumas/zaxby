@@ -3003,11 +3003,11 @@ def toggle_view_points_button(selected_value):
     [State('point-drilldown-modal', 'is_open'),
      State('point-drilldown-select', 'value'),
      State('colorblind-mode-store', 'data'),
-     State('filtered-data-store', 'data'),
+     State('point-drilldown-data-store', 'data'),
      State('navigation-state', 'data')],
     prevent_initial_call=True
 )
-def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, colorblind_mode, filtered_data_json, nav_state):
+def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, colorblind_mode, drilldown_data, nav_state):
     """Handle point drill-down modal open/close and data fetching."""
     from dash import ctx
     import logging
@@ -3025,55 +3025,22 @@ def handle_point_drilldown(view_clicks, close_clicks, is_open, selected_value, c
         if not document_id:
             return True, "Error", dbc.Alert("No test run selected", color="danger"), ""
 
-        # Server-side validation: Fetch metadata from filtered_data_json
-        # This prevents client tampering (can't request arbitrary document_id)
-        metadata = None
-        if filtered_data_json:
-            try:
-                from io import StringIO
-                test_df = pd.read_json(StringIO(filtered_data_json), orient='split')
+        # Server-side validation using dedicated drill-down store
+        if not drilldown_data:
+            return True, "Error", dbc.Alert(
+                "No drill-down data available. Please refresh the investigation view.",
+                color="danger"
+            ), ""
 
-                # Find the row matching this document_id
-                # Normalize dtype to string for consistent comparison
-                matching_rows = test_df[test_df['document_id'].astype(str) == document_id]
-                if matching_rows.empty:
-                    # document_id not in current filtered data - reject
-                    return True, "Error", dbc.Alert(
-                        "Selected test run not found in current view",
-                        color="danger"
-                    ), ""
+        if document_id not in drilldown_data:
+            logging.warning(f"Validation failed: document_id {document_id} not in allowed set")
+            return True, "Error", dbc.Alert(
+                "Selected test run not found in current view",
+                color="danger"
+            ), ""
 
-                # Extract metadata from the row
-                row = matching_rows.iloc[0]
-                metadata = {
-                    'metric_name': row.get('primary_metric_name', 'metric'),
-                    'metric_unit': row.get('primary_metric_unit', ''),
-                    'summary_value': row.get('primary_metric_value'),
-                    'timestamp': str(row.get('timestamp', '?')),
-                    'instance_type': str(row.get('instance_type', '?')),
-                    'cloud_provider': str(row.get('cloud_provider', '?')),
-                }
-            except Exception as exc:
-                logging.error(f"Failed to parse filtered data for validation: {exc}", exc_info=True)
-                # Fallback to defaults if data parsing fails
-                metadata = {
-                    'metric_name': 'metric',
-                    'metric_unit': '',
-                    'summary_value': None,
-                    'timestamp': '?',
-                    'instance_type': '?',
-                    'cloud_provider': '?',
-                }
-
-        if not metadata:
-            metadata = {
-                'metric_name': 'metric',
-                'metric_unit': '',
-                'summary_value': None,
-                'timestamp': '?',
-                'instance_type': '?',
-                'cloud_provider': '?',
-            }
+        # Extract metadata from the validated store
+        metadata = drilldown_data[document_id]
 
         # Fetch timeseries points (dual-mode support)
         use_opensearch = (

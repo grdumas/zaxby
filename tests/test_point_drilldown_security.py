@@ -54,7 +54,7 @@ def test_dropdown_uses_simple_document_id_not_json(monkeypatch):
 
     filtered_data_json = test_df.to_json(orient='split')
 
-    summary, comparison_fig, timeline_fig, table, dropdown_options = app.update_investigation_view(
+    summary, comparison_fig, timeline_fig, table, dropdown_options, drilldown_data = app.update_investigation_view(
         nav_state, filtered_data_json, False
     )
 
@@ -106,7 +106,7 @@ def test_dropdown_skips_non_numeric_metric_values(monkeypatch):
     filtered_data_json = test_df.to_json(orient='split')
 
     # Should not crash
-    summary, comparison_fig, timeline_fig, table, dropdown_options = app.update_investigation_view(
+    summary, comparison_fig, timeline_fig, table, dropdown_options, drilldown_data = app.update_investigation_view(
         nav_state, filtered_data_json, False
     )
 
@@ -150,7 +150,7 @@ def test_dropdown_empty_when_required_columns_missing(monkeypatch):
     filtered_data_json = test_df.to_json(orient='split')
 
     # Should not crash, should return empty dropdown
-    summary, comparison_fig, timeline_fig, table, dropdown_options = app.update_investigation_view(
+    summary, comparison_fig, timeline_fig, table, dropdown_options, drilldown_data = app.update_investigation_view(
         nav_state, filtered_data_json, False
     )
 

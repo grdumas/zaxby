@@ -244,21 +244,25 @@ The OpenSearch query performance tests (`tests/performance/test_opensearch_queri
 
 - **Live OpenSearch cluster** with `zathras-results` and `zathras-timeseries` indices populated
 - **Environment variables** configured (`.env` or environment):
-  - `OPENSEARCH_HOST` (default: `localhost`)
-  - `OPENSEARCH_PORT` (default: `9200`)
-  - `OPENSEARCH_USERNAME` (default: `admin`)
-  - `OPENSEARCH_PASSWORD` (default: `admin`)
+  - `OPENSEARCH_HOST` (e.g., `localhost` for local dev, or cluster URL)
+  - `OPENSEARCH_PORT` (e.g., `9200`)
+  - `OPENSEARCH_USERNAME` (required - use cluster credentials)
+  - `OPENSEARCH_PASSWORD` (required - use cluster credentials)
   - `OPENSEARCH_INDEX_RESULTS` or `OPENSEARCH_INDEX` (e.g., `zathras-results`)
   - `OPENSEARCH_INDEX_TIMESERIES` (e.g., `zathras-timeseries`)
+  - `RUN_OPENSEARCH_QUERY_BENCHMARKS=1` (required - explicit opt-in to run these tests)
 - **pytest-benchmark** installed: `pip install -r tests/performance/requirements.txt`
 
-Tests skip gracefully when OpenSearch is unavailable.
+**Note:** For local development, you may use default OpenSearch credentials (`admin`/`admin`), but never use these defaults for shared or remote clusters. The `RUN_OPENSEARCH_QUERY_BENCHMARKS` environment variable is required to prevent accidental execution against production clusters.
+
+Tests skip gracefully when OpenSearch is unavailable or the opt-in flag is not set.
 
 ### Running the Tests
 
 **All OpenSearch query benchmarks:**
 ```bash
-pytest tests/performance/test_opensearch_queries.py --benchmark-only -v
+# Requires RUN_OPENSEARCH_QUERY_BENCHMARKS=1
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py --benchmark-only -v
 ```
 
 **Filter by test class (scenario):**

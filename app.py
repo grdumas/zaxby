@@ -364,6 +364,7 @@ def serve_layout():
             dcc.Store(id='nightly-runs-store'),
             dcc.Store(id='pulse-kpi-bundle-store'),
             dcc.Store(id='colorblind-mode-store', storage_type='local'),
+            dcc.Store(id='point-drilldown-data-store'),  # Metadata for point drill-down validation (RPOPC-1183)
             dcc.Store(id='dark-mode-callback-dummy'),  # Dummy output for dark mode clientside callback
             dcc.Store(id='colorblind-callback-dummy'),  # Dummy output for colorblind clientside callback
 
@@ -2738,7 +2739,8 @@ def handle_back_to_overview(investigation_back, track_back):
      Output('investigation-comparison-chart', 'figure'),
      Output('investigation-timeline-chart', 'figure'),
      Output('investigation-table', 'children'),
-     Output('point-drilldown-select', 'options')],
+     Output('point-drilldown-select', 'options'),
+     Output('point-drilldown-data-store', 'data')],
     [Input('navigation-state', 'data'),
      Input('filtered-data-store', 'data'),
      Input('colorblind-mode-store', 'data')],
@@ -2755,7 +2757,7 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     empty_fig = visualizations.create_empty_figure("No investigation data")
 
     if not nav_state or nav_state['view'] != 'investigation':
-        return "", empty_fig, empty_fig, "", []
+        return "", empty_fig, empty_fig, "", [], {}
 
     params = nav_state.get('investigation_params', {})
     test_name = params.get('test_name', 'Unknown')
@@ -2785,16 +2787,16 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
                 ["Invalid investigation parameters: ", html.Code(str(exc))],
                 color="danger",
             )
-            return summary, empty_fig, empty_fig, "", []
+            return summary, empty_fig, empty_fig, "", [], {}
         except Exception as exc:  # noqa: BLE001 — OpenSearch errors vary
             summary = dbc.Alert(
                 ["Investigation query failed: ", html.Code(str(exc))],
                 color="warning",
             )
-            return summary, empty_fig, empty_fig, "", []
+            return summary, empty_fig, empty_fig, "", [], {}
     else:
         if not filtered_data_json:
-            return "", empty_fig, empty_fig, "", []
+            return "", empty_fig, empty_fig, "", [], {}
         filtered_df = pd.read_json(StringIO(filtered_data_json), orient='split')
         # Filter data for this specific test and OS distribution
         test_df = filtered_df[
@@ -2805,7 +2807,7 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
     if test_df.empty:
         empty_fig = visualizations.create_empty_figure(f"No data for {test_name}")
         summary = dbc.Alert("No data available for this test", color="warning")
-        return summary, empty_fig, empty_fig, "", []
+        return summary, empty_fig, empty_fig, "", [], {}
     
     # Split into baseline and comparison
     baseline_df = test_df[test_df['os_version'] == baseline_version]
@@ -2959,7 +2961,23 @@ def update_investigation_view(nav_state, filtered_data_json, colorblind_mode):
 
             dropdown_options.append({'label': label, 'value': value})
 
-    return summary_component, comparison_fig, timeline_fig, table_component, dropdown_options
+    # Build metadata store for drill-down validation (RPOPC-1183)
+    drilldown_data = {}
+    if has_required_cols:
+        for _, row in drilldown_rows.iterrows():
+            doc_id = str(row.get('document_id', ''))
+            if not doc_id or pd.isna(row.get('document_id')):
+                continue
+            drilldown_data[doc_id] = {
+                'metric_name': row.get('primary_metric_name', 'metric'),
+                'metric_unit': row.get('primary_metric_unit', ''),
+                'summary_value': row.get('primary_metric_value'),
+                'timestamp': str(row.get('timestamp', '?')),
+                'instance_type': str(row.get('instance_type', '?')),
+                'cloud_provider': str(row.get('cloud_provider', '?')),
+            }
+
+    return summary_component, comparison_fig, timeline_fig, table_component, dropdown_options, drilldown_data
 
 
 # --- Point Drill-Down Callbacks (RPOPC-1183) ---

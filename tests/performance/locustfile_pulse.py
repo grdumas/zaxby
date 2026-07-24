@@ -245,9 +245,9 @@ class PulseUser(HttpUser):
                 changed=[f"filter-{component_id}.value"],
             )
         else:  # date_range
-            # Set a random 30-day date range in 2025
-            start_dates = ["2025-01-01", "2025-03-01", "2025-06-01"]
-            end_dates = ["2025-01-31", "2025-03-31", "2025-06-30"]
+            # Set a random 30-day date range in 2026
+            start_dates = ["2026-01-01", "2026-03-01", "2026-06-01"]
+            end_dates = ["2026-01-31", "2026-03-31", "2026-06-30"]
             idx = self.rng.randint(0, len(start_dates) - 1)
 
             payload = _dash_payload(

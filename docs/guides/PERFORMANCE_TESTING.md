@@ -268,28 +268,28 @@ RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queri
 **Filter by test class (scenario):**
 ```bash
 # Results index queries
-pytest tests/performance/test_opensearch_queries.py -k "TestResultsIndexQueries" --benchmark-only -v
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py -k "TestResultsIndexQueries" --benchmark-only -v
 
 # Timeseries queries
-pytest tests/performance/test_opensearch_queries.py -k "TestTimeseriesIndexQueries" --benchmark-only -v
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py -k "TestTimeseriesIndexQueries" --benchmark-only -v
 
 # Aggregation queries
-pytest tests/performance/test_opensearch_queries.py -k "TestAggregationQueries" --benchmark-only -v
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py -k "TestAggregationQueries" --benchmark-only -v
 
 # Concurrent load tests (no --benchmark-only needed, uses manual timing)
-pytest tests/performance/test_opensearch_queries.py -k "TestConcurrentQueryLoad" -v
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py -k "TestConcurrentQueryLoad" -v
 
 # Pagination tests
-pytest tests/performance/test_opensearch_queries.py -k "TestLargeResultPagination" --benchmark-only -v
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py -k "TestLargeResultPagination" --benchmark-only -v
 ```
 
 **Save and compare baselines:**
 ```bash
 # Save baseline
-pytest tests/performance/test_opensearch_queries.py --benchmark-only --benchmark-save=opensearch_baseline
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py --benchmark-only --benchmark-save=opensearch_baseline
 
 # Compare
-pytest tests/performance/test_opensearch_queries.py --benchmark-only --benchmark-compare=opensearch_baseline
+RUN_OPENSEARCH_QUERY_BENCHMARKS=1 pytest tests/performance/test_opensearch_queries.py --benchmark-only --benchmark-compare=opensearch_baseline
 ```
 
 ### Baseline Metrics

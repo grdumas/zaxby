@@ -222,14 +222,17 @@ class InvestigateUser(HttpUser):
             # Specific test name
             test_filter = [self.rng.choice(self.test_names)]
             cloud_filter = []
+            changed_filter = "filter-test-name.value"
         elif filter_preset == "medium":
             # Cloud provider only
             test_filter = []
             cloud_filter = [self.rng.choice(["aws", "gcp", "azure"])]
+            changed_filter = "filter-cloud-provider.value"  # Matches actual filter change
         else:  # large
             # No filters
             test_filter = []
             cloud_filter = []
+            changed_filter = "filter-test-name.value"  # Arbitrary, both filters cleared
 
         # Update filters
         filter_response = self.client.post(
@@ -246,7 +249,7 @@ class InvestigateUser(HttpUser):
                     {"id": "header-date-range", "property": "end_date", "value": None},
                     {"id": "filter-status", "property": "value", "value": []},
                 ],
-                changed=["filter-test-name.value"],
+                changed=[changed_filter],
             ),
             name=f"Update Filters ({filter_preset})",
             headers={"Content-Type": "application/json"},

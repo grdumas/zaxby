@@ -11,18 +11,18 @@ Prerequisites:
 
 Usage:
   Single-mode headless (10 users, 2/s spawn rate, 60s):
-    locust -f tests/performance/test_pulse_load.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
+    locust -f tests/performance/locustfile_pulse.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
 
   Combined with other modes (Pulse + Investigate + Track = 17 users):
-    locust -f tests/performance/test_pulse_load.py,tests/performance/test_investigate_load.py,tests/performance/test_track_load.py \
+    locust -f tests/performance/locustfile_pulse.py,tests/performance/locustfile_investigate.py,tests/performance/locustfile_track.py \
       --headless -u 17 -r 3 -t 120s --host http://localhost:8050
 
   Web UI mode:
-    locust -f tests/performance/test_pulse_load.py --host http://localhost:8050
+    locust -f tests/performance/locustfile_pulse.py --host http://localhost:8050
     # Then open http://localhost:8089
 
   Reproducible runs (seeded random filter selection):
-    LOCUST_SEED=42 locust -f tests/performance/test_pulse_load.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
+    LOCUST_SEED=42 locust -f tests/performance/locustfile_pulse.py --headless -u 10 -r 2 -t 60s --host http://localhost:8050
 
 Performance SLA Thresholds (p95):
   - Page load: < 500ms
@@ -51,30 +51,7 @@ import os
 import random
 from locust import HttpUser, task, between, events
 
-
-def _dash_payload(output, outputs, inputs, changed, state=None):
-    """
-    Build standard Dash /_dash-update-component POST body.
-
-    Args:
-        output: Single output string "component-id.property" or multi-output "..id.prop..id.prop.."
-        outputs: Single output dict {"id": "...", "property": "..."} or list of dicts
-        inputs: List of input dicts [{"id": "...", "property": "...", "value": ...}, ...]
-        changed: List of changedPropIds ["component-id.property", ...]
-        state: Optional list of state dicts (for State() inputs in callbacks)
-
-    Returns:
-        Dict payload for Dash callback POST request.
-    """
-    payload = {
-        "output": output,
-        "outputs": outputs,
-        "inputs": inputs,
-        "changedPropIds": changed,
-    }
-    if state:
-        payload["state"] = state
-    return payload
+from tests.performance.locust_helpers import _dash_payload
 
 
 class PulseUser(HttpUser):

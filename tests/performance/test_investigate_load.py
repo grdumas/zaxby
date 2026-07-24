@@ -402,7 +402,8 @@ class InvestigateUser(HttpUser):
         if not self.drilldown_data or not isinstance(self.drilldown_data, dict):
             return
 
-        document_ids = self.drilldown_data.get("document_ids", [])
+        # Extract document IDs from drilldown_data keys (app.py returns dict keyed by doc_id)
+        document_ids = list(self.drilldown_data.keys())
         if not document_ids:
             return
 
@@ -410,12 +411,12 @@ class InvestigateUser(HttpUser):
         document_id = self.rng.choice(document_ids)
 
         payload = _dash_payload(
-            output="..point-drilldown-modal.is_open..point-drilldown-modal-title.children..point-drilldown-modal-body.children..point-drilldown-discover-link.href..",
+            output="..point-drilldown-modal.is_open..point-drilldown-modal-title.children..point-drilldown-modal-body.children..point-drilldown-discover-link.children..",
             outputs=[
                 {"id": "point-drilldown-modal", "property": "is_open"},
                 {"id": "point-drilldown-modal-title", "property": "children"},
                 {"id": "point-drilldown-modal-body", "property": "children"},
-                {"id": "point-drilldown-discover-link", "property": "href"},
+                {"id": "point-drilldown-discover-link", "property": "children"},  # Matches app.py:3029
             ],
             inputs=[
                 {"id": "btn-view-points", "property": "n_clicks", "value": 1},

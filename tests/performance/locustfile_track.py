@@ -114,10 +114,12 @@ class TrackUser(HttpUser):
 
         # Precomputed date range sets matching synthetic data timeframe
         # Each set is (baseline_start, baseline_end, nightly_start, nightly_end)
+        # Dates are timezone-aware ISO format (YYYY-MM-DDTHH:MM:SSZ) for compatibility
+        # with run_track_comparison callback (app.py:3234-3243)
         self.date_range_presets = [
-            ("2025-01-01", "2025-03-31", "2025-06-01", "2025-06-30"),  # Q1 baseline vs Q2 nightly
-            ("2025-02-01", "2025-04-30", "2025-07-01", "2025-07-31"),  # Feb-Apr baseline vs July nightly
-            ("2025-03-01", "2025-05-31", "2025-08-01", "2025-08-31"),  # Mar-May baseline vs Aug nightly
+            ("2026-01-01T00:00:00Z", "2026-03-31T23:59:59Z", "2026-06-01T00:00:00Z", "2026-06-30T23:59:59Z"),  # Q1 baseline vs Q2 nightly
+            ("2026-02-01T00:00:00Z", "2026-04-30T23:59:59Z", "2026-07-01T00:00:00Z", "2026-07-31T23:59:59Z"),  # Feb-Apr baseline vs July nightly
+            ("2026-03-01T00:00:00Z", "2026-05-31T23:59:59Z", "2026-08-01T00:00:00Z", "2026-08-31T23:59:59Z"),  # Mar-May baseline vs Aug nightly
         ]
 
         self.baseline_ids = [

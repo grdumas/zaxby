@@ -300,7 +300,8 @@ def opensearch_client():
         logger.info("OpenSearch client connected for performance tests")
         return client
     except Exception as exc:
-        pytest.skip(f"OpenSearch not available")
+        logger.debug(f"OpenSearch connection failed: {exc}")
+        pytest.skip("OpenSearch not available")
 
 
 @pytest.fixture(scope="session")
@@ -322,8 +323,8 @@ def opensearch_results_count(opensearch_client) -> int:
         logger.info(f"Results index contains {count} documents")
         return count
     except Exception as exc:
-        logger.warning(f"Failed to count results index: {exc}")
-        pytest.skip(f"Cannot count results index: {exc}")
+        logger.debug(f"Failed to count results index: {exc}")
+        pytest.skip("Cannot count results index")
 
 
 @pytest.fixture(scope="session")
@@ -350,8 +351,8 @@ def opensearch_timeseries_count(opensearch_client) -> int:
             pytest.skip("Timeseries index is empty")
         return count
     except Exception as exc:
-        logger.warning(f"Failed to count timeseries index: {exc}")
-        pytest.skip(f"Cannot count timeseries index: {exc}")
+        logger.debug(f"Failed to count timeseries index: {exc}")
+        pytest.skip("Cannot count timeseries index")
 
 
 @pytest.fixture(scope="session")
@@ -383,17 +384,17 @@ def sample_document_ids(opensearch_client) -> List[str]:
         logger.info(f"Extracted {len(doc_ids)} sample document IDs")
         return doc_ids
     except Exception as exc:
-        logger.warning(f"Failed to fetch sample documents: {exc}")
-        pytest.skip(f"Cannot fetch sample documents: {exc}")
+        logger.debug(f"Failed to fetch sample documents: {exc}")
+        pytest.skip("Cannot fetch sample documents")
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cluster_health_snapshot(opensearch_client):
     """
     Capture OpenSearch cluster health before and after test.
 
     Logs delta in shard count, pending tasks, and other cluster metrics.
-    This fixture runs automatically for all tests that use opensearch_client.
+    Tests must explicitly request this fixture to enable monitoring.
 
     Args:
         opensearch_client: OpenSearch client fixture.
@@ -426,13 +427,13 @@ def cluster_health_snapshot(opensearch_client):
         yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def opensearch_resource_monitor(opensearch_client):
     """
     Capture OpenSearch node resource metrics before and after test.
 
     Monitors JVM heap, OS memory, and CPU usage.
-    This fixture runs automatically for all tests that use opensearch_client.
+    Tests must explicitly request this fixture to enable monitoring.
 
     Args:
         opensearch_client: OpenSearch client fixture.

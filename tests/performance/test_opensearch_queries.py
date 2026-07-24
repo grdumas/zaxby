@@ -15,13 +15,12 @@ Filter by class: pytest tests/performance/test_opensearch_queries.py -k "TestRes
 from __future__ import annotations
 
 import logging
-import math
-import statistics
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List
+from typing import Any, Dict, List
 
 import pytest
+
+from tests.performance.helpers import _compute_latency_stats, _timed_query
 
 from src.opensearch_client import BenchmarkDataSource
 from src.query_service import (
@@ -48,72 +47,6 @@ pytest.importorskip(
 )
 
 logger = logging.getLogger(__name__)
-
-
-# --- Module-level helpers ---
-
-
-def _timed_query(fn: Callable[[], Any]) -> Dict[str, Any]:
-    """
-    Execute a query callable and capture both wall-clock and OpenSearch execution time.
-
-    Args:
-        fn: Callable that returns an OpenSearch response (dict or list).
-
-    Returns:
-        Dict with keys: latency_ms (wall clock), took_ms (OpenSearch execution), response.
-    """
-    start = time.perf_counter()
-    response = fn()
-    end = time.perf_counter()
-
-    latency_ms = (end - start) * 1000
-
-    # Handle both dict and non-dict responses
-    if isinstance(response, dict):
-        took_ms = response.get("took", -1)
-    else:
-        took_ms = -1
-
-    return {
-        "latency_ms": latency_ms,
-        "took_ms": took_ms,
-        "response": response,
-    }
-
-
-def _compute_latency_stats(latencies: List[float]) -> Dict[str, float]:
-    """
-    Compute latency statistics from a list of measurements.
-
-    Uses nearest-rank percentile calculation: for percentile p,
-    index = min(n-1, max(0, ceil(p*n) - 1))
-
-    Args:
-        latencies: List of latency values in milliseconds.
-
-    Returns:
-        Dict with keys: mean, min, max, p50, p95, p99.
-    """
-    if not latencies:
-        return {"mean": 0, "min": 0, "max": 0, "p50": 0, "p95": 0, "p99": 0}
-
-    sorted_latencies = sorted(latencies)
-    n = len(sorted_latencies)
-
-    # Nearest-rank percentile calculation
-    def percentile(p: float) -> float:
-        idx = min(n - 1, max(0, math.ceil(p * n) - 1))
-        return sorted_latencies[idx]
-
-    return {
-        "mean": statistics.mean(latencies),
-        "min": min(latencies),
-        "max": max(latencies),
-        "p50": percentile(0.50),
-        "p95": percentile(0.95),
-        "p99": percentile(0.99),
-    }
 
 
 def _log_query_metrics(name: str, stats: Dict[str, float], took_values: List[int]) -> None:
@@ -623,7 +556,7 @@ class TestConcurrentQueryLoad:
     concurrent user load and measure latency degradation and cluster health impact.
     """
 
-    def test_concurrent_pulse_queries(self, opensearch_client: BenchmarkDataSource):
+    def test_concurrent_pulse_queries(self, opensearch_client: BenchmarkDataSource, cluster_health_snapshot, opensearch_resource_monitor):
         """
         Test concurrent Pulse KPI queries (5 users x 4 queries each).
 
@@ -670,7 +603,7 @@ class TestConcurrentQueryLoad:
         assert len(results) == num_users * len(queries), "Some queries failed"
         assert stats["p95"] < 500, f"P95 latency too high: {stats['p95']:.1f}ms"
 
-    def test_concurrent_investigation_queries(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str]):
+    def test_concurrent_investigation_queries(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str], cluster_health_snapshot, opensearch_resource_monitor):
         """
         Test concurrent investigation queries (5 users x different filter patterns).
 
@@ -748,7 +681,7 @@ class TestConcurrentQueryLoad:
         assert len(results) == num_users * len(queries), "Some queries failed"
         assert stats["p95"] < 600, f"P95 latency too high: {stats['p95']:.1f}ms"
 
-    def test_concurrent_mixed_workload(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str], opensearch_timeseries_count: int):
+    def test_concurrent_mixed_workload(self, opensearch_client: BenchmarkDataSource, sample_document_ids: List[str], opensearch_timeseries_count: int, cluster_health_snapshot, opensearch_resource_monitor):
         """
         Test mixed workload (10 users x Pulse/Investigate/Track patterns).
 
@@ -810,7 +743,7 @@ class TestConcurrentQueryLoad:
         assert stats["p95"] < 800, f"P95 latency too high: {stats['p95']:.1f}ms"
 
     @pytest.mark.parametrize("num_users", [1, 5, 10, 20])
-    def test_concurrent_scaling(self, opensearch_client: BenchmarkDataSource, num_users: int):
+    def test_concurrent_scaling(self, opensearch_client: BenchmarkDataSource, num_users: int, cluster_health_snapshot, opensearch_resource_monitor):
         """
         Test query latency scaling with increasing concurrent users.
 
@@ -890,7 +823,7 @@ class TestLargeResultPagination:
         assert len(result) > 0, "Scroll returned no documents"
         logger.info(f"Scroll retrieved {len(result)} documents")
 
-    def test_scroll_results_batched(self, opensearch_client: BenchmarkDataSource, opensearch_results_count: int):
+    def test_scroll_results_batched(self, opensearch_client: BenchmarkDataSource, opensearch_results_count: int, cluster_health_snapshot, opensearch_resource_monitor):
         """
         Benchmark scroll with manual per-batch timing.
 

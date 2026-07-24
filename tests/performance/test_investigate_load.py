@@ -118,7 +118,7 @@ class InvestigateUser(HttpUser):
             except ValueError:
                 raise ValueError(f"LOCUST_SEED must be an integer, got: {seed_str}")
         else:
-            self.rng = random.Random()
+            self.rng = random.Random(42)  # Default seed for reproducibility
 
         # Load main page
         response = self.client.get("/", name="Page Load")
@@ -507,6 +507,8 @@ def on_test_stop(environment, **kwargs):
             "Page Load": 500,
             "Prime Filters": 1000,
             "Prime Analysis": 3000,
+            "Update Filters": 1000,  # Filter update operations (review feedback)
+            "Analyze Data": 3000,    # Analysis chain operations (review feedback)
             "Navigate to Investigation": 500,
             "Render Investigation View": 3000,
             "Point Drilldown": 1500,

@@ -1,9 +1,11 @@
 """
-Unit tests for test_opensearch_queries.py helper functions.
+Unit tests for performance helper functions.
 
 Tests the _timed_query helper to ensure it handles both dict and list responses
 correctly. This is critical for concurrent workload tests that mix queries returning
 dicts (with "took" field) and queries returning lists (like fetch_timeseries_for_document).
+
+Now imports from tests.performance.helpers to validate actual production code.
 """
 
 from __future__ import annotations
@@ -12,9 +14,10 @@ import time
 import pytest
 from typing import Any, Callable, Dict, List
 
+from tests.performance.helpers import _timed_query
 
-# Copy of _timed_query from test_opensearch_queries.py (before fix)
-# This will be tested to verify the bug exists, then we'll test the fixed version
+
+# Copy of _timed_query BEFORE the fix (for testing the bug existed)
 def _timed_query_original(fn: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
     """
     Original version (with bug): assumes response is always a dict.
@@ -25,36 +28,6 @@ def _timed_query_original(fn: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
 
     latency_ms = (end - start) * 1000
     took_ms = response.get("took", -1)  # BUG: fails if response is a list
-
-    return {
-        "latency_ms": latency_ms,
-        "took_ms": took_ms,
-        "response": response,
-    }
-
-
-# Fixed version of _timed_query
-def _timed_query(fn: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Execute a query callable and capture both wall-clock and OpenSearch execution time.
-
-    Args:
-        fn: Callable that returns an OpenSearch response (dict or list).
-
-    Returns:
-        Dict with keys: latency_ms (wall clock), took_ms (OpenSearch execution), response.
-    """
-    start = time.time()
-    response = fn()
-    end = time.time()
-
-    latency_ms = (end - start) * 1000
-
-    # Handle both dict and non-dict responses
-    if isinstance(response, dict):
-        took_ms = response.get("took", -1)
-    else:
-        took_ms = -1
 
     return {
         "latency_ms": latency_ms,

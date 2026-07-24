@@ -3,49 +3,18 @@ Unit tests for _compute_latency_stats percentile calculation.
 
 These tests verify the nearest-rank percentile formula works correctly.
 They do not require OpenSearch and can run independently.
+
+Now imports from tests.performance.helpers to validate actual production code.
 """
 
 from __future__ import annotations
 
-import math
 import statistics
 from typing import Dict, List
 
 import pytest
 
-
-def _compute_latency_stats(latencies: List[float]) -> Dict[str, float]:
-    """
-    Compute latency statistics from a list of measurements.
-
-    Uses nearest-rank percentile calculation: for percentile p,
-    index = min(n-1, max(0, ceil(p*n) - 1))
-
-    Args:
-        latencies: List of latency values in milliseconds.
-
-    Returns:
-        Dict with keys: mean, min, max, p50, p95, p99.
-    """
-    if not latencies:
-        return {"mean": 0, "min": 0, "max": 0, "p50": 0, "p95": 0, "p99": 0}
-
-    sorted_latencies = sorted(latencies)
-    n = len(sorted_latencies)
-
-    # Nearest-rank percentile calculation
-    def percentile(p: float) -> float:
-        idx = min(n - 1, max(0, math.ceil(p * n) - 1))
-        return sorted_latencies[idx]
-
-    return {
-        "mean": statistics.mean(latencies),
-        "min": min(latencies),
-        "max": max(latencies),
-        "p50": percentile(0.50),
-        "p95": percentile(0.95),
-        "p99": percentile(0.99),
-    }
+from tests.performance.helpers import _compute_latency_stats
 
 
 class TestComputeLatencyStats:

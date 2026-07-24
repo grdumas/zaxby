@@ -115,7 +115,7 @@ class PulseUser(HttpUser):
             except ValueError:
                 raise ValueError(f"LOCUST_SEED must be an integer, got: {seed_str}")
         else:
-            self.rng = random.Random()
+            self.rng = random.Random(42)  # Default seed for reproducibility
 
         # Load main page
         response = self.client.get("/", name="Page Load")

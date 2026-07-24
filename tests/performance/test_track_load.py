@@ -149,23 +149,10 @@ class TrackUser(HttpUser):
             "manual-baseline",
         ]
 
-        # Track mode navigation state
-        self.in_track_mode = False
-
-    @task(1)
-    def load_page(self):
-        """Load main page (GET /)."""
-        self.client.get("/", name="Page Load")
-
-    @task(1)
-    def navigate_to_track(self):
-        """
-        Navigate to Track mode by clicking btn-track-mode.
-
-        Triggers handle_navigation callback (app.py:2635), which sets
-        navigation-state to Track view and invalidates Pulse cache.
-        """
-        payload = _dash_payload(
+        # Navigate to Track mode (must be done before comparison tasks)
+        # Triggers handle_navigation callback (app.py:2635), which sets
+        # navigation-state to Track view and invalidates Pulse cache
+        nav_payload = _dash_payload(
             output="navigation-state.data",
             outputs={"id": "navigation-state", "property": "data"},
             inputs=[
@@ -184,15 +171,25 @@ class TrackUser(HttpUser):
             changed=["btn-track-mode.n_clicks"],
         )
 
-        response = self.client.post(
+        nav_response = self.client.post(
             "/_dash-update-component",
-            json=payload,
+            json=nav_payload,
             name="Navigate to Track",
             headers={"Content-Type": "application/json"},
         )
 
-        if response.status_code == 200:
-            self.in_track_mode = True
+        if nav_response.status_code != 200:
+            raise Exception(
+                f"Failed to navigate to Track mode. "
+                f"Check that app is running and Track mode is accessible."
+            )
+
+        self.in_track_mode = True
+
+    @task(2)
+    def load_page(self):
+        """Load main page (GET /)."""
+        self.client.get("/", name="Page Load")
 
     @task(5)
     def run_comparison(self):
@@ -211,6 +208,10 @@ class TrackUser(HttpUser):
         - Baseline selection
         - Exception table loading
         """
+        # Guard: only run if in Track mode
+        if not self.in_track_mode:
+            return
+
         # Use first preset
         baseline_start, baseline_end, nightly_start, nightly_end = self.date_range_presets[0]
         baseline_id = self.baseline_ids[0]
@@ -250,6 +251,10 @@ class TrackUser(HttpUser):
         baseline IDs. This exercises the comparison logic with different
         dataset sizes and overlap patterns.
         """
+        # Guard: only run if in Track mode
+        if not self.in_track_mode:
+            return
+
         # Randomly select date range preset and baseline ID
         baseline_start, baseline_end, nightly_start, nightly_end = self.rng.choice(self.date_range_presets)
         baseline_id = self.rng.choice(self.baseline_ids)
